@@ -17,6 +17,7 @@ import {
 } from '../database/repositories.js';
 import { query } from '../database/index.js';
 import { getPaperTradingService } from '../services/PaperTradingService.js';
+import { getTradingAutomation, type SignalResult } from '../services/TradingAutomation.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -1382,6 +1383,268 @@ export async function registerRoutes(
       return reply.send({
         success: true,
         data: { message: 'Snapshot recorded' },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Trading Automation Routes
+  // ============================================
+
+  // Get automation status
+  fastify.get('/api/automation/status', async (_request, reply) => {
+    try {
+      const automation = getTradingAutomation();
+      const status = automation.getStatus();
+
+      return reply.send({
+        success: true,
+        data: status,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get detailed automation stats
+  fastify.get('/api/automation/stats', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+      const stats = await automation.getDetailedStats();
+
+      return reply.send({
+        success: true,
+        data: stats,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Start automation
+  fastify.post('/api/automation/start', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+      await automation.start();
+
+      return reply.send({
+        success: true,
+        data: { message: 'Automation started', status: automation.getStatus() },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Stop automation
+  fastify.post('/api/automation/stop', async (_request, reply) => {
+    try {
+      const automation = getTradingAutomation();
+      automation.stop();
+
+      return reply.send({
+        success: true,
+        data: { message: 'Automation stopped', status: automation.getStatus() },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Halt trading (emergency stop)
+  fastify.post<{ Body: { reason?: string } }>('/api/automation/halt', async (request, reply) => {
+    try {
+      const automation = getTradingAutomation();
+      await automation.haltTrading(request.body?.reason);
+
+      return reply.send({
+        success: true,
+        data: { message: 'Trading halted', status: automation.getStatus() },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Resume trading
+  fastify.post('/api/automation/resume', async (_request, reply) => {
+    try {
+      const automation = getTradingAutomation();
+      const resumed = await automation.resumeTrading();
+
+      return reply.send({
+        success: true,
+        data: { message: resumed ? 'Trading resumed' : 'Cannot resume - risk limits still exceeded', status: automation.getStatus() },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Force learning evaluation
+  fastify.post('/api/automation/evaluate', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+      await automation.forceEvaluation();
+
+      return reply.send({
+        success: true,
+        data: { message: 'Evaluation triggered' },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Submit signals for processing
+  fastify.post<{ Body: { signals: SignalResult[] } }>('/api/automation/signals', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+
+      if (!automation.isTradingAllowed()) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Trading not allowed - automation stopped or halted',
+          timestamp: new Date(),
+        });
+      }
+
+      const signals = request.body?.signals || [];
+      const result = await automation.processSignals(signals);
+
+      return reply.send({
+        success: true,
+        data: result,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get risk status
+  fastify.get('/api/automation/risk', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+      const riskStatus = await automation.getRiskManager().checkRisk();
+
+      return reply.send({
+        success: true,
+        data: riskStatus,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get signal performance
+  fastify.get('/api/automation/performance', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const automation = getTradingAutomation();
+      const performance = await automation.getLearningService().getPerformanceSummary();
+
+      return reply.send({
+        success: true,
+        data: performance,
         timestamp: new Date(),
       });
     } catch (error) {
