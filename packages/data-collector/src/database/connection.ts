@@ -10,11 +10,18 @@ export function getPool(): Pool {
     const connectionString = process.env.DATABASE_URL ||
       'postgresql://polymarket:polymarket_dev@localhost:5432/polymarket_trading';
 
+    // Detect cloud database connections that require SSL
+    const isCloudDb = connectionString.includes('tsdb.cloud.timescale.com') ||
+                      connectionString.includes('sslmode=require');
+
     pool = new Pool({
       connectionString,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
+      // Configure SSL for cloud databases
+      // rejectUnauthorized: false allows connections to databases with self-signed certs
+      ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,
     });
 
     pool.on('error', (err) => {
