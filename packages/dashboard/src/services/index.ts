@@ -11,3 +11,4 @@ export * from './DataCollectorService.js';
 export * from './RiskManager.js';
 export * from './TradingAutomation.js';
 export * from './SignalEngine.js';
+export * from './PolymarketService.js';

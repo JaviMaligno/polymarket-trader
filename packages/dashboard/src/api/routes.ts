@@ -19,6 +19,7 @@ import { query } from '../database/index.js';
 import { getPaperTradingService } from '../services/PaperTradingService.js';
 import { getTradingAutomation, type SignalResult } from '../services/TradingAutomation.js';
 import { getSignalEngine } from '../services/SignalEngine.js';
+import { getPolymarketService } from '../services/PolymarketService.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -1849,6 +1850,248 @@ export async function registerRoutes(
           message: 'Weights updated',
           weights: engine.getStatus().weights,
         },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Polymarket Routes
+  // ============================================
+
+  // Get Polymarket service status
+  fastify.get('/api/polymarket/status', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      const status = service.getStatus();
+
+      return reply.send({
+        success: true,
+        data: status,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Start Polymarket service
+  fastify.post('/api/polymarket/start', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      await service.start();
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Polymarket service started',
+          status: service.getStatus(),
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Stop Polymarket service
+  fastify.post('/api/polymarket/stop', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      service.stop();
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Polymarket service stopped',
+          status: service.getStatus(),
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Discover markets
+  fastify.post('/api/polymarket/discover', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      const markets = await service.discoverMarkets();
+
+      return reply.send({
+        success: true,
+        data: {
+          marketsFound: markets.length,
+          markets: markets.slice(0, 20), // Return first 20
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get all tracked markets
+  fastify.get('/api/polymarket/markets', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      const markets = service.getMarkets();
+
+      return reply.send({
+        success: true,
+        data: markets,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get a specific market
+  fastify.get('/api/polymarket/markets/:marketId', async (request, reply) => {
+    try {
+      const { marketId } = request.params as { marketId: string };
+      const service = getPolymarketService();
+      const market = service.getMarket(marketId);
+
+      if (!market) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Market not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: market,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Subscribe to a market
+  fastify.post('/api/polymarket/subscribe/:marketId', async (request, reply) => {
+    try {
+      const { marketId } = request.params as { marketId: string };
+      const service = getPolymarketService();
+      const market = await service.subscribeMarket(marketId);
+
+      if (!market) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Market not found on Polymarket',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: market,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Unsubscribe from a market
+  fastify.delete('/api/polymarket/unsubscribe/:marketId', async (request, reply) => {
+    try {
+      const { marketId } = request.params as { marketId: string };
+      const service = getPolymarketService();
+      service.unsubscribeMarket(marketId);
+
+      return reply.send({
+        success: true,
+        data: { message: `Unsubscribed from market ${marketId}` },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Search markets
+  fastify.get('/api/polymarket/search', async (request, reply) => {
+    try {
+      const { q } = request.query as { q?: string };
+
+      if (!q) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Query parameter q is required',
+          timestamp: new Date(),
+        });
+      }
+
+      const service = getPolymarketService();
+      const markets = await service.searchMarkets(q);
+
+      return reply.send({
+        success: true,
+        data: markets,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get all prices
+  fastify.get('/api/polymarket/prices', async (_request, reply) => {
+    try {
+      const service = getPolymarketService();
+      const prices = service.getAllPrices();
+
+      return reply.send({
+        success: true,
+        data: prices,
         timestamp: new Date(),
       });
     } catch (error) {
