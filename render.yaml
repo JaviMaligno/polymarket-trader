@@ -1,0 +1,53 @@
+services:
+  # Dashboard API (Backend)
+  - type: web
+    name: polymarket-dashboard-api
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/signals build && pnpm --filter @polymarket-trader/backtest build && pnpm --filter @polymarket-trader/trader build && pnpm --filter @polymarket-trader/dashboard build
+    startCommand: node packages/dashboard/dist/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: HOST
+        value: 0.0.0.0
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: CONNECT_TRADER
+        value: "true"
+      - key: POLYMARKET_API_URL
+        value: https://clob.polymarket.com
+      - key: INITIAL_CAPITAL
+        value: "10000"
+      - key: FEE_RATE
+        value: "0.001"
+      - key: MAX_DRAWDOWN
+        value: "0.15"
+      - key: MAX_DAILY_LOSS
+        value: "500"
+
+  # Dashboard Frontend
+  - type: web
+    name: polymarket-dashboard-frontend
+    runtime: static
+    region: oregon
+    plan: free
+    buildCommand: cd packages/dashboard/frontend && npm install && npm run build
+    staticPublishPath: packages/dashboard/frontend/dist
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+      - key: VITE_WS_URL
+        sync: false
