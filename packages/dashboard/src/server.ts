@@ -6,11 +6,28 @@
 
 import { createDashboardServer } from './api/server.js';
 import { createTradingSystem } from '@polymarket-trader/trader';
+import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured } from './database/index.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
   const port = parseInt(process.env.PORT ?? '3001', 10);
   const host = process.env.HOST ?? '0.0.0.0';
+
+  // Initialize database connection
+  if (isDatabaseConfigured()) {
+    console.log('Initializing database connection...');
+    initializeDatabase();
+
+    const dbHealth = await healthCheck();
+    if (dbHealth.connected) {
+      console.log(`Database connected (latency: ${dbHealth.latency}ms)`);
+    } else {
+      console.error('Database connection failed:', dbHealth.error);
+      console.log('Continuing without database - some features will be disabled');
+    }
+  } else {
+    console.log('DATABASE_URL not configured - running without database');
+  }
 
   // Create dashboard server
   const server = createDashboardServer({
@@ -59,6 +76,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string) => {
     console.log(`\nReceived ${signal}, shutting down...`);
     await server.stop();
+    await closeDatabase();
     process.exit(0);
   };
 

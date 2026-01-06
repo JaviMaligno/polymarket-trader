@@ -7,6 +7,14 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { DashboardContext } from './server.js';
 import type { JournalFilter, ApiResponse, PaginatedResponse } from '../types/index.js';
+import { healthCheck as dbHealthCheck, isDatabaseConfigured } from '../database/index.js';
+import {
+  signalPredictionsRepo,
+  signalWeightsRepo,
+  paperTradesRepo,
+  paperPositionsRepo,
+  portfolioSnapshotsRepo,
+} from '../database/repositories.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -767,6 +775,211 @@ export async function registerRoutes(
 
   // Health check
   fastify.get('/health', async () => {
-    return { status: 'ok', timestamp: new Date() };
+    const dbHealth = isDatabaseConfigured() ? await dbHealthCheck() : { connected: false, error: 'Not configured' };
+
+    return {
+      status: 'ok',
+      timestamp: new Date(),
+      database: {
+        configured: isDatabaseConfigured(),
+        connected: dbHealth.connected,
+        latency: dbHealth.latency,
+        error: dbHealth.error,
+      },
+    };
+  });
+
+  // ============================================
+  // Signal & Paper Trading Routes (Database)
+  // ============================================
+
+  // Signal weights
+  fastify.get('/api/signals/weights', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const weights = await signalWeightsRepo.getAll();
+      return reply.send({
+        success: true,
+        data: weights,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Signal accuracy metrics
+  fastify.get<{ Querystring: { days?: number } }>('/api/signals/accuracy', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const { days = 7 } = request.query;
+      const accuracy = await signalPredictionsRepo.getAccuracyByType(days);
+      return reply.send({
+        success: true,
+        data: accuracy,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Signal weight history
+  fastify.get<{ Params: { signalType: string }; Querystring: { limit?: number } }>(
+    '/api/signals/:signalType/history',
+    async (request, reply) => {
+      if (!isDatabaseConfigured()) {
+        return reply.status(503).send({
+          success: false,
+          error: 'Database not configured',
+          timestamp: new Date(),
+        });
+      }
+
+      try {
+        const { signalType } = request.params;
+        const { limit = 50 } = request.query;
+        const history = await signalWeightsRepo.getHistory(signalType, limit);
+        return reply.send({
+          success: true,
+          data: history,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          success: false,
+          error: String(error),
+          timestamp: new Date(),
+        });
+      }
+    }
+  );
+
+  // Paper trades
+  fastify.get<{ Querystring: { limit?: number } }>('/api/paper-trades', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const { limit = 50 } = request.query;
+      const trades = await paperTradesRepo.getRecent(limit);
+      return reply.send({
+        success: true,
+        data: trades,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Paper positions
+  fastify.get('/api/paper-positions', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const positions = await paperPositionsRepo.getAll();
+      return reply.send({
+        success: true,
+        data: positions,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Portfolio equity curve
+  fastify.get<{ Querystring: { days?: number } }>('/api/portfolio/equity-curve', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const { days = 30 } = request.query;
+      const curve = await portfolioSnapshotsRepo.getEquityCurve(days);
+      return reply.send({
+        success: true,
+        data: curve,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Portfolio snapshot (latest)
+  fastify.get('/api/portfolio/snapshot', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const snapshot = await portfolioSnapshotsRepo.getLatest();
+      return reply.send({
+        success: true,
+        data: snapshot,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
   });
 }
