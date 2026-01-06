@@ -306,6 +306,125 @@ export async function registerRoutes(
     });
   });
 
+  // Create a new strategy
+  fastify.post<{
+    Body: {
+      type: 'momentum' | 'mean_reversion' | 'combo';
+      name?: string;
+      maxPositionPct?: number;
+      minEdge?: number;
+      minConfidence?: number;
+      disableFilters?: boolean;
+    };
+  }>('/api/strategies', async (request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    const {
+      type = 'momentum',
+      name,
+      maxPositionPct = 0.05,
+      minEdge = 0.02,
+      minConfidence = 0.6,
+      disableFilters = false,
+    } = request.body || {};
+
+    try {
+      // Import signal creators dynamically
+      const { createSignal, WeightedAverageCombiner } = await import('@polymarket-trader/signals');
+
+      let strategyId: string;
+      let strategyName: string;
+      let signals: any[];
+      let weightsMap: Record<string, number>;
+
+      switch (type) {
+        case 'momentum':
+          strategyId = `momentum-${Date.now()}`;
+          strategyName = name || 'Momentum Strategy';
+          signals = [createSignal('momentum')];
+          weightsMap = { momentum: 1.0 };
+          break;
+
+        case 'mean_reversion':
+          strategyId = `meanrev-${Date.now()}`;
+          strategyName = name || 'Mean Reversion Strategy';
+          signals = [createSignal('mean_reversion')];
+          weightsMap = { mean_reversion: 1.0 };
+          break;
+
+        case 'combo':
+          strategyId = `combo-${Date.now()}`;
+          strategyName = name || 'Combined Strategy';
+          signals = [createSignal('momentum'), createSignal('mean_reversion')];
+          weightsMap = { momentum: 0.6, mean_reversion: 0.4 };
+          break;
+
+        default:
+          return reply.status(400).send({
+            success: false,
+            error: `Unknown strategy type: ${type}`,
+            timestamp: new Date(),
+          });
+      }
+
+      const combiner = new WeightedAverageCombiner(weightsMap);
+
+      const config = {
+        id: strategyId,
+        name: strategyName,
+        enabled: true,
+        signals: signals.map((s: any) => s.signalId),
+        riskLimits: {
+          maxPositionPct,
+          maxDailyLoss: 200,
+          maxDrawdown: 0.05,
+          maxOpenPositions: 5,
+          maxPositionSize: 500,
+          stopLossPct: 0.1,
+          takeProfitPct: 0.2,
+        },
+        executionParams: {
+          orderType: 'MARKET' as const,
+          slippageTolerance: 0.01,
+          minEdge,
+          minConfidence,
+          cooldownMs: 30000,
+          maxRetries: 2,
+        },
+        marketFilters: disableFilters ? [] : [
+          { type: 'volume' as const, params: { minVolume: 1000 } },
+          { type: 'liquidity' as const, params: { minLiquidity: 500 } },
+        ],
+      };
+
+      tradingSystem.orchestrator.registerStrategy(config, signals, combiner);
+
+      return reply.send({
+        success: true,
+        data: {
+          id: strategyId,
+          name: strategyName,
+          type,
+          config,
+          message: `Strategy ${strategyId} created successfully`,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
   fastify.post<{ Params: { strategyId: string } }>(
     '/api/strategies/:strategyId/start',
     async (request, reply) => {

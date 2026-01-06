@@ -69,7 +69,8 @@ export class MeanReversionSignal extends BaseSignal {
     const currentPrice = closes[closes.length - 1];
 
     // Skip if price is too close to 0 or 1 (resolved or near-certain)
-    if (currentPrice < 0.05 || currentPrice > 0.95) {
+    // Relaxed for testing: allow prices down to 0.01 and up to 0.99
+    if (currentPrice < 0.01 || currentPrice > 0.99) {
       return null;
     }
 
@@ -101,8 +102,12 @@ export class MeanReversionSignal extends BaseSignal {
     // Negative strength = price is too high, expect down (SHORT)
     const direction = this.getDirection(combinedStrength);
 
+    // Debug logging for testing
+    console.log(`[MeanRev] ${context.market.id.slice(0,10)}... price=${currentPrice.toFixed(4)} bb=${bbSignal.strength.toFixed(3)} zScore=${zScoreSignal.zScore.toFixed(3)} strength=${combinedStrength.toFixed(3)} conf=${confidence.toFixed(3)}`);
+
     // Only emit if deviation is significant
-    if (Math.abs(combinedStrength) < 0.2 || confidence < 0.3) {
+    // Relaxed thresholds for testing
+    if (Math.abs(combinedStrength) < 0.1 || confidence < 0.2) {
       return null;
     }
 

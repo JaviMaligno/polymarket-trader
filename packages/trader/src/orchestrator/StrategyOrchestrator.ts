@@ -87,6 +87,10 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
   private isRunning: boolean = false;
   private evaluating: boolean = false;
 
+  /** Price history buffer for each market (max 100 bars) */
+  private priceHistory: Map<string, PriceBar[]> = new Map();
+  private readonly MAX_HISTORY_BARS = 100;
+
   constructor(
     feed: LiveDataFeed,
     engine: PaperTradingEngine,
@@ -322,6 +326,12 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
       const context = this.buildSignalContext(market);
       if (!context) continue;
 
+      // Log price history size periodically
+      const historySize = context.priceBars.length;
+      if (historySize % 10 === 0 || historySize < 5) {
+        logger.info({ strategyId: config.id, marketId: market.id, priceBars: historySize }, 'Evaluating with price history');
+      }
+
       // Get individual signal outputs
       const signalOutputs: SignalOutput[] = [];
 
@@ -329,6 +339,7 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
         const output = await signal.compute(context);
         if (output) {
           signalOutputs.push(output);
+          logger.info({ strategyId: config.id, signalId: signal.signalId, direction: output.direction, strength: output.strength, confidence: output.confidence }, 'Signal generated');
         }
       }
 
@@ -379,10 +390,10 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
 
     if (prices.length === 0) return null;
 
-    // Build price bar from current price (simplified - would need historical data)
     const currentPrice = prices[0]!.price;
     const now = new Date();
 
+    // Build price bar from current price
     const priceBar: PriceBar = {
       time: now,
       open: currentPrice,
@@ -391,6 +402,12 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
       close: currentPrice,
       volume: market.volume,
     };
+
+    // Add to price history
+    this.addPriceBar(market.id, priceBar);
+
+    // Get accumulated price history
+    const priceBars = this.getPriceHistory(market.id);
 
     const marketInfo: MarketInfo = {
       id: market.id,
@@ -409,9 +426,45 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
     return {
       currentTime: now,
       market: marketInfo,
-      priceBars: [priceBar],
+      priceBars,
       recentTrades: [],
     };
+  }
+
+  /**
+   * Add a price bar to history
+   */
+  private addPriceBar(marketId: string, bar: PriceBar): void {
+    let history = this.priceHistory.get(marketId);
+    if (!history) {
+      history = [];
+      this.priceHistory.set(marketId, history);
+    }
+
+    // Only add if enough time has passed since last bar (5 seconds)
+    const lastBar = history[history.length - 1];
+    if (lastBar && bar.time.getTime() - lastBar.time.getTime() < 5000) {
+      // Update existing bar's high/low
+      lastBar.high = Math.max(lastBar.high, bar.close);
+      lastBar.low = Math.min(lastBar.low, bar.close);
+      lastBar.close = bar.close;
+      lastBar.volume = bar.volume;
+      return;
+    }
+
+    history.push(bar);
+
+    // Trim to max size
+    if (history.length > this.MAX_HISTORY_BARS) {
+      history.shift();
+    }
+  }
+
+  /**
+   * Get price history for a market
+   */
+  private getPriceHistory(marketId: string): PriceBar[] {
+    return this.priceHistory.get(marketId) || [];
   }
 
   /**
