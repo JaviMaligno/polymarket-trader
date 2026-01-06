@@ -20,6 +20,7 @@ import { getPaperTradingService } from '../services/PaperTradingService.js';
 import { getTradingAutomation, type SignalResult } from '../services/TradingAutomation.js';
 import { getSignalEngine } from '../services/SignalEngine.js';
 import { getPolymarketService } from '../services/PolymarketService.js';
+import { getBacktestService, type BacktestRequest } from '../services/BacktestService.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -2092,6 +2093,224 @@ export async function registerRoutes(
       return reply.send({
         success: true,
         data: prices,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Backtest Routes
+  // ============================================
+
+  // Get backtest service status
+  fastify.get('/api/backtest/status', async (_request, reply) => {
+    try {
+      const service = getBacktestService();
+      const status = service.getStatus();
+
+      return reply.send({
+        success: true,
+        data: status,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Run a new backtest
+  fastify.post('/api/backtest/run', async (request, reply) => {
+    try {
+      const backtestRequest = request.body as BacktestRequest;
+
+      // Validate required fields
+      if (!backtestRequest.startDate || !backtestRequest.endDate || !backtestRequest.initialCapital) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Required fields: startDate, endDate, initialCapital',
+          timestamp: new Date(),
+        });
+      }
+
+      const service = getBacktestService();
+      const result = await service.runBacktest(backtestRequest);
+
+      return reply.send({
+        success: true,
+        data: {
+          id: result.id,
+          status: result.status,
+          summary: result.result?.summary,
+          metrics: result.result?.metrics,
+          predictionMetrics: result.result?.predictionMetrics,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get backtest progress
+  fastify.get('/api/backtest/:id/status', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const service = getBacktestService();
+      const status = service.getBacktestStatus(id);
+
+      if (!status) {
+        // Check if it's a completed backtest
+        const backtest = service.getBacktest(id);
+        if (backtest) {
+          return reply.send({
+            success: true,
+            data: {
+              status: backtest.status,
+              progress: 100,
+            },
+            timestamp: new Date(),
+          });
+        }
+
+        return reply.status(404).send({
+          success: false,
+          error: 'Backtest not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: status,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get backtest result
+  fastify.get('/api/backtest/:id', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const service = getBacktestService();
+      const backtest = service.getBacktest(id);
+
+      if (!backtest) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Backtest not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: backtest,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get backtest history
+  fastify.get('/api/backtest/history', async (_request, reply) => {
+    try {
+      const service = getBacktestService();
+      const history = service.getBacktestHistory();
+
+      return reply.send({
+        success: true,
+        data: history.map(b => ({
+          id: b.id,
+          name: b.name,
+          status: b.status,
+          createdAt: b.createdAt,
+          summary: b.result?.summary,
+          metrics: b.result?.metrics,
+          error: b.error,
+        })),
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get backtest trades
+  fastify.get('/api/backtest/:id/trades', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const service = getBacktestService();
+      const backtest = service.getBacktest(id);
+
+      if (!backtest) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Backtest not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: backtest.result?.trades || [],
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get backtest equity curve
+  fastify.get('/api/backtest/:id/equity', async (request, reply) => {
+    try {
+      const { id } = request.params as { id: string };
+      const service = getBacktestService();
+      const backtest = service.getBacktest(id);
+
+      if (!backtest) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Backtest not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: backtest.result?.equityCurve || [],
         timestamp: new Date(),
       });
     } catch (error) {
