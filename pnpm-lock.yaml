@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    dependencies:
+      pg:
+        specifier: ^8.16.3
+        version: 8.16.3
 
   packages/backtest:
     dependencies:
