@@ -62,6 +62,9 @@ importers:
       fastify:
         specifier: ^4.25.2
         version: 4.29.1
+      pg:
+        specifier: ^8.11.3
+        version: 8.16.3
       pino:
         specifier: ^8.17.1
         version: 8.21.0
@@ -72,6 +75,9 @@ importers:
       '@types/node':
         specifier: ^20.10.4
         version: 20.19.27
+      '@types/pg':
+        specifier: ^8.10.9
+        version: 8.16.0
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.1
