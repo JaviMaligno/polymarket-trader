@@ -15,6 +15,8 @@ import {
   paperPositionsRepo,
   portfolioSnapshotsRepo,
 } from '../database/repositories.js';
+import { query } from '../database/index.js';
+import { getPaperTradingService } from '../services/PaperTradingService.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -972,6 +974,414 @@ export async function registerRoutes(
       return reply.send({
         success: true,
         data: snapshot,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Paper Trading Account Routes
+  // ============================================
+
+  // Get paper account state
+  fastify.get('/api/paper/account', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const result = await query<{
+        initial_capital: string;
+        current_capital: string;
+        available_capital: string;
+        total_realized_pnl: string;
+        total_unrealized_pnl: string;
+        total_fees_paid: string;
+        max_drawdown: string;
+        peak_equity: string;
+        total_trades: number;
+        winning_trades: number;
+        losing_trades: number;
+        updated_at: Date;
+      }>('SELECT * FROM paper_account LIMIT 1');
+
+      const account = result.rows[0];
+      if (!account) {
+        return reply.send({
+          success: true,
+          data: {
+            initial_capital: 10000,
+            current_capital: 10000,
+            available_capital: 10000,
+            total_realized_pnl: 0,
+            total_unrealized_pnl: 0,
+            total_fees_paid: 0,
+            max_drawdown: 0,
+            total_trades: 0,
+            winning_trades: 0,
+            losing_trades: 0,
+            win_rate: 0,
+          },
+          timestamp: new Date(),
+        });
+      }
+
+      const totalTrades = account.total_trades || 0;
+      const winningTrades = account.winning_trades || 0;
+
+      return reply.send({
+        success: true,
+        data: {
+          initial_capital: parseFloat(account.initial_capital),
+          current_capital: parseFloat(account.current_capital),
+          available_capital: parseFloat(account.available_capital),
+          total_realized_pnl: parseFloat(account.total_realized_pnl || '0'),
+          total_unrealized_pnl: parseFloat(account.total_unrealized_pnl || '0'),
+          total_fees_paid: parseFloat(account.total_fees_paid || '0'),
+          max_drawdown: parseFloat(account.max_drawdown || '0'),
+          peak_equity: parseFloat(account.peak_equity || account.current_capital),
+          total_trades: totalTrades,
+          winning_trades: winningTrades,
+          losing_trades: account.losing_trades || 0,
+          win_rate: totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0,
+          updated_at: account.updated_at,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Submit a paper trade (manual or from signal)
+  interface PaperTradeBody {
+    market_id: string;
+    token_id: string;
+    side: 'buy' | 'sell';
+    size: number;
+    price: number;
+    signal_type?: string;
+    best_bid?: number;
+    best_ask?: number;
+  }
+
+  fastify.post<{ Body: PaperTradeBody }>('/api/paper-trades', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const { market_id, token_id, side, size, price, signal_type, best_bid, best_ask } = request.body;
+
+      // Get current account state
+      const accountResult = await query<{
+        current_capital: string;
+        available_capital: string;
+        total_fees_paid: string;
+        total_trades: number;
+      }>('SELECT current_capital, available_capital, total_fees_paid, total_trades FROM paper_account LIMIT 1');
+
+      const account = accountResult.rows[0];
+      if (!account) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Paper account not initialized',
+          timestamp: new Date(),
+        });
+      }
+
+      const availableCapital = parseFloat(account.available_capital);
+      const orderValue = size * price;
+      const feeRate = 0.001; // 0.1% fee
+      const fee = orderValue * feeRate;
+      const totalCost = orderValue + fee;
+
+      // Check if we have enough capital for buy orders
+      if (side === 'buy' && totalCost > availableCapital) {
+        return reply.status(400).send({
+          success: false,
+          error: `Insufficient capital. Available: $${availableCapital.toFixed(2)}, Required: $${totalCost.toFixed(2)}`,
+          timestamp: new Date(),
+        });
+      }
+
+      // Calculate slippage (simulated)
+      const slippagePct = best_ask && best_bid
+        ? side === 'buy'
+          ? ((price - best_ask) / best_ask) * 100
+          : ((best_bid - price) / best_bid) * 100
+        : 0;
+
+      // Create the trade
+      const trade = await paperTradesRepo.create({
+        time: new Date(),
+        market_id,
+        token_id,
+        side,
+        requested_size: size,
+        executed_size: size,
+        requested_price: price,
+        executed_price: price,
+        slippage_pct: slippagePct,
+        fee,
+        value_usd: orderValue,
+        signal_type,
+        order_type: 'market',
+        fill_type: 'full',
+        best_bid,
+        best_ask,
+      });
+
+      // Update paper account
+      const newCapital = side === 'buy'
+        ? parseFloat(account.current_capital) - totalCost
+        : parseFloat(account.current_capital) + orderValue - fee;
+
+      const newAvailable = side === 'buy'
+        ? availableCapital - totalCost
+        : availableCapital + orderValue - fee;
+
+      await query(
+        `UPDATE paper_account SET
+          current_capital = $1,
+          available_capital = $2,
+          total_fees_paid = total_fees_paid + $3,
+          total_trades = total_trades + 1,
+          updated_at = NOW()
+        WHERE id = 1`,
+        [newCapital, newAvailable, fee]
+      );
+
+      // Update or create position
+      const positionResult = await query<{ size: string; avg_entry_price: string }>(
+        'SELECT size, avg_entry_price FROM paper_positions WHERE market_id = $1',
+        [market_id]
+      );
+
+      const existingPosition = positionResult.rows[0];
+
+      if (side === 'buy') {
+        if (existingPosition) {
+          // Average into existing position
+          const currentSize = parseFloat(existingPosition.size);
+          const currentAvg = parseFloat(existingPosition.avg_entry_price);
+          const newSize = currentSize + size;
+          const newAvg = (currentSize * currentAvg + size * price) / newSize;
+
+          await paperPositionsRepo.upsert({
+            market_id,
+            token_id,
+            side: 'long',
+            size: newSize,
+            avg_entry_price: newAvg,
+            current_price: price,
+            unrealized_pnl: 0,
+            opened_at: new Date(),
+            signal_type,
+          });
+        } else {
+          // Open new position
+          await paperPositionsRepo.upsert({
+            market_id,
+            token_id,
+            side: 'long',
+            size,
+            avg_entry_price: price,
+            current_price: price,
+            unrealized_pnl: 0,
+            opened_at: new Date(),
+            signal_type,
+          });
+        }
+      } else if (side === 'sell' && existingPosition) {
+        const currentSize = parseFloat(existingPosition.size);
+        const currentAvg = parseFloat(existingPosition.avg_entry_price);
+        const pnl = (price - currentAvg) * Math.min(size, currentSize);
+
+        // Update account with realized PnL
+        const isWin = pnl > 0;
+        await query(
+          `UPDATE paper_account SET
+            total_realized_pnl = total_realized_pnl + $1,
+            winning_trades = winning_trades + $2,
+            losing_trades = losing_trades + $3,
+            updated_at = NOW()
+          WHERE id = 1`,
+          [pnl, isWin ? 1 : 0, isWin ? 0 : 1]
+        );
+
+        if (size >= currentSize) {
+          // Close position
+          await paperPositionsRepo.close(market_id);
+        } else {
+          // Reduce position
+          await paperPositionsRepo.upsert({
+            market_id,
+            token_id,
+            side: 'long',
+            size: currentSize - size,
+            avg_entry_price: currentAvg,
+            current_price: price,
+            unrealized_pnl: 0,
+            realized_pnl: pnl,
+            opened_at: new Date(),
+            signal_type,
+          });
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          trade,
+          fee,
+          new_capital: newCapital,
+          new_available: newAvailable,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Reset paper account
+  fastify.post('/api/paper/account/reset', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      // Reset account to initial state
+      await query(
+        `UPDATE paper_account SET
+          current_capital = initial_capital,
+          available_capital = initial_capital,
+          total_realized_pnl = 0,
+          total_unrealized_pnl = 0,
+          total_fees_paid = 0,
+          max_drawdown = 0,
+          peak_equity = initial_capital,
+          total_trades = 0,
+          winning_trades = 0,
+          losing_trades = 0,
+          updated_at = NOW()
+        WHERE id = 1`
+      );
+
+      // Clear positions
+      await query('DELETE FROM paper_positions');
+
+      // Note: We keep trade history for analysis
+
+      return reply.send({
+        success: true,
+        data: { message: 'Paper account reset successfully' },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Take a portfolio snapshot
+  fastify.post('/api/paper/snapshot', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      // Get current account state
+      const accountResult = await query<{
+        initial_capital: string;
+        current_capital: string;
+        available_capital: string;
+        total_realized_pnl: string;
+        total_trades: number;
+        winning_trades: number;
+        losing_trades: number;
+        max_drawdown: string;
+      }>('SELECT * FROM paper_account LIMIT 1');
+
+      const account = accountResult.rows[0];
+      if (!account) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Paper account not initialized',
+          timestamp: new Date(),
+        });
+      }
+
+      // Get positions for exposure calculation
+      const positionsResult = await query<{ size: string; current_price: string }>(
+        'SELECT size, current_price FROM paper_positions'
+      );
+
+      const totalExposure = positionsResult.rows.reduce(
+        (sum, p) => sum + parseFloat(p.size) * parseFloat(p.current_price || '0'),
+        0
+      );
+
+      const initialCapital = parseFloat(account.initial_capital);
+      const currentCapital = parseFloat(account.current_capital);
+      const totalPnl = currentCapital - initialCapital;
+      const totalPnlPct = (totalPnl / initialCapital) * 100;
+      const totalTrades = account.total_trades || 0;
+      const winningTrades = account.winning_trades || 0;
+
+      await portfolioSnapshotsRepo.create({
+        time: new Date(),
+        initial_capital: initialCapital,
+        current_capital: currentCapital,
+        available_capital: parseFloat(account.available_capital),
+        total_pnl: totalPnl,
+        total_pnl_pct: totalPnlPct,
+        max_drawdown: parseFloat(account.max_drawdown || '0'),
+        total_trades: totalTrades,
+        winning_trades: winningTrades,
+        losing_trades: account.losing_trades || 0,
+        win_rate: totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0,
+        open_positions: positionsResult.rows.length,
+        total_exposure: totalExposure,
+      });
+
+      return reply.send({
+        success: true,
+        data: { message: 'Snapshot recorded' },
         timestamp: new Date(),
       });
     } catch (error) {
