@@ -136,23 +136,21 @@ export class ClobCollector {
   }
 
   /**
-   * Fetch prices for multiple tokens in batch
+   * Fetch prices for multiple tokens (fetches individually since batch endpoint is unreliable)
    */
   async fetchPricesBatch(tokenIds: string[]): Promise<Map<string, number>> {
-    await this.rateLimiter.acquire('clob_prices');
-
     const prices = new Map<string, number>();
 
-    try {
-      const response = await this.client.get<Record<string, string>>(`/prices`, {
-        params: { token_ids: tokenIds.join(',') },
-      });
-
-      for (const [tokenId, price] of Object.entries(response.data)) {
-        prices.set(tokenId, parseFloat(price));
+    // Fetch prices individually with rate limiting
+    for (const tokenId of tokenIds) {
+      try {
+        const result = await this.fetchCurrentPrice(tokenId);
+        if (result) {
+          prices.set(tokenId, result.price);
+        }
+      } catch (error) {
+        // Skip failed individual fetches silently
       }
-    } catch (error) {
-      logger.error({ error, tokenIds: tokenIds.length }, 'Error fetching batch prices');
     }
 
     return prices;
