@@ -407,10 +407,10 @@ export class ClobCollector {
       }
     }
 
-    // Batch fetch prices (100 at a time)
+    // Batch fetch prices (20 at a time to avoid API URL length limits)
     let updated = 0;
     let errors = 0;
-    const batchSize = 100;
+    const batchSize = 20;
 
     for (let i = 0; i < allTokenIds.length; i += batchSize) {
       const batch = allTokenIds.slice(i, i + batchSize);
