@@ -1,4 +1,4 @@
-import { Pool, PoolClient, QueryResult } from 'pg';
+import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg';
 import { pino } from 'pino';
 
 const logger = pino({ name: 'database' });
@@ -29,7 +29,7 @@ export function getPool(): Pool {
   return pool;
 }
 
-export async function query<T = any>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: any[]
 ): Promise<QueryResult<T>> {
