@@ -9,14 +9,18 @@ interface CardProps {
   className?: string;
   title?: string;
   action?: React.ReactNode;
+  icon?: React.ReactNode;
 }
 
-export function Card({ children, className, title, action }: CardProps) {
+export function Card({ children, className, title, action, icon }: CardProps) {
   return (
     <div className={cn('bg-slate-800/50 rounded-lg border border-slate-700/50', className)}>
-      {(title || action) && (
+      {(title || action || icon) && (
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700/50">
-          {title && <h3 className="font-semibold text-white">{title}</h3>}
+          <div className="flex items-center gap-2">
+            {icon && <span className="text-slate-400">{icon}</span>}
+            {title && <h3 className="font-semibold text-white">{title}</h3>}
+          </div>
           {action}
         </div>
       )}

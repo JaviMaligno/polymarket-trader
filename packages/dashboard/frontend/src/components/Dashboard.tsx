@@ -24,12 +24,17 @@ import {
 } from 'recharts';
 
 import { Card, StatCard } from './Card';
+import { AutomationPanel } from './AutomationPanel';
+import { BacktestPanel } from './BacktestPanel';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { formatCurrency, formatPercent, formatTime, cn, pnlColor } from '../lib/utils';
 import * as api from '../lib/api';
 import type { DashboardState, Position, Alert, PerformanceMetrics } from '../types/api';
 
+type TabId = 'overview' | 'automation' | 'backtest';
+
 export function Dashboard() {
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [state, setState] = useState<DashboardState | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -155,6 +160,34 @@ export function Dashboard() {
         </div>
       )}
 
+      {/* Tab Navigation */}
+      <div className="flex gap-2 mb-6 border-b border-slate-700 pb-2">
+        {[
+          { id: 'overview' as TabId, label: 'Overview' },
+          { id: 'automation' as TabId, label: 'Automation' },
+          { id: 'backtest' as TabId, label: 'Backtest' },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={cn(
+              'px-4 py-2 text-sm font-medium rounded-t-lg transition-colors',
+              activeTab === tab.id
+                ? 'bg-slate-800 text-white border-b-2 border-blue-500'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'automation' && <AutomationPanel />}
+      {activeTab === 'backtest' && <BacktestPanel />}
+
+      {activeTab === 'overview' && (
+        <>
       {/* Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
@@ -380,6 +413,8 @@ export function Dashboard() {
           </div>
         </Card>
       </div>
+        </>
+      )}
     </div>
   );
 }

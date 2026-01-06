@@ -85,3 +85,58 @@ export const subscribeMarket = (id: string) =>
   fetchApi(`/api/markets/${id}/subscribe`, { method: 'POST', body: '{}' });
 export const unsubscribeMarket = (id: string) =>
   fetchApi(`/api/markets/${id}/unsubscribe`, { method: 'POST', body: '{}' });
+
+// ============================================
+// Automation API
+// ============================================
+
+// Trading Automation
+export const getAutomationStatus = () => fetchApi('/api/automation/status');
+export const startAutomation = () => fetchApi('/api/automation/start', { method: 'POST', body: '{}' });
+export const stopAutomation = () => fetchApi('/api/automation/stop', { method: 'POST', body: '{}' });
+export const sendSignal = (signal: {
+  marketId: string;
+  tokenId: string;
+  direction: 'long' | 'short';
+  strength: number;
+  confidence: number;
+  price: number;
+}) => fetchApi('/api/automation/signal', { method: 'POST', body: JSON.stringify(signal) });
+
+// Signal Engine
+export const getSignalEngineStatus = () => fetchApi('/api/signals/status');
+export const startSignalEngine = () => fetchApi('/api/signals/start', { method: 'POST', body: '{}' });
+export const stopSignalEngine = () => fetchApi('/api/signals/stop', { method: 'POST', body: '{}' });
+export const computeSignals = () => fetchApi('/api/signals/compute', { method: 'POST', body: '{}' });
+
+// Polymarket Service
+export const getPolymarketStatus = () => fetchApi('/api/polymarket/status');
+export const startPolymarket = () => fetchApi('/api/polymarket/start', { method: 'POST', body: '{}' });
+export const stopPolymarket = () => fetchApi('/api/polymarket/stop', { method: 'POST', body: '{}' });
+export const discoverMarkets = () => fetchApi('/api/polymarket/discover', { method: 'POST', body: '{}' });
+export const getPolymarketMarkets = () => fetchApi('/api/polymarket/markets');
+export const searchPolymarketMarkets = (query: string) => fetchApi(`/api/polymarket/search?q=${encodeURIComponent(query)}`);
+export const getPolymarketPrices = () => fetchApi('/api/polymarket/prices');
+
+// Backtesting
+export const getBacktestStatus = () => fetchApi('/api/backtest/status');
+export const runBacktest = (params: {
+  startDate: string;
+  endDate: string;
+  initialCapital: number;
+  signalTypes?: string[];
+  riskConfig?: {
+    maxPositionSizePct?: number;
+    maxExposurePct?: number;
+    stopLossPct?: number;
+  };
+}) => fetchApi('/api/backtest/run', { method: 'POST', body: JSON.stringify(params) });
+export const getBacktestHistory = () => fetchApi('/api/backtest/history');
+export const getBacktest = (id: string) => fetchApi(`/api/backtest/${id}`);
+export const getBacktestTrades = (id: string) => fetchApi(`/api/backtest/${id}/trades`);
+export const getBacktestEquity = (id: string) => fetchApi(`/api/backtest/${id}/equity`);
+
+// Paper Trading
+export const getPaperTradingStatus = () => fetchApi('/api/paper-trading/status');
+export const getPaperTrades = () => fetchApi('/api/paper-trading/trades');
+export const getPaperPositions = () => fetchApi('/api/paper-trading/positions');

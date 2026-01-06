@@ -32,6 +32,28 @@ services:
       - key: DATABASE_URL
         sync: false
 
+  # Data Collector (Background Service)
+  - type: web
+    name: polymarket-data-collector
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/data-collector build
+    startCommand: node packages/data-collector/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: GAMMA_API_URL
+        value: https://gamma-api.polymarket.com
+      - key: CLOB_API_URL
+        value: https://clob.polymarket.com
+      - key: DATA_API_URL
+        value: https://data-api.polymarket.com
+      - key: LOG_LEVEL
+        value: info
+
   # Dashboard Frontend (Static Site)
   - type: web
     name: polymarket-dashboard-frontend
