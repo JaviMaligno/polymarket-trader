@@ -53,9 +53,16 @@ export function initializeDatabase(config?: DatabaseConfig): pg.Pool {
   }
 
   // Parse SSL requirement from connection string or config
-  const sslConfig = connectionString.includes('sslmode=require')
+  // For cloud databases (Timescale, Neon, etc.), always use SSL with rejectUnauthorized: false
+  const isCloudDb = connectionString.includes('timescale.com') ||
+                    connectionString.includes('neon.tech') ||
+                    connectionString.includes('sslmode=require');
+
+  const sslConfig = isCloudDb
     ? { rejectUnauthorized: false }
     : config?.ssl ?? false;
+
+  console.log(`Database: Connecting to ${isCloudDb ? 'cloud' : 'local'} database with SSL: ${!!sslConfig}`);
 
   pool = new Pool({
     connectionString,
