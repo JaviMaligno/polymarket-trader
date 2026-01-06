@@ -1,0 +1,42 @@
+{
+  "name": "polymarket-trader",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Polymarket trading system with backtesting, paper trading, and live trading",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "collector:start": "pnpm --filter @polymarket-trader/data-collector start",
+    "collector:dev": "pnpm --filter @polymarket-trader/data-collector dev",
+    "db:up": "docker-compose up -d timescaledb",
+    "db:down": "docker-compose down",
+    "db:migrate": "pnpm --filter @polymarket-trader/data-collector migrate",
+    "trader": "pnpm --filter @polymarket-trader/trader cli",
+    "trader:build": "pnpm --filter @polymarket-trader/trader build",
+    "dashboard": "pnpm --filter @polymarket-trader/dashboard dev",
+    "dashboard:build": "pnpm --filter @polymarket-trader/dashboard build",
+    "dashboard:frontend": "cd packages/dashboard/frontend && npm run dev",
+    "docker:build": "docker-compose build",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down",
+    "docker:logs": "docker-compose logs -f",
+    "docker:dev": "docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d",
+    "docker:prod": "docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d",
+    "docker:health": "bash scripts/health.sh",
+    "docker:backup": "bash scripts/backup.sh"
+  },
+  "keywords": [
+    "polymarket",
+    "prediction-markets",
+    "trading",
+    "backtesting"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  }
+}

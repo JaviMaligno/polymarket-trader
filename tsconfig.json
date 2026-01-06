@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022"],
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true
+  },
+  "references": [
+    { "path": "./packages/signals" },
+    { "path": "./packages/backtest" },
+    { "path": "./packages/trader" },
+    { "path": "./packages/dashboard" }
+  ],
+  "exclude": ["node_modules", "**/dist", "**/node_modules"]
+}

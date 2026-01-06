@@ -1,0 +1,107 @@
+services:
+  # ============================================
+  # Database
+  # ============================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: polymarket-timescaledb
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-polymarket}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-polymarket_dev}
+      POSTGRES_DB: ${DB_NAME:-polymarket_trading}
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./packages/data-collector/src/database/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polymarket -d polymarket_trading"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polymarket-net
+
+  # ============================================
+  # Dashboard API (Backend)
+  # ============================================
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+    container_name: polymarket-dashboard-api
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3001}:3001"
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOST: 0.0.0.0
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      CONNECT_TRADER: ${CONNECT_TRADER:-true}
+      POLYMARKET_API_URL: ${POLYMARKET_API_URL:-https://clob.polymarket.com}
+      INITIAL_CAPITAL: ${INITIAL_CAPITAL:-10000}
+      FEE_RATE: ${FEE_RATE:-0.001}
+      MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
+      MAX_DAILY_LOSS: ${MAX_DAILY_LOSS:-500}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    networks:
+      - polymarket-net
+
+  # ============================================
+  # Dashboard Frontend
+  # ============================================
+  dashboard-frontend:
+    build:
+      context: ./packages/dashboard/frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3001}
+        VITE_WS_URL: ${VITE_WS_URL:-ws://localhost:3001/ws}
+    container_name: polymarket-dashboard-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - dashboard-api
+    networks:
+      - polymarket-net
+
+  # ============================================
+  # Redis (for caching and rate limiting)
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: polymarket-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - polymarket-net
+
+networks:
+  polymarket-net:
+    driver: bridge
+
+volumes:
+  timescaledb_data:
+    driver: local
+  redis_data:
+    driver: local

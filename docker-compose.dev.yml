@@ -1,0 +1,58 @@
+version: '3.8'
+
+# Development docker-compose override
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+  timescaledb:
+    ports:
+      - "5432:5432"
+
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+      target: builder
+    volumes:
+      - ./packages/signals/src:/app/packages/signals/src:ro
+      - ./packages/backtest/src:/app/packages/backtest/src:ro
+      - ./packages/trader/src:/app/packages/trader/src:ro
+      - ./packages/dashboard/src:/app/packages/dashboard/src:ro
+    command: ["npx", "tsx", "watch", "packages/dashboard/src/server.ts"]
+    environment:
+      NODE_ENV: development
+
+  # Use Vite dev server for frontend in development
+  dashboard-frontend:
+    build:
+      context: ./packages/dashboard/frontend
+      dockerfile: Dockerfile
+      target: builder
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./packages/dashboard/frontend/src:/app/src:ro
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+    environment:
+      VITE_API_URL: http://localhost:3001
+      VITE_WS_URL: ws://localhost:3001/ws
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Adminer for database management in dev
+  adminer:
+    image: adminer
+    container_name: polymarket-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - timescaledb
+    networks:
+      - polymarket-net
+
+networks:
+  polymarket-net:
+    driver: bridge

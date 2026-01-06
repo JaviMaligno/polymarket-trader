@@ -1,0 +1,28 @@
+# Base image for building the monorepo
+FROM node:20-alpine AS base
+
+# Install pnpm
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/signals/package.json ./packages/signals/
+COPY packages/backtest/package.json ./packages/backtest/
+COPY packages/trader/package.json ./packages/trader/
+COPY packages/dashboard/package.json ./packages/dashboard/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY packages/signals ./packages/signals
+COPY packages/backtest ./packages/backtest
+COPY packages/trader ./packages/trader
+COPY packages/dashboard ./packages/dashboard
+COPY tsconfig.json ./
+
+# Build all packages
+RUN pnpm run build

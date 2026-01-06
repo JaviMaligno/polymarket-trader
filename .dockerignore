@@ -1,0 +1,58 @@
+# Dependencies
+node_modules
+**/node_modules
+
+# Build outputs
+dist
+**/dist
+build
+**/build
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs
+
+# Test
+coverage
+.nyc_output
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Misc
+*.md
+!README.md
+LICENSE
+.editorconfig
+.eslintrc*
+.prettierrc*
+tsconfig.tsbuildinfo
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# Scripts (keep in image if needed)
+# scripts
+
+# Backups
+backups
+*.sql
+*.sql.gz

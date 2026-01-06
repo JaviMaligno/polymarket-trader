@@ -1,0 +1,36 @@
+{
+  "name": "@polymarket-trader/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web dashboard and analytics for Polymarket trading",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "vitest",
+    "lint": "eslint src --ext .ts"
+  },
+  "dependencies": {
+    "@polymarket-trader/trader": "workspace:*",
+    "@polymarket-trader/backtest": "workspace:*",
+    "@polymarket-trader/signals": "workspace:*",
+    "fastify": "^4.25.2",
+    "@fastify/cors": "^8.5.0",
+    "@fastify/websocket": "^8.3.1",
+    "@fastify/static": "^6.12.0",
+    "pino": "^8.17.1",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.4",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^6.13.2",
+    "@typescript-eslint/parser": "^6.13.2",
+    "eslint": "^8.55.0",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}
