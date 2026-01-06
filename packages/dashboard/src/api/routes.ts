@@ -18,6 +18,7 @@ import {
 import { query } from '../database/index.js';
 import { getPaperTradingService } from '../services/PaperTradingService.js';
 import { getTradingAutomation, type SignalResult } from '../services/TradingAutomation.js';
+import { getSignalEngine } from '../services/SignalEngine.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -1645,6 +1646,209 @@ export async function registerRoutes(
       return reply.send({
         success: true,
         data: performance,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Signal Engine Routes
+  // ============================================
+
+  // Get signal engine status
+  fastify.get('/api/signals/status', async (_request, reply) => {
+    try {
+      const engine = getSignalEngine();
+      const status = engine.getStatus();
+
+      return reply.send({
+        success: true,
+        data: status,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Start signal engine
+  fastify.post('/api/signals/start', async (_request, reply) => {
+    try {
+      const engine = getSignalEngine();
+      await engine.start();
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Signal engine started',
+          status: engine.getStatus(),
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Stop signal engine
+  fastify.post('/api/signals/stop', async (_request, reply) => {
+    try {
+      const engine = getSignalEngine();
+      engine.stop();
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Signal engine stopped',
+          status: engine.getStatus(),
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Force signal computation
+  fastify.post('/api/signals/compute', async (_request, reply) => {
+    try {
+      const engine = getSignalEngine();
+      const signals = await engine.forceCompute();
+
+      return reply.send({
+        success: true,
+        data: {
+          signalsGenerated: signals.length,
+          signals,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Set active markets for signal computation
+  fastify.post('/api/signals/markets', async (request, reply) => {
+    try {
+      const { markets } = request.body as {
+        markets: Array<{
+          id: string;
+          question: string;
+          tokenIdYes: string;
+          tokenIdNo?: string;
+          currentPrice: number;
+          volume24h?: number;
+        }>;
+      };
+
+      if (!markets || !Array.isArray(markets)) {
+        return reply.status(400).send({
+          success: false,
+          error: 'markets array is required',
+          timestamp: new Date(),
+        });
+      }
+
+      const engine = getSignalEngine();
+      engine.setActiveMarkets(markets);
+
+      return reply.send({
+        success: true,
+        data: {
+          message: `Set ${markets.length} active markets`,
+          marketCount: markets.length,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get available signal types
+  fastify.get('/api/signals/types', async (_request, reply) => {
+    try {
+      const engine = getSignalEngine();
+      const types = engine.getAvailableSignals();
+
+      return reply.send({
+        success: true,
+        data: types,
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Update signal weights
+  fastify.post('/api/signals/weights', async (request, reply) => {
+    try {
+      const { weights } = request.body as { weights: Record<string, number> };
+
+      if (!weights || typeof weights !== 'object') {
+        return reply.status(400).send({
+          success: false,
+          error: 'weights object is required',
+          timestamp: new Date(),
+        });
+      }
+
+      const engine = getSignalEngine();
+      engine.setWeights(weights);
+
+      // Also update in database if configured
+      if (isDatabaseConfigured()) {
+        for (const [signalType, weight] of Object.entries(weights)) {
+          // Use raw query for upsert since repo doesn't have it
+          await query(
+            `INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
+             VALUES ($1, $2, true, 0.6, NOW())
+             ON CONFLICT (signal_type) DO UPDATE SET
+               weight = EXCLUDED.weight,
+               updated_at = NOW()`,
+            [signalType, weight]
+          );
+        }
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Weights updated',
+          weights: engine.getStatus().weights,
+        },
         timestamp: new Date(),
       });
     } catch (error) {
