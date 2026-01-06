@@ -31,11 +31,8 @@ services:
         value: "500"
 
   # Dashboard Frontend
-  - type: web
+  - type: static_site
     name: polymarket-dashboard-frontend
-    runtime: static
-    region: oregon
-    plan: free
     buildCommand: cd packages/dashboard/frontend && npm install && npm run build
     staticPublishPath: packages/dashboard/frontend/dist
     headers:
