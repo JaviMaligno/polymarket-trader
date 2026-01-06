@@ -4,7 +4,7 @@
  * PostgreSQL/TimescaleDB connection pool and query utilities.
  */
 
-import pg from 'pg';
+import pg, { QueryResultRow } from 'pg';
 
 const { Pool } = pg;
 
@@ -90,7 +90,7 @@ export function getPool(): pg.Pool {
 /**
  * Execute a query
  */
-export async function query<T = unknown>(
+export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<pg.QueryResult<T>> {
