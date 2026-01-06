@@ -200,7 +200,16 @@ export type WsMessageType =
   | 'price_update'
   | 'strategy_signal'
   | 'risk_warning'
-  | 'error';
+  | 'error'
+  // Automation service messages
+  | 'signals_generated'
+  | 'signal_processed'
+  | 'trading_halted'
+  | 'trading_resumed'
+  | 'polymarket_price'
+  | 'markets_discovered'
+  | 'risk_check'
+  | 'limits_updated';
 
 export interface WsMessage {
   type: WsMessageType;

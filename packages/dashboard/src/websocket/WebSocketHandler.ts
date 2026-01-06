@@ -16,6 +16,12 @@ import type {
   PriceUpdatePayload,
 } from '../types/index.js';
 
+// Import automation services for event subscriptions
+import { getTradingAutomation } from '../services/TradingAutomation.js';
+import { getSignalEngine } from '../services/SignalEngine.js';
+import { getPolymarketService } from '../services/PolymarketService.js';
+import { getRiskManager } from '../services/RiskManager.js';
+
 interface Client {
   ws: WebSocket;
   subscriptions: Set<string>;
@@ -60,6 +66,9 @@ export class WebSocketHandler {
 
     // Subscribe to trading system events
     this.subscribeToEvents();
+
+    // Subscribe to automation service events
+    this.subscribeToAutomationEvents();
   }
 
   /**
@@ -452,6 +461,155 @@ export class WebSocketHandler {
         timestamp: new Date(),
       });
     });
+  }
+
+  /**
+   * Subscribe to automation service events
+   */
+  private subscribeToAutomationEvents(): void {
+    // Signal Engine events
+    try {
+      const signalEngine = getSignalEngine();
+
+      signalEngine.on('signals:generated', (signals: Array<{ marketId: string; type: string; direction: string; confidence: number; price: number }>) => {
+        this.broadcast('signals', {
+          type: 'signals_generated',
+          channel: 'signals',
+          payload: {
+            count: signals.length,
+            signals: signals.map(s => ({
+              marketId: s.marketId,
+              type: s.type,
+              direction: s.direction,
+              confidence: s.confidence,
+              price: s.price,
+            })),
+          },
+          timestamp: new Date(),
+        });
+      });
+
+      signalEngine.on('signal:processed', (result: { marketId: string; executed: boolean; reason?: string }) => {
+        this.broadcast('signals', {
+          type: 'signal_processed',
+          channel: 'signals',
+          payload: result,
+          timestamp: new Date(),
+        });
+      });
+
+      console.log('[WebSocketHandler] Subscribed to SignalEngine events');
+    } catch (error) {
+      console.warn('[WebSocketHandler] SignalEngine not available:', error);
+    }
+
+    // Trading Automation events
+    try {
+      const automation = getTradingAutomation();
+
+      automation.on('trade:executed', (trade: { marketId: string; side: string; size: number; price: number; pnl?: number }) => {
+        this.broadcast('automation', {
+          type: 'trade_executed',
+          channel: 'automation',
+          payload: {
+            marketId: trade.marketId,
+            side: trade.side,
+            size: trade.size,
+            price: trade.price,
+            pnl: trade.pnl,
+          },
+          timestamp: new Date(),
+        });
+      });
+
+      automation.on('trading:halted', (reason: string) => {
+        this.broadcastAll({
+          type: 'trading_halted',
+          payload: { reason },
+          timestamp: new Date(),
+        });
+      });
+
+      automation.on('trading:resumed', () => {
+        this.broadcastAll({
+          type: 'trading_resumed',
+          payload: {},
+          timestamp: new Date(),
+        });
+      });
+
+      console.log('[WebSocketHandler] Subscribed to TradingAutomation events');
+    } catch (error) {
+      console.warn('[WebSocketHandler] TradingAutomation not available:', error);
+    }
+
+    // Polymarket Service events
+    try {
+      const polymarket = getPolymarketService();
+
+      polymarket.on('price', (price: { marketId: string; tokenId: string; outcome: string; price: number; bid: number; ask: number }) => {
+        this.broadcast('polymarket', {
+          type: 'polymarket_price',
+          channel: 'polymarket',
+          payload: {
+            marketId: price.marketId,
+            tokenId: price.tokenId,
+            outcome: price.outcome,
+            price: price.price,
+            bid: price.bid,
+            ask: price.ask,
+          },
+          timestamp: new Date(),
+        });
+      });
+
+      polymarket.on('markets:discovered', (markets: Array<{ id: string; question: string; volume: number }>) => {
+        this.broadcast('polymarket', {
+          type: 'markets_discovered',
+          channel: 'polymarket',
+          payload: {
+            count: markets.length,
+            markets: markets.slice(0, 10).map(m => ({
+              id: m.id,
+              question: m.question,
+              volume: m.volume,
+            })),
+          },
+          timestamp: new Date(),
+        });
+      });
+
+      console.log('[WebSocketHandler] Subscribed to PolymarketService events');
+    } catch (error) {
+      console.warn('[WebSocketHandler] PolymarketService not available:', error);
+    }
+
+    // Risk Manager events
+    try {
+      const riskManager = getRiskManager();
+
+      riskManager.on('risk:checked', (result: { approved: boolean; exposure: number; reason?: string }) => {
+        this.broadcast('risk', {
+          type: 'risk_check',
+          channel: 'risk',
+          payload: result,
+          timestamp: new Date(),
+        });
+      });
+
+      riskManager.on('limits:updated', (limits: Record<string, number>) => {
+        this.broadcast('risk', {
+          type: 'limits_updated',
+          channel: 'risk',
+          payload: limits,
+          timestamp: new Date(),
+        });
+      });
+
+      console.log('[WebSocketHandler] Subscribed to RiskManager events');
+    } catch (error) {
+      console.warn('[WebSocketHandler] RiskManager not available:', error);
+    }
   }
 
   /**
