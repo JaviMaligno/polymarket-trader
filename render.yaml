@@ -30,9 +30,10 @@ services:
       - key: MAX_DAILY_LOSS
         value: "500"
 
-  # Dashboard Frontend
-  - type: static_site
+  # Dashboard Frontend (Static Site)
+  - type: web
     name: polymarket-dashboard-frontend
+    runtime: static
     buildCommand: cd packages/dashboard/frontend && npm install && npm run build
     staticPublishPath: packages/dashboard/frontend/dist
     headers:
