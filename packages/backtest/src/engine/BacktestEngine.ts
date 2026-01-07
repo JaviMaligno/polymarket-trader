@@ -513,9 +513,17 @@ export class BacktestEngine {
       }
     }
 
-    // Log progress periodically (every 100 ticks)
-    if (marketsProcessed > 0 && this.currentTime.getMinutes() === 0 && this.currentTime.getHours() % 6 === 0) {
-      this.logger.info({ marketsProcessed, signalsGenerated, priceCache: this.priceCache.size }, 'Signal generation progress');
+    // Log progress once at start of backtest
+    if (marketsProcessed > 0 && signalsGenerated === 0 && this.priceCache.size > 0) {
+      // Log first time we have data but no signals
+      const firstCache = Array.from(this.priceCache.values())[0];
+      this.logger.info({
+        marketsProcessed,
+        signalsGenerated,
+        priceCacheSize: this.priceCache.size,
+        firstCacheBars: firstCache?.bars?.length || 0,
+        currentTime: this.currentTime.toISOString()
+      }, 'Signal generation - no signals yet');
     }
 
     // Combine signals if we have any
