@@ -2342,7 +2342,7 @@ export async function registerRoutes(
   });
 
   // Get market price history from database
-  fastify.get<{ Params: { marketId: string }; Querystring: { interval?: string; limit?: number } }>(
+  fastify.get<{ Params: { marketId: string }; Querystring: { interval?: string; limit?: number; outcome?: string } }>(
     '/api/db/markets/:marketId/prices',
     async (request, reply) => {
       if (!isDatabaseConfigured()) {
@@ -2355,10 +2355,38 @@ export async function registerRoutes(
 
       try {
         const { marketId } = request.params;
-        const { interval = '1m', limit = 100 } = request.query;
+        const { limit = 100, outcome = 'yes' } = request.query;
 
-        // Always use raw price_history table (continuous aggregates may not exist)
-        // The raw data is at 1-minute resolution from the CLOB API
+        // First get the market's token IDs
+        const marketResult = await query<{
+          clob_token_id_yes: string;
+          clob_token_id_no: string;
+        }>(
+          'SELECT clob_token_id_yes, clob_token_id_no FROM markets WHERE id = $1',
+          [marketId]
+        );
+
+        const market = marketResult.rows[0];
+        if (!market) {
+          return reply.status(404).send({
+            success: false,
+            error: 'Market not found',
+            timestamp: new Date(),
+          });
+        }
+
+        // Select the appropriate token based on outcome
+        const tokenId = outcome === 'no' ? market.clob_token_id_no : market.clob_token_id_yes;
+
+        if (!tokenId) {
+          return reply.send({
+            success: true,
+            data: [],
+            timestamp: new Date(),
+          });
+        }
+
+        // Query price history by token_id (more reliable than market_id due to data sync issues)
         const result = await query<{
           time: Date;
           open: string;
@@ -2370,10 +2398,10 @@ export async function registerRoutes(
         }>(
           `SELECT time, open, high, low, close, volume, token_id
            FROM price_history
-           WHERE market_id = $1
+           WHERE token_id = $1
            ORDER BY time DESC
            LIMIT $2`,
-          [marketId, limit]
+          [tokenId, limit]
         );
 
         const prices = result.rows.map(row => ({
