@@ -473,11 +473,14 @@ export class BacktestEngine {
    */
   private async generateSignals(): Promise<void> {
     const signalOutputs: SignalOutput[] = [];
+    let marketsProcessed = 0;
+    let signalsGenerated = 0;
 
     for (const [key, cache] of this.priceCache) {
       const [marketId, tokenId] = key.split(':');
       const market = this.marketData.get(marketId);
       if (!market) continue;
+      marketsProcessed++;
 
       // Build signal context
       const context: SignalContext = {
@@ -502,6 +505,7 @@ export class BacktestEngine {
           const output = await signal.compute(context);
           if (output) {
             signalOutputs.push(output);
+            signalsGenerated++;
           }
         } catch (error) {
           this.logger.error({ error, signalId: signal.signalId }, 'Error computing signal');
@@ -509,9 +513,23 @@ export class BacktestEngine {
       }
     }
 
+    // Log progress periodically (every 100 ticks)
+    if (marketsProcessed > 0 && this.currentTime.getMinutes() === 0 && this.currentTime.getHours() % 6 === 0) {
+      this.logger.info({ marketsProcessed, signalsGenerated, priceCache: this.priceCache.size }, 'Signal generation progress');
+    }
+
     // Combine signals if we have any
     if (signalOutputs.length > 0) {
       const combined = this.combiner.combine(signalOutputs);
+
+      // Log combined signal for debugging
+      if (combined && (Math.abs(combined.strength) > 0.05 || combined.confidence > 0.1)) {
+        this.logger.debug({
+          strength: combined.strength,
+          confidence: combined.confidence,
+          marketId: combined.marketId
+        }, 'Combined signal');
+      }
 
       if (combined && Math.abs(combined.strength) > 0.1 && combined.confidence > 0.15) {
         // Emit signal event
