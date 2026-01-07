@@ -170,8 +170,8 @@ export class GammaCollector {
         } else {
           updated++;
         }
-      } catch (error) {
-        logger.error({ error, marketId: market.id }, 'Error upserting market');
+      } catch (error: any) {
+        logger.error({ err: error.message || String(error), marketId: market.id }, 'Error upserting market');
       }
     }
 
@@ -197,8 +197,8 @@ export class GammaCollector {
         } else {
           updated++;
         }
-      } catch (error) {
-        logger.error({ error, eventId: event.id }, 'Error upserting event');
+      } catch (error: any) {
+        logger.error({ err: error.message || String(error), eventId: event.id }, 'Error upserting event');
       }
     }
 
@@ -287,56 +287,82 @@ export class GammaCollector {
    * Upsert a single event to the database
    */
   private async upsertEvent(event: PolymarketEvent): Promise<'inserted' | 'updated'> {
-    const result = await query(
-      `
-      INSERT INTO events (
-        id, slug, title, description, start_date, end_date,
-        category, tags, is_active, is_closed, liquidity, volume,
-        created_at, updated_at
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW()
-      )
-      ON CONFLICT (id) DO UPDATE SET
-        is_active = EXCLUDED.is_active,
-        is_closed = EXCLUDED.is_closed,
-        liquidity = EXCLUDED.liquidity,
-        volume = EXCLUDED.volume,
-        updated_at = NOW()
-      RETURNING (xmax = 0) AS is_insert
-      `,
-      [
-        event.id,
-        event.slug,
-        event.title,
-        event.description,
-        event.startDate ? new Date(event.startDate) : null,
-        event.endDate ? new Date(event.endDate) : null,
-        event.category,
-        JSON.stringify(event.tags || []),
-        event.active,
-        event.closed,
-        event.liquidity || 0,
-        event.volume || 0,
-      ]
-    );
+    // Make slug unique by appending event id to handle potential duplicates
+    const slug = event.slug ? `${event.slug}-${event.id}` : `event-${event.id}`;
 
-    // Also sync the event's markets
-    if (event.markets && event.markets.length > 0) {
-      for (const market of event.markets) {
-        try {
-          await this.upsertMarket(market);
-          // Update market's event_id
-          await query(
-            'UPDATE markets SET event_id = $1, category = $2 WHERE id = $3',
-            [event.id, event.category, market.id]
-          );
-        } catch (error) {
-          logger.error({ error, marketId: market.id, eventId: event.id }, 'Error upserting event market');
+    try {
+      const result = await query(
+        `
+        INSERT INTO events (
+          id, slug, title, description, start_date, end_date,
+          category, tags, is_active, is_closed, liquidity, volume,
+          created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          title = EXCLUDED.title,
+          is_active = EXCLUDED.is_active,
+          is_closed = EXCLUDED.is_closed,
+          liquidity = EXCLUDED.liquidity,
+          volume = EXCLUDED.volume,
+          updated_at = NOW()
+        RETURNING (xmax = 0) AS is_insert
+        `,
+        [
+          event.id,
+          slug,
+          event.title,
+          event.description,
+          event.startDate ? new Date(event.startDate) : null,
+          event.endDate ? new Date(event.endDate) : null,
+          event.category,
+          JSON.stringify(event.tags || []),
+          event.active,
+          event.closed,
+          event.liquidity || 0,
+          event.volume || 0,
+        ]
+      );
+
+      // Also sync the event's markets
+      if (event.markets && event.markets.length > 0) {
+        for (const market of event.markets) {
+          try {
+            await this.upsertMarket(market);
+            // Update market's event_id
+            await query(
+              'UPDATE markets SET event_id = $1, category = $2 WHERE id = $3',
+              [event.id, event.category, market.id]
+            );
+          } catch (error: any) {
+            logger.error({ err: error.message || String(error), marketId: market.id, eventId: event.id }, 'Error upserting event market');
+          }
         }
       }
-    }
 
-    return result.rows[0]?.is_insert ? 'inserted' : 'updated';
+      return result.rows[0]?.is_insert ? 'inserted' : 'updated';
+    } catch (error: any) {
+      // If slug conflict, try to update by id only
+      if (error.code === '23505' && error.constraint?.includes('slug')) {
+        logger.warn({ eventId: event.id, slug }, 'Slug conflict, updating by id');
+        await query(
+          `
+          UPDATE events SET
+            title = $1,
+            is_active = $2,
+            is_closed = $3,
+            liquidity = $4,
+            volume = $5,
+            updated_at = NOW()
+          WHERE id = $6
+          `,
+          [event.title, event.active, event.closed, event.liquidity || 0, event.volume || 0, event.id]
+        );
+        return 'updated';
+      }
+      throw error;
+    }
   }
 
   /**
