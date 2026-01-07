@@ -153,52 +153,125 @@ export class GammaCollector {
   }
 
   /**
-   * Sync all markets to database
+   * Sync all markets to database (streaming to avoid memory issues)
    */
   async syncMarketsToDb(): Promise<{ inserted: number; updated: number }> {
-    const markets = await this.fetchAllMarkets();
     let inserted = 0;
     let updated = 0;
+    let cursor: string | undefined;
+    let page = 0;
 
-    logger.info({ count: markets.length }, 'Syncing markets to database');
+    logger.info('Syncing markets to database (streaming)');
 
-    for (const market of markets) {
-      try {
-        const result = await this.upsertMarket(market);
-        if (result === 'inserted') {
-          inserted++;
-        } else {
-          updated++;
-        }
-      } catch (error: any) {
-        logger.error({ err: error.message || String(error), marketId: market.id }, 'Error upserting market');
+    do {
+      await this.rateLimiter.acquire('gamma_markets');
+
+      const params: Record<string, string> = {
+        limit: '100',
+        active: 'true',
+        closed: 'false',
+      };
+
+      if (cursor) {
+        params.next_cursor = cursor;
       }
-    }
+
+      try {
+        const response = await this.client.get<PolymarketMarket[]>('/markets', { params });
+        const markets = response.data;
+
+        if (!markets || markets.length === 0) {
+          break;
+        }
+
+        // Process batch immediately to avoid memory buildup
+        for (const market of markets) {
+          try {
+            const result = await this.upsertMarket(market);
+            if (result === 'inserted') {
+              inserted++;
+            } else {
+              updated++;
+            }
+          } catch (error: any) {
+            logger.error({ err: error.message || String(error), marketId: market.id }, 'Error upserting market');
+          }
+        }
+
+        page++;
+        logger.debug({ page, batchSize: markets.length, inserted, updated }, 'Processed markets batch');
+
+        if (markets.length < 100) {
+          break;
+        }
+
+        cursor = markets[markets.length - 1]?.id;
+
+      } catch (error) {
+        logger.error({ error, page }, 'Error fetching markets page');
+        throw error;
+      }
+    } while (cursor);
 
     logger.info({ inserted, updated }, 'Finished syncing markets');
     return { inserted, updated };
   }
 
   /**
-   * Sync all events to database
+   * Sync all events to database (streaming to avoid memory issues)
    */
   async syncEventsToDb(): Promise<{ inserted: number; updated: number }> {
-    const events = await this.fetchAllEvents();
     let inserted = 0;
     let updated = 0;
+    let offset = 0;
+    const limit = 100;
 
-    logger.info({ count: events.length }, 'Syncing events to database');
+    logger.info('Syncing events to database (streaming)');
 
-    for (const event of events) {
+    while (true) {
+      await this.rateLimiter.acquire('gamma_events');
+
       try {
-        const result = await this.upsertEvent(event);
-        if (result === 'inserted') {
-          inserted++;
-        } else {
-          updated++;
+        const response = await this.client.get<PolymarketEvent[]>('/events', {
+          params: {
+            limit: limit.toString(),
+            offset: offset.toString(),
+            active: 'true',
+            closed: 'false',
+          },
+        });
+
+        const events = response.data;
+
+        if (!events || events.length === 0) {
+          break;
         }
-      } catch (error: any) {
-        logger.error({ err: error.message || String(error), eventId: event.id }, 'Error upserting event');
+
+        // Process batch immediately to avoid memory buildup
+        for (const event of events) {
+          try {
+            const result = await this.upsertEvent(event);
+            if (result === 'inserted') {
+              inserted++;
+            } else {
+              updated++;
+            }
+          } catch (error: any) {
+            logger.error({ err: error.message || String(error), eventId: event.id }, 'Error upserting event');
+          }
+        }
+
+        logger.debug({ offset, batchSize: events.length, inserted, updated }, 'Processed events batch');
+
+        if (events.length < limit) {
+          break;
+        }
+
+        offset += limit;
+
+      } catch (error) {
+        logger.error({ error, offset }, 'Error fetching events page');
+        throw error;
       }
     }
 
