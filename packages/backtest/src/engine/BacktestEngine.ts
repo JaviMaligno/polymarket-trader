@@ -417,15 +417,22 @@ export class BacktestEngine {
     const currentPrice = cache.currentBar.close;
     if (currentPrice <= 0 || currentPrice >= 1) return;
 
-    // Create order
+    // Create proper Order object with all required fields
+    const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
     const order = {
-      orderId: `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      id: orderId,
       marketId,
       tokenId,
-      side: direction === 'LONG' ? 'BUY' : 'SELL',
-      price: currentPrice,
+      side: (direction === 'LONG' ? 'BUY' : 'SELL') as 'BUY' | 'SELL',
+      type: 'MARKET' as const,
       size: positionValue / currentPrice,
-      timestamp: this.currentTime,
+      price: currentPrice,
+      status: 'PENDING' as const,
+      filledSize: 0,
+      avgFillPrice: 0,
+      createdAt: this.currentTime,
+      updatedAt: this.currentTime,
+      fills: [],
     };
 
     // Check with risk manager
@@ -439,7 +446,7 @@ export class BacktestEngine {
 
     // Submit order
     const fillEvent = this.orderBookSimulator.submitOrder(order);
-    if (fillEvent) {
+    if (fillEvent && fillEvent.type === 'ORDER_FILLED') {
       this.portfolioManager.handleOrderFilled(fillEvent);
       this.logger.info({
         marketId,
