@@ -382,11 +382,74 @@ export class BacktestEngine {
    * Handle signal event
    */
   private handleSignal(event: SignalEvent): void {
-    // Process signal and potentially generate orders
+    // Process signal and generate orders
     this.logger.debug({ signal: event.data }, 'Signal received');
 
-    // Order generation logic would go here
-    // This is where strategy logic translates signals into orders
+    if (!this.portfolioManager || !this.orderBookSimulator) {
+      return;
+    }
+
+    const { marketId, direction, strength, confidence } = event.data;
+    const portfolioState = this.portfolioManager.getState();
+
+    // Calculate position size based on signal strength and Kelly criterion
+    const maxPositionPct = this.config.risk.maxPositionSizePct / 100;
+    const kellyFraction = Math.min(0.5, confidence * Math.abs(strength));
+    const positionSizePct = maxPositionPct * kellyFraction;
+    const positionValue = portfolioState.cash * positionSizePct;
+
+    // Skip if position too small
+    if (positionValue < 10) {
+      return;
+    }
+
+    // Get current price from cache
+    const market = this.marketData.get(marketId);
+    if (!market) return;
+
+    const tokenId = market.bars[0]?.tokenId;
+    if (!tokenId) return;
+
+    const cacheKey = `${marketId}:${tokenId}`;
+    const cache = this.priceCache.get(cacheKey);
+    if (!cache) return;
+
+    const currentPrice = cache.currentBar.close;
+    if (currentPrice <= 0 || currentPrice >= 1) return;
+
+    // Create order
+    const order = {
+      orderId: `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+      marketId,
+      tokenId,
+      side: direction === 'LONG' ? 'BUY' : 'SELL',
+      price: currentPrice,
+      size: positionValue / currentPrice,
+      timestamp: this.currentTime,
+    };
+
+    // Check with risk manager
+    if (this.riskManager) {
+      const riskCheck = this.riskManager.checkOrder(order, portfolioState);
+      if (!riskCheck.allowed) {
+        this.logger.debug({ reason: riskCheck.reason }, 'Order rejected by risk manager');
+        return;
+      }
+    }
+
+    // Submit order
+    const fillEvent = this.orderBookSimulator.submitOrder(order);
+    if (fillEvent) {
+      this.portfolioManager.handleOrderFilled(fillEvent);
+      this.logger.info({
+        marketId,
+        direction,
+        size: order.size,
+        price: currentPrice,
+        strength,
+        confidence
+      }, 'Order filled');
+    }
   }
 
   /**
@@ -443,7 +506,7 @@ export class BacktestEngine {
     if (signalOutputs.length > 0) {
       const combined = this.combiner.combine(signalOutputs);
 
-      if (combined && Math.abs(combined.strength) > 0.3 && combined.confidence > 0.4) {
+      if (combined && Math.abs(combined.strength) > 0.1 && combined.confidence > 0.15) {
         // Emit signal event
         const signalEvent: SignalEvent = {
           type: 'SIGNAL',
