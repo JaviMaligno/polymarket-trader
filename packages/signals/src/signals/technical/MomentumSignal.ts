@@ -107,7 +107,8 @@ export class MomentumSignal extends BaseSignal {
     const direction = this.getDirection(combinedStrength);
 
     // Only emit signal if strong enough
-    if (Math.abs(combinedStrength) < 0.15 || confidence < 0.25) {
+    // Relaxed thresholds to generate more trades
+    if (Math.abs(combinedStrength) < 0.05 || confidence < 0.1) {
       return null;
     }
 

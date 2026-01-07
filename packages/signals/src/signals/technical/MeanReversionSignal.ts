@@ -106,8 +106,8 @@ export class MeanReversionSignal extends BaseSignal {
     console.log(`[MeanRev] ${context.market.id.slice(0,10)}... price=${currentPrice.toFixed(4)} bb=${bbSignal.strength.toFixed(3)} zScore=${zScoreSignal.zScore.toFixed(3)} strength=${combinedStrength.toFixed(3)} conf=${confidence.toFixed(3)}`);
 
     // Only emit if deviation is significant
-    // Relaxed thresholds for testing
-    if (Math.abs(combinedStrength) < 0.1 || confidence < 0.2) {
+    // Relaxed thresholds to generate more trades
+    if (Math.abs(combinedStrength) < 0.03 || confidence < 0.1) {
       return null;
     }
 
