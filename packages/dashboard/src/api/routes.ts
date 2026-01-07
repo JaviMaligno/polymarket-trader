@@ -2105,6 +2105,389 @@ export async function registerRoutes(
   });
 
   // ============================================
+  // Database-backed Market Routes
+  // ============================================
+
+  // Get markets from database (collected by data-collector)
+  fastify.get<{ Querystring: { limit?: number; offset?: number; active?: string; category?: string; search?: string; sortBy?: string; sortOrder?: string } }>(
+    '/api/db/markets',
+    async (request, reply) => {
+      if (!isDatabaseConfigured()) {
+        return reply.status(503).send({
+          success: false,
+          error: 'Database not configured',
+          timestamp: new Date(),
+        });
+      }
+
+      try {
+        const {
+          limit = 50,
+          offset = 0,
+          active,
+          category,
+          search,
+          sortBy = 'volume_24h',
+          sortOrder = 'DESC'
+        } = request.query;
+
+        // Build query with optional filters
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (active !== undefined) {
+          conditions.push(`is_active = $${paramIndex++}`);
+          params.push(active === 'true');
+        }
+
+        if (category) {
+          conditions.push(`category = $${paramIndex++}`);
+          params.push(category);
+        }
+
+        if (search) {
+          conditions.push(`question ILIKE $${paramIndex++}`);
+          params.push(`%${search}%`);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        // Validate sort column to prevent SQL injection
+        const validSortColumns = ['volume_24h', 'liquidity', 'current_price_yes', 'updated_at', 'created_at', 'question'];
+        const safeSort = validSortColumns.includes(sortBy) ? sortBy : 'volume_24h';
+        const safeOrder = sortOrder.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+
+        // Get total count
+        const countResult = await query<{ count: string }>(
+          `SELECT COUNT(*) as count FROM markets ${whereClause}`,
+          params
+        );
+        const total = parseInt(countResult.rows[0]?.count || '0');
+
+        // Get markets
+        params.push(limit);
+        params.push(offset);
+
+        const result = await query<{
+          id: string;
+          event_id: string;
+          clob_token_id_yes: string;
+          clob_token_id_no: string;
+          condition_id: string;
+          question: string;
+          description: string;
+          category: string;
+          end_date: Date;
+          current_price_yes: string;
+          current_price_no: string;
+          spread: string;
+          volume_24h: string;
+          liquidity: string;
+          best_bid: string;
+          best_ask: string;
+          last_trade_price: string;
+          is_active: boolean;
+          is_resolved: boolean;
+          resolution_outcome: string;
+          updated_at: Date;
+        }>(
+          `SELECT
+            id, event_id, clob_token_id_yes, clob_token_id_no, condition_id,
+            question, description, category, end_date,
+            current_price_yes, current_price_no, spread,
+            volume_24h, liquidity, best_bid, best_ask, last_trade_price,
+            is_active, is_resolved, resolution_outcome, updated_at
+          FROM markets
+          ${whereClause}
+          ORDER BY ${safeSort} ${safeOrder} NULLS LAST
+          LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+          params
+        );
+
+        const markets = result.rows.map(row => ({
+          id: row.id,
+          eventId: row.event_id,
+          conditionId: row.condition_id,
+          question: row.question,
+          description: row.description,
+          category: row.category,
+          endDate: row.end_date,
+          tokenIds: [row.clob_token_id_yes, row.clob_token_id_no].filter(Boolean),
+          outcomes: ['Yes', 'No'],
+          outcomePrices: [
+            parseFloat(row.current_price_yes || '0'),
+            parseFloat(row.current_price_no || '0')
+          ],
+          volume24h: parseFloat(row.volume_24h || '0'),
+          liquidity: parseFloat(row.liquidity || '0'),
+          spread: parseFloat(row.spread || '0'),
+          bestBid: parseFloat(row.best_bid || '0'),
+          bestAsk: parseFloat(row.best_ask || '0'),
+          lastTradePrice: parseFloat(row.last_trade_price || '0'),
+          isActive: row.is_active,
+          isResolved: row.is_resolved,
+          resolutionOutcome: row.resolution_outcome,
+          updatedAt: row.updated_at,
+        }));
+
+        return reply.send({
+          success: true,
+          data: {
+            markets,
+            total,
+            limit,
+            offset,
+            hasMore: offset + markets.length < total,
+          },
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          success: false,
+          error: String(error),
+          timestamp: new Date(),
+        });
+      }
+    }
+  );
+
+  // Get a specific market from database
+  fastify.get<{ Params: { marketId: string } }>('/api/db/markets/:marketId', async (request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const { marketId } = request.params;
+
+      const result = await query<{
+        id: string;
+        event_id: string;
+        clob_token_id_yes: string;
+        clob_token_id_no: string;
+        condition_id: string;
+        question: string;
+        description: string;
+        category: string;
+        end_date: Date;
+        current_price_yes: string;
+        current_price_no: string;
+        spread: string;
+        volume_24h: string;
+        liquidity: string;
+        best_bid: string;
+        best_ask: string;
+        last_trade_price: string;
+        is_active: boolean;
+        is_resolved: boolean;
+        resolution_outcome: string;
+        created_at: Date;
+        updated_at: Date;
+      }>(
+        `SELECT * FROM markets WHERE id = $1`,
+        [marketId]
+      );
+
+      const row = result.rows[0];
+      if (!row) {
+        return reply.status(404).send({
+          success: false,
+          error: 'Market not found',
+          timestamp: new Date(),
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          id: row.id,
+          eventId: row.event_id,
+          conditionId: row.condition_id,
+          question: row.question,
+          description: row.description,
+          category: row.category,
+          endDate: row.end_date,
+          tokenIds: [row.clob_token_id_yes, row.clob_token_id_no].filter(Boolean),
+          outcomes: ['Yes', 'No'],
+          outcomePrices: [
+            parseFloat(row.current_price_yes || '0'),
+            parseFloat(row.current_price_no || '0')
+          ],
+          volume24h: parseFloat(row.volume_24h || '0'),
+          liquidity: parseFloat(row.liquidity || '0'),
+          spread: parseFloat(row.spread || '0'),
+          bestBid: parseFloat(row.best_bid || '0'),
+          bestAsk: parseFloat(row.best_ask || '0'),
+          lastTradePrice: parseFloat(row.last_trade_price || '0'),
+          isActive: row.is_active,
+          isResolved: row.is_resolved,
+          resolutionOutcome: row.resolution_outcome,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Get market price history from database
+  fastify.get<{ Params: { marketId: string }; Querystring: { interval?: string; limit?: number } }>(
+    '/api/db/markets/:marketId/prices',
+    async (request, reply) => {
+      if (!isDatabaseConfigured()) {
+        return reply.status(503).send({
+          success: false,
+          error: 'Database not configured',
+          timestamp: new Date(),
+        });
+      }
+
+      try {
+        const { marketId } = request.params;
+        const { interval = '1h', limit = 100 } = request.query;
+
+        // Select the appropriate table/view based on interval
+        let tableName = 'price_history';
+        if (interval === '5m') tableName = 'price_5m';
+        else if (interval === '1h') tableName = 'price_1h';
+        else if (interval === '1d') tableName = 'price_1d';
+
+        const timeCol = tableName === 'price_history' ? 'time' : 'bucket';
+
+        const result = await query<{
+          time: Date;
+          open: string;
+          high: string;
+          low: string;
+          close: string;
+          volume: string;
+          token_id: string;
+        }>(
+          `SELECT ${timeCol} as time, open, high, low, close, volume, token_id
+           FROM ${tableName}
+           WHERE market_id = $1
+           ORDER BY ${timeCol} DESC
+           LIMIT $2`,
+          [marketId, limit]
+        );
+
+        const prices = result.rows.map(row => ({
+          time: row.time,
+          open: parseFloat(row.open || '0'),
+          high: parseFloat(row.high || '0'),
+          low: parseFloat(row.low || '0'),
+          close: parseFloat(row.close || '0'),
+          volume: parseFloat(row.volume || '0'),
+          tokenId: row.token_id,
+        }));
+
+        return reply.send({
+          success: true,
+          data: prices.reverse(), // Return in chronological order
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          success: false,
+          error: String(error),
+          timestamp: new Date(),
+        });
+      }
+    }
+  );
+
+  // Get market stats summary from database
+  fastify.get('/api/db/stats', async (_request, reply) => {
+    if (!isDatabaseConfigured()) {
+      return reply.status(503).send({
+        success: false,
+        error: 'Database not configured',
+        timestamp: new Date(),
+      });
+    }
+
+    try {
+      const [marketsResult, eventsResult, priceHistoryResult, categoriesResult] = await Promise.all([
+        query<{ total: string; active: string; resolved: string }>(
+          `SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE is_active = true) as active,
+            COUNT(*) FILTER (WHERE is_resolved = true) as resolved
+          FROM markets`
+        ),
+        query<{ total: string; active: string }>(
+          `SELECT
+            COUNT(*) as total,
+            COUNT(*) FILTER (WHERE is_active = true) as active
+          FROM events`
+        ),
+        query<{ count: string; min_time: Date; max_time: Date }>(
+          `SELECT
+            COUNT(*) as count,
+            MIN(time) as min_time,
+            MAX(time) as max_time
+          FROM price_history`
+        ),
+        query<{ category: string; count: string }>(
+          `SELECT category, COUNT(*) as count
+           FROM markets
+           WHERE category IS NOT NULL
+           GROUP BY category
+           ORDER BY count DESC`
+        ),
+      ]);
+
+      const markets = marketsResult.rows[0];
+      const events = eventsResult.rows[0];
+      const priceHistory = priceHistoryResult.rows[0];
+
+      const categories: Record<string, number> = {};
+      for (const row of categoriesResult.rows) {
+        categories[row.category] = parseInt(row.count);
+      }
+
+      return reply.send({
+        success: true,
+        data: {
+          markets: {
+            total: parseInt(markets?.total || '0'),
+            active: parseInt(markets?.active || '0'),
+            resolved: parseInt(markets?.resolved || '0'),
+          },
+          events: {
+            total: parseInt(events?.total || '0'),
+            active: parseInt(events?.active || '0'),
+          },
+          priceHistory: {
+            totalRecords: parseInt(priceHistory?.count || '0'),
+            oldestRecord: priceHistory?.min_time,
+            newestRecord: priceHistory?.max_time,
+          },
+          categories,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
   // Backtest Routes
   // ============================================
 
