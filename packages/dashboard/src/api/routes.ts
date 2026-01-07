@@ -2355,16 +2355,10 @@ export async function registerRoutes(
 
       try {
         const { marketId } = request.params;
-        const { interval = '1h', limit = 100 } = request.query;
+        const { interval = '1m', limit = 100 } = request.query;
 
-        // Select the appropriate table/view based on interval
-        let tableName = 'price_history';
-        if (interval === '5m') tableName = 'price_5m';
-        else if (interval === '1h') tableName = 'price_1h';
-        else if (interval === '1d') tableName = 'price_1d';
-
-        const timeCol = tableName === 'price_history' ? 'time' : 'bucket';
-
+        // Always use raw price_history table (continuous aggregates may not exist)
+        // The raw data is at 1-minute resolution from the CLOB API
         const result = await query<{
           time: Date;
           open: string;
@@ -2374,10 +2368,10 @@ export async function registerRoutes(
           volume: string;
           token_id: string;
         }>(
-          `SELECT ${timeCol} as time, open, high, low, close, volume, token_id
-           FROM ${tableName}
+          `SELECT time, open, high, low, close, volume, token_id
+           FROM price_history
            WHERE market_id = $1
-           ORDER BY ${timeCol} DESC
+           ORDER BY time DESC
            LIMIT $2`,
           [marketId, limit]
         );
