@@ -59,14 +59,16 @@ export class WeightedAverageCombiner implements ISignalCombiner {
 
   /**
    * Combine multiple signals into one
+   * @param signals Array of signals to combine
+   * @param currentTime Optional current time for backtesting (defaults to wall-clock time)
    */
-  combine(signals: SignalOutput[]): CombinedSignalOutput | null {
+  combine(signals: SignalOutput[], currentTime?: Date): CombinedSignalOutput | null {
     if (signals.length === 0) {
       return null;
     }
 
     const params = this.parameters;
-    const now = new Date();
+    const now = currentTime ?? new Date();
 
     // Filter and prepare signals
     const validSignals = signals

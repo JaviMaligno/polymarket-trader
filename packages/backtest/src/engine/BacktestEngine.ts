@@ -661,7 +661,7 @@ export class BacktestEngine {
           timestamp: this.currentTime,
         }));
 
-        const combined = this.combiner.combine(updatedSignals);
+        const combined = this.combiner.combine(updatedSignals, this.currentTime);
 
         if (!combined) {
           this.combiningStats.combinerReturnedNull++;
