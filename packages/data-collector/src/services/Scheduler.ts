@@ -89,6 +89,27 @@ export class Scheduler {
   }
 
   /**
+   * Wait for all running jobs to complete
+   */
+  async waitForRunningJobs(timeoutMs: number = 30000): Promise<void> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+      const runningJobs = Array.from(this.jobs.values()).filter(job => job.isRunning);
+
+      if (runningJobs.length === 0) {
+        logger.info('All jobs completed');
+        return;
+      }
+
+      logger.info({ runningJobs: runningJobs.map(j => j.name) }, 'Waiting for running jobs to complete');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+
+    logger.warn('Timeout waiting for jobs to complete');
+  }
+
+  /**
    * Run a specific job by name
    */
   async runJob(name: string): Promise<void> {

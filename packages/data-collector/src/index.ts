@@ -56,6 +56,9 @@ async function main(): Promise<void> {
 
     clearInterval(statsInterval);
     scheduler.stop();
+
+    // Wait for running jobs to complete before closing pool
+    await scheduler.waitForRunningJobs(30000);
     await closePool();
 
     logger.info('Shutdown complete');

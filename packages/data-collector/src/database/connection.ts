@@ -52,8 +52,8 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
     }
 
     return result;
-  } catch (error) {
-    logger.error({ error, query: text.slice(0, 100) }, 'Query error');
+  } catch (error: any) {
+    logger.error({ err: error.message || String(error), query: text.slice(0, 100) }, 'Query error');
     throw error;
   }
 }
