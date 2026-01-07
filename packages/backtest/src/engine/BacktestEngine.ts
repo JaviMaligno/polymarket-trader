@@ -204,7 +204,8 @@ export class BacktestEngine {
       const result = this.calculateResults();
       this.logger.info({
         summary: result.summary,
-        signalStats: this.signalStats
+        signalStats: this.signalStats,
+        signalHandling: this.signalHandlingStats
       }, 'Backtest completed');
 
       return result;
@@ -252,6 +253,20 @@ export class BacktestEngine {
       maxBarsSeenPerMarket: 0,
       pricesInRange: 0,
       pricesFiltered: 0,
+    };
+
+    // Reset signal handling stats
+    this.signalHandlingStats = {
+      signalsReceived: 0,
+      noPortfolioManager: 0,
+      positionTooSmall: 0,
+      marketNotFound: 0,
+      tokenNotFound: 0,
+      noPriceCache: 0,
+      priceOutOfRange: 0,
+      riskRejected: 0,
+      ordersSubmitted: 0,
+      ordersFilled: 0,
     };
 
     if (this.portfolioManager) {
@@ -397,11 +412,26 @@ export class BacktestEngine {
   /**
    * Handle signal event
    */
+  // Track signal handling stats for debugging
+  private signalHandlingStats = {
+    signalsReceived: 0,
+    noPortfolioManager: 0,
+    positionTooSmall: 0,
+    marketNotFound: 0,
+    tokenNotFound: 0,
+    noPriceCache: 0,
+    priceOutOfRange: 0,
+    riskRejected: 0,
+    ordersSubmitted: 0,
+    ordersFilled: 0,
+  };
+
   private handleSignal(event: SignalEvent): void {
     // Process signal and generate orders
-    this.logger.debug({ signal: event.data }, 'Signal received');
+    this.signalHandlingStats.signalsReceived++;
 
     if (!this.portfolioManager || !this.orderBookSimulator) {
+      this.signalHandlingStats.noPortfolioManager++;
       return;
     }
 
@@ -416,22 +446,35 @@ export class BacktestEngine {
 
     // Skip if position too small
     if (positionValue < 10) {
+      this.signalHandlingStats.positionTooSmall++;
       return;
     }
 
     // Get current price from cache
     const market = this.marketData.get(marketId);
-    if (!market) return;
+    if (!market) {
+      this.signalHandlingStats.marketNotFound++;
+      return;
+    }
 
     const tokenId = market.bars[0]?.tokenId;
-    if (!tokenId) return;
+    if (!tokenId) {
+      this.signalHandlingStats.tokenNotFound++;
+      return;
+    }
 
     const cacheKey = `${marketId}:${tokenId}`;
     const cache = this.priceCache.get(cacheKey);
-    if (!cache) return;
+    if (!cache) {
+      this.signalHandlingStats.noPriceCache++;
+      return;
+    }
 
     const currentPrice = cache.currentBar.close;
-    if (currentPrice <= 0 || currentPrice >= 1) return;
+    if (currentPrice <= 0 || currentPrice >= 1) {
+      this.signalHandlingStats.priceOutOfRange++;
+      return;
+    }
 
     // Create proper Order object with all required fields
     const orderId = `order_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
@@ -455,14 +498,17 @@ export class BacktestEngine {
     if (this.riskManager) {
       const riskCheck = this.riskManager.checkOrder(order, portfolioState);
       if (!riskCheck.allowed) {
+        this.signalHandlingStats.riskRejected++;
         this.logger.debug({ reason: riskCheck.reason }, 'Order rejected by risk manager');
         return;
       }
     }
 
     // Submit order
+    this.signalHandlingStats.ordersSubmitted++;
     const fillEvent = this.orderBookSimulator.submitOrder(order);
     if (fillEvent && fillEvent.type === 'ORDER_FILLED') {
+      this.signalHandlingStats.ordersFilled++;
       this.portfolioManager.handleOrderFilled(fillEvent);
       this.logger.info({
         marketId,
