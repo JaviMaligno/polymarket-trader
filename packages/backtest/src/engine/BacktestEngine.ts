@@ -575,33 +575,53 @@ export class BacktestEngine {
       }, 'Signal generation progress');
     }
 
-    // Combine signals if we have any
+    // Group signals by market and combine separately
     if (signalOutputs.length > 0) {
-      const combined = this.combiner.combine(signalOutputs);
-
-      // Log combined signal for debugging
-      if (combined && (Math.abs(combined.strength) > 0.05 || combined.confidence > 0.1)) {
-        this.logger.debug({
-          strength: combined.strength,
-          confidence: combined.confidence,
-          marketId: combined.marketId
-        }, 'Combined signal');
+      // Group signals by marketId
+      const signalsByMarket = new Map<string, SignalOutput[]>();
+      for (const signal of signalOutputs) {
+        const existing = signalsByMarket.get(signal.marketId) || [];
+        existing.push(signal);
+        signalsByMarket.set(signal.marketId, existing);
       }
 
-      if (combined && Math.abs(combined.strength) > 0.1 && combined.confidence > 0.15) {
-        // Emit signal event
-        const signalEvent: SignalEvent = {
-          type: 'SIGNAL',
+      let combinedSignalsEmitted = 0;
+
+      // Combine signals for each market separately
+      for (const [marketId, marketSignals] of signalsByMarket) {
+        // Update signal timestamps to current backtest time for proper time decay
+        const updatedSignals = marketSignals.map(s => ({
+          ...s,
           timestamp: this.currentTime,
-          data: {
-            signalId: 'combined',
-            marketId: combined.marketId,
-            direction: combined.direction,
-            strength: combined.strength,
-            confidence: combined.confidence,
-          },
-        };
-        this.eventBus.emit(signalEvent);
+        }));
+
+        const combined = this.combiner.combine(updatedSignals);
+
+        if (combined && Math.abs(combined.strength) > 0.1 && combined.confidence > 0.15) {
+          // Emit signal event
+          const signalEvent: SignalEvent = {
+            type: 'SIGNAL',
+            timestamp: this.currentTime,
+            data: {
+              signalId: 'combined',
+              marketId: marketId,
+              direction: combined.direction,
+              strength: combined.strength,
+              confidence: combined.confidence,
+            },
+          };
+          this.eventBus.emit(signalEvent);
+          combinedSignalsEmitted++;
+        }
+      }
+
+      // Log combined signals emitted (every 24 ticks)
+      if (this.signalStats.totalTicksProcessed % 24 === 0 && combinedSignalsEmitted > 0) {
+        this.logger.info({
+          tick: this.signalStats.totalTicksProcessed,
+          marketsWithSignals: signalsByMarket.size,
+          combinedSignalsEmitted,
+        }, 'Combined signals emitted');
       }
     }
   }
