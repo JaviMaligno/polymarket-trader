@@ -199,7 +199,10 @@ export class BacktestEngine {
 
       // Calculate results
       const result = this.calculateResults();
-      this.logger.info({ summary: result.summary }, 'Backtest completed');
+      this.logger.info({
+        summary: result.summary,
+        signalStats: this.signalStats
+      }, 'Backtest completed');
 
       return result;
     } finally {
@@ -237,6 +240,16 @@ export class BacktestEngine {
     this.currentTime = new Date(this.config.startDate);
     this.priceCache.clear();
     this.eventBus.reset();
+
+    // Reset signal stats
+    this.signalStats = {
+      totalTicksProcessed: 0,
+      totalSignalsGenerated: 0,
+      ticksWithSignals: 0,
+      maxBarsSeenPerMarket: 0,
+      pricesInRange: 0,
+      pricesFiltered: 0,
+    };
 
     if (this.portfolioManager) {
       this.portfolioManager.reset(this.config.initialCapital);
@@ -468,6 +481,16 @@ export class BacktestEngine {
     }
   }
 
+  // Track signal stats across backtest
+  private signalStats = {
+    totalTicksProcessed: 0,
+    totalSignalsGenerated: 0,
+    ticksWithSignals: 0,
+    maxBarsSeenPerMarket: 0,
+    pricesInRange: 0,
+    pricesFiltered: 0,
+  };
+
   /**
    * Generate signals for current market state
    */
@@ -475,12 +498,26 @@ export class BacktestEngine {
     const signalOutputs: SignalOutput[] = [];
     let marketsProcessed = 0;
     let signalsGenerated = 0;
+    let pricesInRange = 0;
+    let pricesFiltered = 0;
 
     for (const [key, cache] of this.priceCache) {
       const [marketId, tokenId] = key.split(':');
       const market = this.marketData.get(marketId);
       if (!market) continue;
       marketsProcessed++;
+
+      const barCount = cache.bars.length + 1;
+      if (barCount > this.signalStats.maxBarsSeenPerMarket) {
+        this.signalStats.maxBarsSeenPerMarket = barCount;
+      }
+
+      const currentPrice = cache.currentBar.close;
+      if (currentPrice >= 0.01 && currentPrice <= 0.99) {
+        pricesInRange++;
+      } else {
+        pricesFiltered++;
+      }
 
       // Build signal context
       const context: SignalContext = {
@@ -489,7 +526,7 @@ export class BacktestEngine {
           question: market.question,
           category: market.category,
           endDate: market.endDate,
-          currentPriceYes: cache.currentBar.close,
+          currentPriceYes: currentPrice,
           isActive: !market.resolved,
           isResolved: market.resolved,
           tokenIdYes: tokenId,
@@ -513,17 +550,26 @@ export class BacktestEngine {
       }
     }
 
-    // Log progress once at start of backtest
-    if (marketsProcessed > 0 && signalsGenerated === 0 && this.priceCache.size > 0) {
-      // Log first time we have data but no signals
-      const firstCache = Array.from(this.priceCache.values())[0];
+    this.signalStats.totalTicksProcessed++;
+    this.signalStats.totalSignalsGenerated += signalsGenerated;
+    this.signalStats.pricesInRange += pricesInRange;
+    this.signalStats.pricesFiltered += pricesFiltered;
+    if (signalsGenerated > 0) {
+      this.signalStats.ticksWithSignals++;
+    }
+
+    // Log every 24 ticks (daily at hourly granularity)
+    if (this.signalStats.totalTicksProcessed % 24 === 0) {
       this.logger.info({
+        tick: this.signalStats.totalTicksProcessed,
         marketsProcessed,
-        signalsGenerated,
-        priceCacheSize: this.priceCache.size,
-        firstCacheBars: firstCache?.bars?.length || 0,
+        signalsThisTick: signalsGenerated,
+        totalSignals: this.signalStats.totalSignalsGenerated,
+        maxBars: this.signalStats.maxBarsSeenPerMarket,
+        pricesInRange,
+        pricesFiltered,
         currentTime: this.currentTime.toISOString()
-      }, 'Signal generation - no signals yet');
+      }, 'Signal generation progress');
     }
 
     // Combine signals if we have any
