@@ -205,6 +205,7 @@ export class BacktestEngine {
       this.logger.info({
         summary: result.summary,
         signalStats: this.signalStats,
+        combiningStats: this.combiningStats,
         signalHandling: this.signalHandlingStats
       }, 'Backtest completed');
 
@@ -267,6 +268,15 @@ export class BacktestEngine {
       riskRejected: 0,
       ordersSubmitted: 0,
       ordersFilled: 0,
+    };
+
+    // Reset combining stats
+    this.combiningStats = {
+      totalMarketsWithSignals: 0,
+      combinerReturnedNull: 0,
+      strengthTooLow: 0,
+      confidenceTooLow: 0,
+      signalsEmitted: 0,
     };
 
     if (this.portfolioManager) {
@@ -540,6 +550,15 @@ export class BacktestEngine {
     pricesFiltered: 0,
   };
 
+  // Track combining stats
+  private combiningStats = {
+    totalMarketsWithSignals: 0,
+    combinerReturnedNull: 0,
+    strengthTooLow: 0,
+    confidenceTooLow: 0,
+    signalsEmitted: 0,
+  };
+
   /**
    * Generate signals for current market state
    */
@@ -631,6 +650,7 @@ export class BacktestEngine {
         signalsByMarket.set(signal.marketId, existing);
       }
 
+      this.combiningStats.totalMarketsWithSignals += signalsByMarket.size;
       let combinedSignalsEmitted = 0;
 
       // Combine signals for each market separately
@@ -643,7 +663,23 @@ export class BacktestEngine {
 
         const combined = this.combiner.combine(updatedSignals);
 
-        if (combined && Math.abs(combined.strength) > 0.1 && combined.confidence > 0.15) {
+        if (!combined) {
+          this.combiningStats.combinerReturnedNull++;
+          continue;
+        }
+
+        if (Math.abs(combined.strength) <= 0.1) {
+          this.combiningStats.strengthTooLow++;
+          continue;
+        }
+
+        if (combined.confidence <= 0.15) {
+          this.combiningStats.confidenceTooLow++;
+          continue;
+        }
+
+        this.combiningStats.signalsEmitted++;
+        if (true) {
           // Emit signal event
           const signalEvent: SignalEvent = {
             type: 'SIGNAL',
