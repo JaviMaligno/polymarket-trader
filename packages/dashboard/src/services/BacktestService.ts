@@ -274,18 +274,20 @@ export class BacktestService extends EventEmitter {
 
     try {
       // Fetch price data from time-series table
+      // The price_history table already has OHLC data, so no aggregation needed
       let priceQuery = `
         SELECT
-          time_bucket('1 hour', timestamp) AS bucket,
+          time,
           market_id,
           token_id,
-          first(price, timestamp) as open,
-          max(price) as high,
-          min(price) as low,
-          last(price, timestamp) as close,
-          count(*) as trade_count
+          open,
+          high,
+          low,
+          close,
+          volume,
+          COALESCE(trade_count, 1) as trade_count
         FROM price_history
-        WHERE timestamp >= $1 AND timestamp <= $2
+        WHERE time >= $1 AND time <= $2
       `;
 
       const params: (Date | string[])[] = [startDate, endDate];
@@ -295,9 +297,11 @@ export class BacktestService extends EventEmitter {
         params.push(marketIds);
       }
 
-      priceQuery += ` GROUP BY bucket, market_id, token_id ORDER BY bucket`;
+      priceQuery += ` ORDER BY time`;
 
       const priceResult = await query(priceQuery, params);
+
+      console.log(`[BacktestService] Fetched ${priceResult.rows.length} price bars from database`);
 
       // Group by market
       const marketMap = new Map<string, MarketData>();
@@ -317,18 +321,19 @@ export class BacktestService extends EventEmitter {
 
         const market = marketMap.get(marketId)!;
         market.bars.push({
-          time: new Date(row.bucket),
+          time: new Date(row.time),
           marketId,
           tokenId: row.token_id,
           open: parseFloat(row.open),
           high: parseFloat(row.high),
           low: parseFloat(row.low),
           close: parseFloat(row.close),
-          volume: 0,
-          tradeCount: parseInt(row.trade_count),
+          volume: parseFloat(row.volume) || 0,
+          tradeCount: parseInt(row.trade_count) || 1,
         });
       }
 
+      console.log(`[BacktestService] Grouped into ${marketMap.size} markets`);
       return Array.from(marketMap.values());
     } catch (error) {
       console.error('[BacktestService] Failed to fetch historical data:', error);
