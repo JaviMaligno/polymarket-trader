@@ -157,6 +157,9 @@ export class BacktestEngine {
       // Reset components
       this.reset();
 
+      // Re-setup event handlers (reset removes all listeners)
+      this.setupEventHandlers();
+
       // Generate all historical events
       const events = this.generateHistoricalEvents();
       this.logger.info({ eventCount: events.length }, 'Generated historical events');
