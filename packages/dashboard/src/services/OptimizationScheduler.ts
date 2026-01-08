@@ -53,11 +53,12 @@ export class OptimizationScheduler {
   private backtestService: BacktestService;
   private dashboardApiUrl: string;
 
-  // Schedule configuration
+  // Schedule configuration (conservative for free tier)
   private incrementalIntervalHours = 6;
   private fullIntervalHours = 24;
-  private incrementalIterations = 20;
-  private fullIterations = 50;
+  private incrementalIterations = 5;  // Reduced from 20 for free tier
+  private fullIterations = 10;        // Reduced from 50 for free tier
+  private backtestDelayMs = 5000;     // Delay between backtests to prevent memory issues
 
   constructor(dashboardApiUrl: string = 'http://localhost:3001') {
     this.backtestService = getBacktestService();
@@ -217,13 +218,14 @@ export class OptimizationScheduler {
 
   /**
    * Run optimization with given number of iterations
+   * Conservative approach for free tier - sequential with delays
    */
   private async runOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
     const results: OptimizationResult[] = [];
 
-    // Calculate date range (last 14 days)
+    // Calculate date range (last 7 days - reduced from 14 for free tier)
     const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     // Generate parameter combinations
     const paramCombos = type === 'incremental'
@@ -233,12 +235,20 @@ export class OptimizationScheduler {
     // Shuffle and take first N iterations
     const shuffled = paramCombos.sort(() => Math.random() - 0.5).slice(0, iterations);
 
-    console.log(`[OptimizationScheduler] Running ${shuffled.length} backtests...`);
+    console.log(`[OptimizationScheduler] Running ${shuffled.length} backtests (sequential with ${this.backtestDelayMs}ms delay)...`);
 
     for (let i = 0; i < shuffled.length; i++) {
       const params = shuffled[i];
 
       try {
+        // Add delay between backtests to prevent memory/connection issues
+        if (i > 0) {
+          console.log(`[OptimizationScheduler] Waiting ${this.backtestDelayMs}ms before next backtest...`);
+          await new Promise(resolve => setTimeout(resolve, this.backtestDelayMs));
+        }
+
+        console.log(`[OptimizationScheduler] Running backtest ${i + 1}/${shuffled.length}: edge=${params.minEdge}, conf=${params.minConfidence}`);
+
         const backtest = await this.backtestService.runBacktest({
           startDate: startDate.toISOString(),
           endDate: endDate.toISOString(),
@@ -251,25 +261,25 @@ export class OptimizationScheduler {
         });
 
         if (backtest.result && backtest.result.metrics) {
-          results.push({
+          const result = {
             params,
             sharpe: backtest.result.metrics.sharpeRatio || 0,
             totalReturn: backtest.result.metrics.totalReturn || 0,
             trades: backtest.result.trades?.length || 0,
-          });
-        }
-
-        // Log progress every 10 iterations
-        if ((i + 1) % 10 === 0) {
-          console.log(`[OptimizationScheduler] Progress: ${i + 1}/${shuffled.length}`);
+          };
+          results.push(result);
+          console.log(`[OptimizationScheduler] Backtest ${i + 1} completed: Sharpe=${result.sharpe.toFixed(2)}, Return=${(result.totalReturn * 100).toFixed(1)}%`);
         }
       } catch (error) {
-        console.error(`[OptimizationScheduler] Backtest failed for params:`, params);
+        console.error(`[OptimizationScheduler] Backtest ${i + 1} failed for params:`, params, error);
+        // Continue with next iteration instead of failing completely
       }
     }
 
-    // Save to database
-    await this.saveOptimizationRun(type, results);
+    // Save to database (only if we have results)
+    if (results.length > 0) {
+      await this.saveOptimizationRun(type, results);
+    }
 
     return results;
   }

@@ -297,8 +297,8 @@ export class BacktestService extends EventEmitter {
         params.push(marketIds);
       }
 
-      // Limit to 50000 rows to prevent timeouts on free tier
-      priceQuery += ` ORDER BY time LIMIT 50000`;
+      // Limit to 10000 rows to prevent memory issues on free tier
+      priceQuery += ` ORDER BY time DESC LIMIT 10000`;
 
       const priceResult = await query(priceQuery, params);
 
