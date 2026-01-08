@@ -10,6 +10,7 @@
 
 import { query, isDatabaseConfigured } from '../database/index.js';
 import { getBacktestService, BacktestService } from './BacktestService.js';
+import { getValidationService, type ValidationService } from './ValidationService.js';
 
 // Parameter ranges for optimization
 const PARAMETER_RANGES = {
@@ -51,6 +52,7 @@ export class OptimizationScheduler {
 
   private mainLoopInterval: NodeJS.Timeout | null = null;
   private backtestService: BacktestService;
+  private validationService: ValidationService;
   private dashboardApiUrl: string;
 
   // Schedule configuration (conservative for free tier)
@@ -62,6 +64,7 @@ export class OptimizationScheduler {
 
   constructor(dashboardApiUrl: string = 'http://localhost:3001') {
     this.backtestService = getBacktestService();
+    this.validationService = getValidationService();
     this.dashboardApiUrl = dashboardApiUrl;
   }
 
@@ -330,8 +333,34 @@ export class OptimizationScheduler {
 
   /**
    * Update the active strategy with new parameters
+   * Includes validation to prevent deploying overfit strategies
    */
-  private async updateStrategy(result: OptimizationResult): Promise<void> {
+  private async updateStrategy(result: OptimizationResult, backtestResult?: { metrics: { totalTrades: number; sharpeRatio: number; maxDrawdown: number; totalReturn: number; winRate: number; profitFactor: number } }): Promise<void> {
+    // Validate the strategy before deploying
+    if (backtestResult) {
+      const validation = this.validationService.quickValidate(backtestResult.metrics as any);
+      if (!validation.passed) {
+        console.log(`[OptimizationScheduler] Strategy failed validation, skipping deployment:`, validation.reasons);
+        return;
+      }
+    } else {
+      // Quick sanity check on the result
+      if (result.sharpe > 5) {
+        console.log(`[OptimizationScheduler] Strategy Sharpe ${result.sharpe.toFixed(2)} is suspiciously high (likely overfit), skipping deployment`);
+        return;
+      }
+      if (result.trades < 10) {
+        console.log(`[OptimizationScheduler] Strategy has too few trades (${result.trades}), skipping deployment`);
+        return;
+      }
+      if (result.totalReturn < 0) {
+        console.log(`[OptimizationScheduler] Strategy has negative return, skipping deployment`);
+        return;
+      }
+    }
+
+    console.log(`[OptimizationScheduler] Strategy passed validation, deploying...`);
+
     // Update local state
     this.state.bestParams = result.params;
     this.state.bestSharpe = result.sharpe;

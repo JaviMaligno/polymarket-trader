@@ -281,7 +281,11 @@ export interface AlertConfig {
   emailConfig?: {
     to: string[];
     from: string;
-    smtpServer: string;
+    smtpHost: string;
+    smtpPort: number;
+    smtpUser?: string;
+    smtpPass?: string;
+    secure?: boolean;
   };
 }
 

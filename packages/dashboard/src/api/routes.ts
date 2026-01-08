@@ -780,20 +780,141 @@ export async function registerRoutes(
     });
   });
 
-  // Health check
+  // Health check (enhanced)
   fastify.get('/health', async () => {
     const dbHealth = isDatabaseConfigured() ? await dbHealthCheck() : { connected: false, error: 'Not configured' };
 
+    // Check optimization scheduler
+    let optimizationStatus = 'not_configured';
+    try {
+      const scheduler = getOptimizationScheduler();
+      const state = scheduler.getState();
+      optimizationStatus = state.isRunning ? 'running' : 'stopped';
+    } catch {
+      optimizationStatus = 'error';
+    }
+
+    // Check paper trading
+    let paperTradingStatus = 'not_configured';
+    try {
+      const paperService = getPaperTradingService();
+      // PaperTradingService is always available when initialized
+      paperTradingStatus = paperService ? 'available' : 'not_configured';
+    } catch {
+      paperTradingStatus = 'error';
+    }
+
+    // Check trading automation
+    let automationStatus = 'not_configured';
+    try {
+      const automation = getTradingAutomation();
+      const status = automation.getStatus();
+      automationStatus = status.isRunning ? 'running' : 'stopped';
+    } catch {
+      automationStatus = 'error';
+    }
+
+    // Memory usage
+    const memUsage = process.memoryUsage();
+
+    // Overall health
+    const isHealthy = dbHealth.connected && (!isDatabaseConfigured() || dbHealth.latency! < 5000);
+
     return {
-      status: 'ok',
+      status: isHealthy ? 'ok' : 'degraded',
       timestamp: new Date(),
+      uptime: process.uptime(),
       database: {
         configured: isDatabaseConfigured(),
         connected: dbHealth.connected,
         latency: dbHealth.latency,
         error: dbHealth.error,
       },
+      services: {
+        optimization: optimizationStatus,
+        paperTrading: paperTradingStatus,
+        automation: automationStatus,
+      },
+      memory: {
+        heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+        heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+        rss: Math.round(memUsage.rss / 1024 / 1024),
+      },
     };
+  });
+
+  // Detailed metrics endpoint
+  fastify.get('/api/metrics', async (_request, reply) => {
+    // Database metrics
+    let dbMetrics = null;
+    if (isDatabaseConfigured()) {
+      try {
+        const [sizeResult, tablesResult] = await Promise.all([
+          query(`SELECT pg_size_pretty(pg_database_size(current_database())) as size`),
+          query(`
+            SELECT relname as table_name,
+                   pg_size_pretty(pg_total_relation_size(relid)) as size
+            FROM pg_catalog.pg_statio_user_tables
+            ORDER BY pg_total_relation_size(relid) DESC
+            LIMIT 10
+          `),
+        ]);
+        dbMetrics = {
+          totalSize: sizeResult.rows[0]?.size,
+          topTables: tablesResult.rows,
+        };
+      } catch (error) {
+        dbMetrics = { error: String(error) };
+      }
+    }
+
+    // Trading metrics
+    let tradingMetrics = null;
+    try {
+      const automation = getTradingAutomation();
+      const stats = await automation.getDetailedStats();
+      tradingMetrics = stats;
+    } catch {
+      tradingMetrics = null;
+    }
+
+    // Optimization metrics
+    let optimizationMetrics = null;
+    try {
+      const scheduler = getOptimizationScheduler();
+      const state = scheduler.getState();
+      optimizationMetrics = {
+        isRunning: state.isRunning,
+        currentRunType: state.currentRunType,
+        lastIncrementalAt: state.lastIncrementalAt,
+        lastFullAt: state.lastFullAt,
+        bestParams: state.bestParams,
+        bestSharpe: state.bestSharpe,
+      };
+    } catch {
+      optimizationMetrics = null;
+    }
+
+    // Memory
+    const memUsage = process.memoryUsage();
+
+    return reply.send({
+      success: true,
+      data: {
+        timestamp: new Date(),
+        uptime: process.uptime(),
+        memory: {
+          heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+          heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+          rss: Math.round(memUsage.rss / 1024 / 1024),
+          external: Math.round(memUsage.external / 1024 / 1024),
+        },
+        database: dbMetrics,
+        trading: tradingMetrics,
+        optimization: optimizationMetrics,
+      },
+      timestamp: new Date(),
+    });
   });
 
   // ============================================

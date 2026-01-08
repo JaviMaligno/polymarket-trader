@@ -7,6 +7,8 @@
 
 import pino from 'pino';
 import { EventEmitter } from 'eventemitter3';
+import nodemailer from 'nodemailer';
+import type { Transporter } from 'nodemailer';
 import type {
   Alert,
   AlertConfig,
@@ -67,6 +69,7 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
   private rateLimitState: RateLimitState;
   private lastAlertByRule: Map<string, number> = new Map();
   private alertCount: number = 0;
+  private emailTransporter: Transporter | null = null;
 
   constructor(config?: Partial<AlertConfig>) {
     super();
@@ -75,6 +78,35 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
       minute: { count: 0, resetAt: Date.now() + 60000 },
       hour: { count: 0, resetAt: Date.now() + 3600000 },
     };
+
+    // Initialize email transporter if configured
+    if (config?.emailConfig) {
+      this.initEmailTransporter();
+    }
+  }
+
+  /**
+   * Initialize the email transporter
+   */
+  private initEmailTransporter(): void {
+    const emailConfig = this.config.emailConfig;
+    if (!emailConfig) return;
+
+    try {
+      this.emailTransporter = nodemailer.createTransport({
+        host: emailConfig.smtpHost,
+        port: emailConfig.smtpPort,
+        secure: emailConfig.secure ?? (emailConfig.smtpPort === 465),
+        auth: emailConfig.smtpUser && emailConfig.smtpPass ? {
+          user: emailConfig.smtpUser,
+          pass: emailConfig.smtpPass,
+        } : undefined,
+      });
+
+      logger.info({ host: emailConfig.smtpHost, port: emailConfig.smtpPort }, 'Email transporter initialized');
+    } catch (error) {
+      logger.error({ error }, 'Failed to initialize email transporter');
+    }
   }
 
   // ============================================
@@ -278,18 +310,89 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
   }
 
   /**
-   * Send to email (placeholder)
+   * Send to email
    */
   private async sendToEmail(alert: Alert): Promise<void> {
     if (!this.config.emailConfig) {
       throw new Error('Email not configured');
     }
 
-    // In production, would use nodemailer or similar
-    logger.info({
-      to: this.config.emailConfig.to,
-      subject: `[${alert.severity}] ${alert.title}`,
-    }, 'Email alert (placeholder)');
+    if (!this.emailTransporter) {
+      this.initEmailTransporter();
+      if (!this.emailTransporter) {
+        throw new Error('Email transporter not initialized');
+      }
+    }
+
+    const emailConfig = this.config.emailConfig;
+    const color = this.getSeverityColor(alert.severity);
+    const emoji = this.getSeverityEmoji(alert.severity);
+
+    // Create HTML email body
+    const html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <style>
+          body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }
+          .alert-box { border-left: 4px solid ${color}; padding: 16px; margin: 10px 0; background: #f9f9f9; }
+          .title { font-size: 18px; font-weight: bold; color: #333; }
+          .message { font-size: 14px; color: #666; margin: 10px 0; }
+          .meta { font-size: 12px; color: #999; }
+          .severity { display: inline-block; padding: 4px 8px; border-radius: 4px; background: ${color}; color: white; font-size: 12px; }
+        </style>
+      </head>
+      <body>
+        <div class="alert-box">
+          <span class="severity">${emoji} ${alert.severity}</span>
+          <h2 class="title">${alert.title}</h2>
+          <p class="message">${alert.message}</p>
+          <div class="meta">
+            <strong>Source:</strong> ${alert.source}<br>
+            <strong>Time:</strong> ${alert.timestamp.toISOString()}<br>
+            <strong>Alert ID:</strong> ${alert.id}
+          </div>
+          ${alert.data ? `<pre style="background:#eee;padding:10px;font-size:12px;overflow:auto;">${JSON.stringify(alert.data, null, 2)}</pre>` : ''}
+        </div>
+        <p style="font-size:10px;color:#999;">
+          Polymarket Trading System Alert - Automated notification
+        </p>
+      </body>
+      </html>
+    `;
+
+    // Plain text fallback
+    const text = `
+[${alert.severity}] ${alert.title}
+
+${alert.message}
+
+Source: ${alert.source}
+Time: ${alert.timestamp.toISOString()}
+Alert ID: ${alert.id}
+${alert.data ? `\nData:\n${JSON.stringify(alert.data, null, 2)}` : ''}
+
+---
+Polymarket Trading System Alert
+    `.trim();
+
+    try {
+      await this.emailTransporter.sendMail({
+        from: emailConfig.from,
+        to: emailConfig.to.join(', '),
+        subject: `[${alert.severity}] ${alert.title}`,
+        text,
+        html,
+      });
+
+      logger.info({
+        to: emailConfig.to,
+        subject: `[${alert.severity}] ${alert.title}`,
+      }, 'Email alert sent');
+    } catch (error) {
+      logger.error({ error }, 'Failed to send email alert');
+      throw error;
+    }
   }
 
   /**
@@ -561,6 +664,11 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
    */
   updateConfig(config: Partial<AlertConfig>): void {
     this.config = { ...this.config, ...config };
+
+    // Re-initialize email transporter if email config changed
+    if (config.emailConfig) {
+      this.initEmailTransporter();
+    }
   }
 }
 
