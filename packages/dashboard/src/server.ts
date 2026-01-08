@@ -2,11 +2,14 @@
  * Dashboard Server Entry Point
  *
  * Starts the dashboard server independently or integrated with trading system.
+ * Includes auto-initialization of markets and strategies on startup.
  */
 
 import { createDashboardServer } from './api/server.js';
 import { createTradingSystem } from '@polymarket-trader/trader';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured } from './database/index.js';
+import { autoInitialize, createAndStartStrategy } from './services/AutoInitService.js';
+import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -67,10 +70,39 @@ async function main(): Promise<void> {
     // Start trading system
     await tradingSystem.start();
     console.log('Trading system connected');
+
+    // Auto-initialize markets and strategy
+    if (isDatabaseConfigured()) {
+      console.log('Running auto-initialization...');
+      await autoInitialize(tradingSystem as any);
+    }
   }
 
   // Start server
   await server.start();
+
+  // After server is up, create and start strategy via API
+  if (connectTrader && isDatabaseConfigured()) {
+    const baseUrl = `http://localhost:${port}`;
+    // Delay to ensure server is fully ready
+    setTimeout(async () => {
+      console.log('Creating and starting auto-optimized strategy...');
+      await createAndStartStrategy(baseUrl);
+    }, 5000);
+  }
+
+  // Start optimization scheduler (runs every 6 hours)
+  const enableOptimization = process.env.ENABLE_OPTIMIZATION !== 'false';
+  if (enableOptimization && isDatabaseConfigured()) {
+    const baseUrl = `http://localhost:${port}`;
+    const scheduler = initializeOptimizationScheduler(baseUrl);
+
+    // Delay scheduler start to allow trading system to initialize
+    setTimeout(async () => {
+      console.log('Starting optimization scheduler...');
+      await scheduler.start();
+    }, 30000); // 30 second delay
+  }
 
   // Graceful shutdown
   const shutdown = async (signal: string) => {

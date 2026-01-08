@@ -21,6 +21,7 @@ import { getTradingAutomation, type SignalResult } from '../services/TradingAuto
 import { getSignalEngine } from '../services/SignalEngine.js';
 import { getPolymarketService } from '../services/PolymarketService.js';
 import { getBacktestService, type BacktestRequest } from '../services/BacktestService.js';
+import { getOptimizationScheduler } from '../services/OptimizationScheduler.js';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -2857,4 +2858,100 @@ export async function registerRoutes(
       timestamp: new Date(),
     });
   });
+
+  // ============================================
+  // Optimization Scheduler Routes
+  // ============================================
+
+  // Get optimization scheduler status
+  fastify.get('/api/optimization/status', async (_request, reply) => {
+    try {
+      const scheduler = getOptimizationScheduler();
+      const state = scheduler.getState();
+
+      return reply.send({
+        success: true,
+        data: {
+          isRunning: state.isRunning,
+          currentRunType: state.currentRunType,
+          lastIncrementalAt: state.lastIncrementalAt,
+          lastFullAt: state.lastFullAt,
+          bestParams: state.bestParams,
+          bestSharpe: state.bestSharpe,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // Trigger manual optimization
+  fastify.post<{ Querystring: { type?: 'incremental' | 'full' } }>(
+    '/api/optimization/trigger',
+    async (request, reply) => {
+      try {
+        const scheduler = getOptimizationScheduler();
+        const type = request.query.type || 'incremental';
+
+        // Run in background
+        scheduler.triggerOptimization(type).catch(err =>
+          console.error('[OptimizationScheduler] Manual trigger failed:', err)
+        );
+
+        return reply.send({
+          success: true,
+          data: { message: `${type} optimization started` },
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date(),
+        });
+      }
+    }
+  );
+
+  // Get optimization history
+  fastify.get<{ Querystring: { limit?: number } }>(
+    '/api/optimization/history',
+    async (request, reply) => {
+      if (!isDatabaseConfigured()) {
+        return reply.status(400).send({
+          success: false,
+          error: 'Database not configured',
+          timestamp: new Date(),
+        });
+      }
+
+      try {
+        const limit = request.query.limit || 10;
+        const result = await query(`
+          SELECT id, name, status, optimizer_type, n_iterations,
+                 best_params, best_score, started_at, completed_at
+          FROM optimization_runs
+          ORDER BY created_at DESC
+          LIMIT $1
+        `, [limit]);
+
+        return reply.send({
+          success: true,
+          data: result.rows,
+          timestamp: new Date(),
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          success: false,
+          error: error instanceof Error ? error.message : 'Unknown error',
+          timestamp: new Date(),
+        });
+      }
+    }
+  );
 }
