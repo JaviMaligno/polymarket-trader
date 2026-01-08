@@ -48,8 +48,16 @@ export { BaseSignal } from './core/base/BaseSignal.js';
 
 // Signals
 export { WalletTrackingSignal } from './signals/wallet/WalletTrackingSignal.js';
-export { MomentumSignal } from './signals/technical/MomentumSignal.js';
-export { MeanReversionSignal } from './signals/technical/MeanReversionSignal.js';
+export {
+  MomentumSignal,
+  type MomentumSignalConfig,
+  DEFAULT_MOMENTUM_PARAMS,
+} from './signals/technical/MomentumSignal.js';
+export {
+  MeanReversionSignal,
+  type MeanReversionSignalConfig,
+  DEFAULT_MEAN_REVERSION_PARAMS,
+} from './signals/technical/MeanReversionSignal.js';
 export { CrossMarketArbitrageSignal } from './signals/arbitrage/CrossMarketArbitrageSignal.js';
 
 // Combiners

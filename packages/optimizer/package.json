@@ -1,0 +1,29 @@
+{
+  "name": "@polymarket-trader/optimizer",
+  "version": "0.1.0",
+  "description": "Strategy optimization and automated parameter tuning",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "optimize": "node --loader ts-node/esm src/cli/commands.ts",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@polymarket-trader/backtest": "workspace:*",
+    "@polymarket-trader/signals": "workspace:*",
+    "pg": "^8.11.3",
+    "pino": "^8.17.2",
+    "commander": "^12.0.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/pg": "^8.10.9",
+    "@types/uuid": "^9.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.1.0"
+  }
+}

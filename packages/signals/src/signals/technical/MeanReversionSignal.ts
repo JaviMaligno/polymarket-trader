@@ -4,6 +4,30 @@ import type {
   SignalOutput,
 } from '../../core/types/signal.types.js';
 
+/**
+ * Configuration parameters for Mean Reversion Signal
+ */
+export interface MeanReversionSignalConfig extends Record<string, unknown> {
+  /** Bollinger Bands period - default: 20 */
+  bbPeriod?: number;
+  /** Bollinger Bands standard deviation multiplier - default: 2 */
+  bbStdDev?: number;
+  /** Moving average period for mean - default: 20 */
+  maPeriod?: number;
+  /** Z-score threshold for extreme deviation - default: 2 */
+  zScoreThreshold?: number;
+  /** Minimum deviation from mean to trigger signal (%) - default: 5 */
+  minDeviationPct?: number;
+  /** Time since resolution threshold (days) - prediction markets specific - default: 7 */
+  resolutionProximityDays?: number;
+  /** Weight for Bollinger Band signal - default: 0.4 */
+  bbWeight?: number;
+  /** Weight for Z-score signal - default: 0.35 */
+  zScoreWeight?: number;
+  /** Weight for historical mean reversion - default: 0.25 */
+  historicalWeight?: number;
+}
+
 interface MeanReversionParams extends Record<string, unknown> {
   /** Bollinger Bands period */
   bbPeriod: number;
@@ -25,6 +49,19 @@ interface MeanReversionParams extends Record<string, unknown> {
   historicalWeight: number;
 }
 
+/** Default parameters for Mean Reversion Signal */
+export const DEFAULT_MEAN_REVERSION_PARAMS: MeanReversionParams = {
+  bbPeriod: 20,
+  bbStdDev: 2,
+  maPeriod: 20,
+  zScoreThreshold: 2,
+  minDeviationPct: 5,
+  resolutionProximityDays: 7,
+  bbWeight: 0.4,
+  zScoreWeight: 0.35,
+  historicalWeight: 0.25,
+};
+
 /**
  * Mean Reversion Signal
  *
@@ -42,17 +79,19 @@ export class MeanReversionSignal extends BaseSignal {
   readonly name = 'Mean Reversion';
   readonly description = 'Detects overbought/oversold conditions likely to revert';
 
-  protected parameters: MeanReversionParams = {
-    bbPeriod: 20,
-    bbStdDev: 2,
-    maPeriod: 20,
-    zScoreThreshold: 2,
-    minDeviationPct: 5,
-    resolutionProximityDays: 7,
-    bbWeight: 0.4,
-    zScoreWeight: 0.35,
-    historicalWeight: 0.25,
-  };
+  protected parameters: MeanReversionParams;
+
+  /**
+   * Create a new Mean Reversion Signal
+   * @param config - Optional configuration to override defaults
+   */
+  constructor(config?: MeanReversionSignalConfig) {
+    super();
+    this.parameters = {
+      ...DEFAULT_MEAN_REVERSION_PARAMS,
+      ...config,
+    };
+  }
 
   getRequiredLookback(): number {
     return Math.max(this.parameters.bbPeriod, this.parameters.maPeriod) + 10;

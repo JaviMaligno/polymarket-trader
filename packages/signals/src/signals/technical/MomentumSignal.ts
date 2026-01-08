@@ -5,6 +5,40 @@ import type {
   PriceBar,
 } from '../../core/types/signal.types.js';
 
+/**
+ * Configuration parameters for Momentum Signal
+ */
+export interface MomentumSignalConfig extends Record<string, unknown> {
+  /** Short-term momentum period (bars) - default: 5 */
+  shortPeriod?: number;
+  /** Medium-term momentum period (bars) - default: 14 */
+  mediumPeriod?: number;
+  /** Long-term momentum period (bars) - default: 30 */
+  longPeriod?: number;
+  /** RSI period - default: 14 */
+  rsiPeriod?: number;
+  /** RSI overbought threshold - default: 70 */
+  rsiOverbought?: number;
+  /** RSI oversold threshold - default: 30 */
+  rsiOversold?: number;
+  /** MACD fast period - default: 12 */
+  macdFast?: number;
+  /** MACD slow period - default: 26 */
+  macdSlow?: number;
+  /** MACD signal period - default: 9 */
+  macdSignal?: number;
+  /** Minimum volume to consider valid signal - default: 1.0 */
+  minVolumeMultiplier?: number;
+  /** Weight for price momentum - default: 0.35 */
+  priceMomentumWeight?: number;
+  /** Weight for RSI - default: 0.25 */
+  rsiWeight?: number;
+  /** Weight for MACD - default: 0.25 */
+  macdWeight?: number;
+  /** Weight for volume confirmation - default: 0.15 */
+  volumeWeight?: number;
+}
+
 interface MomentumParams extends Record<string, unknown> {
   /** Short-term momentum period (bars) */
   shortPeriod: number;
@@ -36,6 +70,24 @@ interface MomentumParams extends Record<string, unknown> {
   volumeWeight: number;
 }
 
+/** Default parameters for Momentum Signal */
+export const DEFAULT_MOMENTUM_PARAMS: MomentumParams = {
+  shortPeriod: 5,
+  mediumPeriod: 14,
+  longPeriod: 30,
+  rsiPeriod: 14,
+  rsiOverbought: 70,
+  rsiOversold: 30,
+  macdFast: 12,
+  macdSlow: 26,
+  macdSignal: 9,
+  minVolumeMultiplier: 1.0,
+  priceMomentumWeight: 0.35,
+  rsiWeight: 0.25,
+  macdWeight: 0.25,
+  volumeWeight: 0.15,
+};
+
 /**
  * Momentum Signal
  *
@@ -50,22 +102,19 @@ export class MomentumSignal extends BaseSignal {
   readonly name = 'Momentum';
   readonly description = 'Detects price momentum using technical indicators';
 
-  protected parameters: MomentumParams = {
-    shortPeriod: 5,
-    mediumPeriod: 14,
-    longPeriod: 30,
-    rsiPeriod: 14,
-    rsiOverbought: 70,
-    rsiOversold: 30,
-    macdFast: 12,
-    macdSlow: 26,
-    macdSignal: 9,
-    minVolumeMultiplier: 1.0,
-    priceMomentumWeight: 0.35,
-    rsiWeight: 0.25,
-    macdWeight: 0.25,
-    volumeWeight: 0.15,
-  };
+  protected parameters: MomentumParams;
+
+  /**
+   * Create a new Momentum Signal
+   * @param config - Optional configuration to override defaults
+   */
+  constructor(config?: MomentumSignalConfig) {
+    super();
+    this.parameters = {
+      ...DEFAULT_MOMENTUM_PARAMS,
+      ...config,
+    };
+  }
 
   getRequiredLookback(): number {
     const params = this.parameters;
