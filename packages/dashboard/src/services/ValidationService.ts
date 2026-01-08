@@ -64,11 +64,11 @@ export interface SimpleBacktestResult {
 // ============================================
 
 const DEFAULT_CONFIG: ValidationServiceConfig = {
-  minSharpeRatio: 0.5,        // Minimum viable Sharpe
-  maxSharpeRatio: 5.0,        // Above this is suspicious (likely overfit)
-  minTrades: 20,              // Need enough trades for significance
-  maxDrawdown: 0.30,          // Max 30% drawdown
-  maxOverfitProbability: 0.5, // Max 50% overfit probability
+  minSharpeRatio: 0.3,        // Lower bar for paper trading learning
+  maxSharpeRatio: 8.0,        // More permissive (paper trading will reveal if overfit)
+  minTrades: 5,               // Reduced for faster iteration
+  maxDrawdown: 0.40,          // Allow 40% drawdown in paper trading
+  maxOverfitProbability: 0.7, // More permissive for learning phase
   strictMode: false,          // Allow conditional deployment
 };
 
