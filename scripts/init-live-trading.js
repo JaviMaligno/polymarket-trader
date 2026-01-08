@@ -34,13 +34,15 @@ async function main() {
 
   try {
     // Get markets with recent price data and good liquidity
+    // Use condition_id (hex) as that's what Polymarket API expects
     const marketsResult = await pool.query(`
-      SELECT DISTINCT m.id, m.question, m.volume_24h, m.liquidity
+      SELECT DISTINCT m.condition_id, m.question, m.volume_24h, m.liquidity
       FROM markets m
       JOIN price_history ph ON m.id = ph.market_id
       WHERE ph.time > NOW() - INTERVAL '24 hours'
         AND m.is_active = true
-      GROUP BY m.id, m.question, m.volume_24h, m.liquidity
+        AND m.condition_id IS NOT NULL
+      GROUP BY m.condition_id, m.question, m.volume_24h, m.liquidity
       HAVING COUNT(*) >= 20
       ORDER BY m.volume_24h DESC NULLS LAST
       LIMIT 50
@@ -62,7 +64,8 @@ async function main() {
 
     // 2. Subscribe markets to the feed
     console.log('\nSubscribing markets to LiveDataFeed...');
-    const marketIds = markets.map(m => m.id);
+    // Use condition_id for Polymarket API
+    const marketIds = markets.map(m => m.condition_id);
 
     const subscribeRes = await fetch(`${DASHBOARD_API_URL}/api/feed/subscribe`, {
       method: 'POST',
