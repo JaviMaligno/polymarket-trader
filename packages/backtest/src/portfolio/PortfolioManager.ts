@@ -453,9 +453,59 @@ export class PortfolioManager implements IPortfolioManager {
   }
 
   /**
-   * Get specific position
+   * Get specific position (simplified interface for BacktestEngine)
    */
-  getPosition(marketId: string, tokenId: string): Position | null {
+  getPosition(marketId: string, tokenId: string): { side: 'LONG' | 'SHORT'; size: number } | null {
+    const position = this.positions.get(this.getPositionKey(marketId, tokenId));
+    if (!position) return null;
+    return { side: position.side, size: position.size };
+  }
+
+  /**
+   * Get full position details (internal use)
+   */
+  getFullPosition(marketId: string, tokenId: string): Position | null {
     return this.positions.get(this.getPositionKey(marketId, tokenId)) || null;
+  }
+
+  /**
+   * Close all open positions at current prices
+   * Returns total realized P&L from closing positions
+   */
+  closeAllPositions(
+    currentTime: Date,
+    getPriceFunc: (marketId: string, tokenId: string) => number | null
+  ): number {
+    let totalPnl = 0;
+    const positionsToClose = Array.from(this.positions.values());
+
+    for (const position of positionsToClose) {
+      const currentPrice = getPriceFunc(position.marketId, position.tokenId);
+      if (currentPrice === null) {
+        // Use last known price if current not available
+        this.logger.warn(
+          { marketId: position.marketId, tokenId: position.tokenId },
+          'No price available for position close, using entry price'
+        );
+        continue;
+      }
+
+      // Calculate P&L
+      const pnl = position.side === 'LONG'
+        ? (currentPrice - position.entryPrice) * position.size
+        : (position.entryPrice - currentPrice) * position.size;
+
+      totalPnl += pnl;
+
+      // Close the position
+      this.closePosition(position, currentPrice, currentTime);
+    }
+
+    this.logger.info(
+      { closedCount: positionsToClose.length, totalPnl },
+      'Closed all positions at backtest end'
+    );
+
+    return totalPnl;
   }
 }

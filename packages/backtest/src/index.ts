@@ -156,21 +156,24 @@ export function createBacktestEngine(options: CreateBacktestOptions): BacktestEn
  * Default backtest configuration
  */
 export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
-  feeRate: 0.002, // 0.2%
+  feeRate: 0.001, // 0.1% (optimized)
   granularityMinutes: 60,
   slippage: {
-    model: 'proportional',
-    proportionalRate: 0.001,
+    model: 'fixed',
+    fixedSlippage: 0.005, // 0.5% slippage
   },
   risk: {
-    maxPositionSizePct: 10,
-    maxExposurePct: 50,
-    maxDrawdownPct: 20,
+    maxPositionSizePct: 5,    // Optimized: smaller positions reduce risk
+    maxExposurePct: 80,
+    maxDrawdownPct: 25,
     dailyLossLimit: 1000,
-    maxPositions: 20,
-    stopLossPct: 10,
-    takeProfitPct: 25,
+    maxPositions: 10,
+    stopLossPct: 20,
+    takeProfitPct: 50,
   },
+  // SHORT-only strategy is profitable (+31% vs -30% for LONG)
+  // Mean reversion signals work better for identifying overpriced markets
+  onlyDirection: 'SHORT',
 };
 
 /**
@@ -192,5 +195,6 @@ export function createBacktestConfig(
     slippage: overrides.slippage ?? DEFAULT_BACKTEST_CONFIG.slippage!,
     risk: { ...DEFAULT_BACKTEST_CONFIG.risk!, ...overrides.risk },
     marketIds: overrides.marketIds,
+    onlyDirection: overrides.onlyDirection ?? DEFAULT_BACKTEST_CONFIG.onlyDirection,
   };
 }

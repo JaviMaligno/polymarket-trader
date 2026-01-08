@@ -172,6 +172,8 @@ export interface BacktestConfig {
   marketIds?: string[];
   /** Data granularity in minutes */
   granularityMinutes: number;
+  /** Only trade signals in this direction (for testing) */
+  onlyDirection?: 'LONG' | 'SHORT';
 }
 
 export interface SlippageConfig {

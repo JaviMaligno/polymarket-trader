@@ -35,6 +35,10 @@ export interface IPortfolioManager {
   handleOrderFilled(event: BacktestEvent): void;
   handleMarketResolved(event: MarketResolvedEvent): void;
   reset(initialCapital: number): void;
+  /** Get existing position for a market/token */
+  getPosition(marketId: string, tokenId: string): { side: 'LONG' | 'SHORT'; size: number } | null;
+  /** Close all open positions at current prices */
+  closeAllPositions(currentTime: Date, getPriceFunc: (marketId: string, tokenId: string) => number | null): number;
 }
 
 export interface IOrderBookSimulator {
@@ -199,6 +203,19 @@ export class BacktestEngine {
 
       // Process any remaining events
       await this.eventBus.processQueue();
+
+      // Close all remaining open positions at final prices
+      if (this.portfolioManager) {
+        const closedPnl = this.portfolioManager.closeAllPositions(
+          this.currentTime,
+          (marketId: string, tokenId: string) => {
+            const cacheKey = `${marketId}:${tokenId}`;
+            const cache = this.priceCache.get(cacheKey);
+            return cache?.currentBar?.close ?? null;
+          }
+        );
+        this.logger.info({ closedPnl }, 'Closed all remaining positions at backtest end');
+      }
 
       // Calculate results
       const result = this.calculateResults();
@@ -446,21 +463,15 @@ export class BacktestEngine {
     }
 
     const { marketId, direction, strength, confidence } = event.data;
-    const portfolioState = this.portfolioManager.getState();
 
-    // Calculate position size based on signal strength and Kelly criterion
-    const maxPositionPct = this.config.risk.maxPositionSizePct / 100;
-    const kellyFraction = Math.min(0.5, confidence * Math.abs(strength));
-    const positionSizePct = maxPositionPct * kellyFraction;
-    const positionValue = portfolioState.cash * positionSizePct;
-
-    // Skip if position too small
-    if (positionValue < 10) {
-      this.signalHandlingStats.positionTooSmall++;
+    // Optional: Filter by direction (for testing)
+    if (this.config.onlyDirection && direction !== this.config.onlyDirection) {
       return;
     }
 
-    // Get current price from cache
+    const portfolioState = this.portfolioManager.getState();
+
+    // Get current price from cache first (needed for position checks)
     const market = this.marketData.get(marketId);
     if (!market) {
       this.signalHandlingStats.marketNotFound++;
@@ -483,6 +494,62 @@ export class BacktestEngine {
     const currentPrice = cache.currentBar.close;
     if (currentPrice <= 0 || currentPrice >= 1) {
       this.signalHandlingStats.priceOutOfRange++;
+      return;
+    }
+
+    // Check for existing position
+    const existingPosition = this.portfolioManager.getPosition(marketId, tokenId);
+    const signalSide = direction === 'LONG' ? 'LONG' : 'SHORT';
+
+    if (existingPosition) {
+      if (existingPosition.side === signalSide) {
+        // Already have position in same direction - skip to avoid over-concentration
+        this.signalHandlingStats.positionTooSmall++; // Reuse this counter for "skipped"
+        return;
+      }
+      // Opposite direction - close existing position first
+      const closeOrderId = `close_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const closeSide = existingPosition.side === 'LONG' ? 'SELL' : 'BUY';
+      const closeOrder = {
+        id: closeOrderId,
+        marketId,
+        tokenId,
+        side: closeSide as 'BUY' | 'SELL',
+        type: 'MARKET' as const,
+        size: existingPosition.size,
+        price: currentPrice,
+        status: 'PENDING' as const,
+        filledSize: 0,
+        avgFillPrice: 0,
+        createdAt: this.currentTime,
+        updatedAt: this.currentTime,
+        fills: [],
+      };
+
+      this.signalHandlingStats.ordersSubmitted++;
+      const closeFillEvent = this.orderBookSimulator.submitOrder(closeOrder);
+      if (closeFillEvent && closeFillEvent.type === 'ORDER_FILLED') {
+        this.signalHandlingStats.ordersFilled++;
+        this.portfolioManager.handleOrderFilled(closeFillEvent);
+        this.logger.info({
+          marketId,
+          action: 'CLOSE',
+          previousSide: existingPosition.side,
+          size: existingPosition.size,
+          price: currentPrice
+        }, 'Position closed before flip');
+      }
+    }
+
+    // Calculate position size based on signal strength and Kelly criterion
+    const maxPositionPct = this.config.risk.maxPositionSizePct / 100;
+    const kellyFraction = Math.min(0.5, confidence * Math.abs(strength));
+    const positionSizePct = maxPositionPct * kellyFraction;
+    const positionValue = portfolioState.cash * positionSizePct;
+
+    // Skip if position too small
+    if (positionValue < 10) {
+      this.signalHandlingStats.positionTooSmall++;
       return;
     }
 

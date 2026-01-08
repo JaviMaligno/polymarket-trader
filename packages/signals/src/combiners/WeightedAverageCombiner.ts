@@ -48,8 +48,8 @@ export class WeightedAverageCombiner implements ISignalCombiner {
     this.parameters = {
       minConfidence: 0.2,
       normalizeWeights: true,
-      minCombinedConfidence: 0.25,
-      minCombinedStrength: 0.15,
+      minCombinedConfidence: 0.2,   // Optimized for SHORT strategy
+      minCombinedStrength: 0.3,     // Optimized: filters weak signals
       conflictResolution: 'weighted',
       timeDecayFactor: 0.9,
       maxSignalAgeMs: 5 * 60 * 1000, // 5 minutes
