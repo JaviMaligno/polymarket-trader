@@ -22,6 +22,7 @@ import { getSignalEngine } from '../services/SignalEngine.js';
 import { getPolymarketService } from '../services/PolymarketService.js';
 import { getBacktestService, type BacktestRequest } from '../services/BacktestService.js';
 import { getOptimizationScheduler } from '../services/OptimizationScheduler.js';
+import { AlertSystem } from '@polymarket-trader/trader';
 
 export async function registerRoutes(
   fastify: FastifyInstance,
@@ -841,6 +842,48 @@ export async function registerRoutes(
         rss: Math.round(memUsage.rss / 1024 / 1024),
       },
     };
+  });
+
+  // Test alert endpoint - sends a test email
+  fastify.post('/api/alerts/test', async (_request, reply) => {
+    try {
+      const alertSystem = new AlertSystem({
+        channels: ['EMAIL', 'CONSOLE'],
+        minSeverity: 'INFO',
+        emailConfig: {
+          to: [process.env.ALERT_EMAIL_TO || ''],
+          from: process.env.ALERT_EMAIL_FROM || 'polymarket-alerts@localhost',
+          smtpHost: process.env.SMTP_HOST || '',
+          smtpPort: parseInt(process.env.SMTP_PORT || '587'),
+          smtpUser: process.env.SMTP_USER,
+          smtpPass: process.env.SMTP_PASS,
+        },
+      });
+
+      const alert = await alertSystem.createAndSend(
+        'INFO',
+        '🧪 Test Alert - Sistema Funcionando',
+        'Este es un email de prueba del sistema de alertas de Polymarket Trader. Si recibes este mensaje, la configuración SMTP está correcta.',
+        'test-endpoint',
+        { timestamp: new Date().toISOString(), source: 'manual-test' }
+      );
+
+      return reply.send({
+        success: true,
+        data: {
+          message: 'Test alert sent',
+          alertId: alert.id,
+          sentTo: process.env.ALERT_EMAIL_TO,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: String(error),
+        timestamp: new Date(),
+      });
+    }
   });
 
   // Detailed metrics endpoint
