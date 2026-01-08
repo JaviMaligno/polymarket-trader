@@ -2726,4 +2726,135 @@ export async function registerRoutes(
       });
     }
   });
+
+  // ============================================
+  // Feed Management Routes
+  // ============================================
+
+  // Get feed status
+  fastify.get('/api/feed/status', async (_request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    const state = tradingSystem.feed.getState();
+    const markets = tradingSystem.feed.getAllMarkets();
+
+    return reply.send({
+      success: true,
+      data: {
+        status: state.status,
+        connectedAt: state.connectedAt,
+        lastMessageAt: state.lastMessageAt,
+        subscriptions: state.subscriptions,
+        subscriptionCount: state.subscriptions.length,
+        marketCount: markets.length,
+        markets: markets.slice(0, 10).map(m => ({
+          id: m.id,
+          question: m.question?.slice(0, 50),
+          volume: m.volume,
+        })),
+      },
+      timestamp: new Date(),
+    });
+  });
+
+  // Subscribe to markets
+  fastify.post<{ Body: { marketIds: string[] } }>('/api/feed/subscribe', async (request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    const { marketIds } = request.body;
+
+    if (!marketIds || !Array.isArray(marketIds)) {
+      return reply.status(400).send({
+        success: false,
+        error: 'marketIds array required',
+        timestamp: new Date(),
+      });
+    }
+
+    tradingSystem.feed.subscribeMany(marketIds);
+
+    return reply.send({
+      success: true,
+      data: {
+        subscribed: marketIds.length,
+        total: tradingSystem.feed.getSubscriptions().length,
+      },
+      timestamp: new Date(),
+    });
+  });
+
+  // Subscribe to a single market
+  fastify.post<{ Params: { marketId: string } }>('/api/feed/subscribe/:marketId', async (request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    const { marketId } = request.params;
+    tradingSystem.feed.subscribe(marketId);
+
+    return reply.send({
+      success: true,
+      data: {
+        subscribed: marketId,
+        total: tradingSystem.feed.getSubscriptions().length,
+      },
+      timestamp: new Date(),
+    });
+  });
+
+  // Unsubscribe from a market
+  fastify.delete<{ Params: { marketId: string } }>('/api/feed/unsubscribe/:marketId', async (request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    const { marketId } = request.params;
+    tradingSystem.feed.unsubscribe(marketId);
+
+    return reply.send({
+      success: true,
+      data: {
+        unsubscribed: marketId,
+        total: tradingSystem.feed.getSubscriptions().length,
+      },
+      timestamp: new Date(),
+    });
+  });
+
+  // Get all subscriptions
+  fastify.get('/api/feed/subscriptions', async (_request, reply) => {
+    if (!tradingSystem) {
+      return reply.status(400).send({
+        success: false,
+        error: 'Trading system not initialized',
+        timestamp: new Date(),
+      });
+    }
+
+    return reply.send({
+      success: true,
+      data: tradingSystem.feed.getSubscriptions(),
+      timestamp: new Date(),
+    });
+  });
 }
