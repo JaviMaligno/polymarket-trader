@@ -54,6 +54,45 @@ services:
       - key: LOG_LEVEL
         value: info
 
+  # Optimizer Server (Python FastAPI with Optuna)
+  - type: web
+    name: polymarket-optimizer-server
+    runtime: docker
+    region: oregon
+    plan: free
+    dockerfilePath: services/optimizer-server/Dockerfile
+    dockerContext: services/optimizer-server
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: LOG_LEVEL
+        value: info
+
+  # Optimization Worker (Node.js Background Service)
+  - type: worker
+    name: polymarket-optimization-worker
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/signals build && pnpm --filter @polymarket-trader/backtest build && pnpm --filter @polymarket-trader/optimizer build
+    startCommand: node packages/optimizer/dist/cli/commands.js status
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: OPTIMIZER_SERVER_URL
+        value: http://polymarket-optimizer-server:8000
+      - key: OPTIMIZATION_ENABLED
+        value: "true"
+      - key: AUTO_ACTIVATE_PAPER
+        value: "true"
+      - key: AUTO_ACTIVATE_LIVE
+        value: "false"
+      - key: MODE
+        value: paper
+
   # Dashboard Frontend (Static Site)
   - type: web
     name: polymarket-dashboard-frontend
