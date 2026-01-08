@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import http from 'node:http';
 import { pino } from 'pino';
 import { healthCheck, closePool } from './database/connection.js';
 import { getScheduler } from './services/Scheduler.js';
@@ -39,6 +40,31 @@ async function main(): Promise<void> {
   const scheduler = getScheduler();
   scheduler.start();
 
+  // Start health check HTTP server
+  const healthPort = parseInt(process.env.HEALTH_PORT || process.env.PORT || '10000', 10);
+  const healthServer = http.createServer(async (req, res) => {
+    if (req.url === '/health' || req.url === '/') {
+      const dbHealthy = await healthCheck();
+      const status = {
+        status: dbHealthy ? 'healthy' : 'unhealthy',
+        timestamp: new Date().toISOString(),
+        database: dbHealthy,
+        scheduler: scheduler.getStatus().isRunning,
+        uptime: process.uptime(),
+      };
+
+      res.writeHead(dbHealthy ? 200 : 503, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(status));
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
+    }
+  });
+
+  healthServer.listen(healthPort, '0.0.0.0', () => {
+    logger.info({ port: healthPort }, 'Health check server started');
+  });
+
   logger.info('Data collector started successfully');
   logger.info('Press Ctrl+C to stop');
 
@@ -55,6 +81,7 @@ async function main(): Promise<void> {
     logger.info({ signal }, 'Received shutdown signal');
 
     clearInterval(statsInterval);
+    healthServer.close();
     scheduler.stop();
 
     // Wait for running jobs to complete before closing pool
