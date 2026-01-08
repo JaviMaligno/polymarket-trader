@@ -281,8 +281,10 @@ export interface AlertConfig {
   emailConfig?: {
     to: string[];
     from: string;
-    smtpHost: string;
-    smtpPort: number;
+    resendApiKey?: string;
+    // Legacy SMTP (deprecated - use Resend)
+    smtpHost?: string;
+    smtpPort?: number;
     smtpUser?: string;
     smtpPass?: string;
     secure?: boolean;

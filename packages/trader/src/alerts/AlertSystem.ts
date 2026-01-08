@@ -7,8 +7,7 @@
 
 import pino from 'pino';
 import { EventEmitter } from 'eventemitter3';
-import nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 import type {
   Alert,
   AlertConfig,
@@ -69,7 +68,7 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
   private rateLimitState: RateLimitState;
   private lastAlertByRule: Map<string, number> = new Map();
   private alertCount: number = 0;
-  private emailTransporter: Transporter | null = null;
+  private resendClient: Resend | null = null;
 
   constructor(config?: Partial<AlertConfig>) {
     super();
@@ -86,26 +85,17 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
   }
 
   /**
-   * Initialize the email transporter
+   * Initialize the Resend email client
    */
   private initEmailTransporter(): void {
     const emailConfig = this.config.emailConfig;
-    if (!emailConfig) return;
+    if (!emailConfig?.resendApiKey) return;
 
     try {
-      this.emailTransporter = nodemailer.createTransport({
-        host: emailConfig.smtpHost,
-        port: emailConfig.smtpPort,
-        secure: emailConfig.secure ?? (emailConfig.smtpPort === 465),
-        auth: emailConfig.smtpUser && emailConfig.smtpPass ? {
-          user: emailConfig.smtpUser,
-          pass: emailConfig.smtpPass,
-        } : undefined,
-      });
-
-      logger.info({ host: emailConfig.smtpHost, port: emailConfig.smtpPort }, 'Email transporter initialized');
+      this.resendClient = new Resend(emailConfig.resendApiKey);
+      logger.info('Resend email client initialized');
     } catch (error) {
-      logger.error({ error }, 'Failed to initialize email transporter');
+      logger.error({ error }, 'Failed to initialize Resend client');
     }
   }
 
@@ -317,10 +307,10 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
       throw new Error('Email not configured');
     }
 
-    if (!this.emailTransporter) {
+    if (!this.resendClient) {
       this.initEmailTransporter();
-      if (!this.emailTransporter) {
-        throw new Error('Email transporter not initialized');
+      if (!this.resendClient) {
+        throw new Error('Resend client not initialized');
       }
     }
 
@@ -361,34 +351,22 @@ export class AlertSystem extends EventEmitter<AlertSystemEvents> {
       </html>
     `;
 
-    // Plain text fallback
-    const text = `
-[${alert.severity}] ${alert.title}
-
-${alert.message}
-
-Source: ${alert.source}
-Time: ${alert.timestamp.toISOString()}
-Alert ID: ${alert.id}
-${alert.data ? `\nData:\n${JSON.stringify(alert.data, null, 2)}` : ''}
-
----
-Polymarket Trading System Alert
-    `.trim();
-
     try {
-      await this.emailTransporter.sendMail({
+      const { error } = await this.resendClient.emails.send({
         from: emailConfig.from,
-        to: emailConfig.to.join(', '),
+        to: emailConfig.to,
         subject: `[${alert.severity}] ${alert.title}`,
-        text,
         html,
       });
+
+      if (error) {
+        throw new Error(error.message);
+      }
 
       logger.info({
         to: emailConfig.to,
         subject: `[${alert.severity}] ${alert.title}`,
-      }, 'Email alert sent');
+      }, 'Email alert sent via Resend');
     } catch (error) {
       logger.error({ error }, 'Failed to send email alert');
       throw error;
