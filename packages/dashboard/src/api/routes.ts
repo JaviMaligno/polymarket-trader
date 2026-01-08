@@ -854,9 +854,10 @@ export async function registerRoutes(
           to: [process.env.ALERT_EMAIL_TO || ''],
           from: process.env.ALERT_EMAIL_FROM || 'polymarket-alerts@localhost',
           smtpHost: process.env.SMTP_HOST || '',
-          smtpPort: parseInt(process.env.SMTP_PORT || '587'),
+          smtpPort: parseInt(process.env.SMTP_PORT || '465'),
           smtpUser: process.env.SMTP_USER,
           smtpPass: process.env.SMTP_PASS,
+          secure: process.env.SMTP_SECURE === 'true',
         },
       });
 
