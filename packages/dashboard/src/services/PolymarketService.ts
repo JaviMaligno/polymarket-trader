@@ -28,16 +28,16 @@ export interface PolymarketConfig {
 const DEFAULT_CONFIG: PolymarketConfig = {
   apiUrl: 'https://clob.polymarket.com',
   wsUrl: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
-  pollingIntervalMs: 30000,  // 30 seconds
-  maxMarketsToTrack: 50,
+  pollingIntervalMs: 60000,  // 60 seconds (increased from 30)
+  maxMarketsToTrack: 20,     // Reduced from 50 to stay under rate limits
   autoDiscoverMarkets: true,
   minVolume24h: 1000,
   minLiquidity: 500,
-  // Rate limiting - conservative defaults to avoid 429s
-  requestDelayMs: 200,          // 200ms between requests (5 req/sec max)
-  maxRequestsPerMinute: 60,     // 60 requests per minute
-  backoffMultiplier: 2,         // Double backoff on each 429
-  maxBackoffMs: 30000,          // Max 30 second backoff
+  // Rate limiting - very conservative to avoid 429s
+  requestDelayMs: 1000,         // 1 second between requests (1 req/sec max)
+  maxRequestsPerMinute: 30,     // 30 requests per minute
+  backoffMultiplier: 3,         // Triple backoff on each 429
+  maxBackoffMs: 60000,          // Max 60 second backoff
 };
 
 export interface PolymarketMarket {
@@ -96,6 +96,7 @@ export class PolymarketService extends EventEmitter {
   private errorCount = 0;
   private currentBackoffMs = 0;
   private consecutiveErrors = 0;
+  private isPolling = false;  // Lock to prevent concurrent polling
 
   constructor(config?: Partial<PolymarketConfig>) {
     super();
@@ -143,23 +144,22 @@ export class PolymarketService extends EventEmitter {
       await this.discoverMarkets();
     }
 
-    // Start polling
+    // Start polling (with delay to avoid immediate rate limits after discovery)
+    console.log(`[PolymarketService] Will start polling in ${this.config.pollingIntervalMs}ms`);
     this.pollingInterval = setInterval(() => {
       this.pollMarkets();
     }, this.config.pollingIntervalMs);
 
-    // Discovery interval (every 5 minutes)
+    // Discovery interval (every 10 minutes instead of 5)
     if (this.config.autoDiscoverMarkets) {
       this.discoveryInterval = setInterval(() => {
         this.discoverMarkets();
-      }, 300000);
+      }, 600000);  // 10 minutes
     }
 
-    // Initial poll
-    await this.pollMarkets();
-
+    // No initial poll - wait for first interval to avoid rate limits
     this.emit('started');
-    console.log('[PolymarketService] Started');
+    console.log('[PolymarketService] Started (first poll in 60s)');
   }
 
   /**
@@ -270,6 +270,13 @@ export class PolymarketService extends EventEmitter {
       return;
     }
 
+    // Prevent concurrent polling
+    if (this.isPolling) {
+      console.log('[PolymarketService] Poll already in progress, skipping');
+      return;
+    }
+    this.isPolling = true;
+
     const priceUpdates: PriceData[] = [];
     const marketIds = Array.from(this.markets.keys());
     let successCount = 0;
@@ -346,6 +353,8 @@ export class PolymarketService extends EventEmitter {
       collector.recordPrices(priceUpdates);
     }
 
+    // Release polling lock
+    this.isPolling = false;
     this.emit('prices:updated', priceUpdates.length);
   }
 
