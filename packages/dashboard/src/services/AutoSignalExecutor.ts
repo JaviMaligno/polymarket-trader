@@ -39,8 +39,8 @@ export interface ExecutorConfig {
 
 const DEFAULT_CONFIG: ExecutorConfig = {
   enabled: true,
-  minConfidence: 0.6,
-  minStrength: 0.3,
+  minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0.40'),  // Lowered from 0.6 to match optimized params
+  minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0.05'),      // Lowered from 0.3 to match optimized params
   maxPositionSize: 500,
   maxOpenPositions: 10,
   maxDailyTrades: 50,

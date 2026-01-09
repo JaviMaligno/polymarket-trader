@@ -11,6 +11,8 @@ import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured } 
 import { autoInitialize, createAndStartStrategy } from './services/AutoInitService.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializePaperTradingService } from './services/PaperTradingService.js';
+import { initializeSignalEngine } from './services/SignalEngine.js';
+import { getPolymarketService } from './services/PolymarketService.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -150,6 +152,30 @@ async function main(): Promise<void> {
       console.log('Starting optimization scheduler...');
       await scheduler.start();
     }, 30000); // 30 second delay
+  }
+
+  // Start SignalEngine (uses database price history for proper signal generation)
+  const enableSignalEngine = process.env.ENABLE_SIGNAL_ENGINE !== 'false';
+  if (enableSignalEngine && isDatabaseConfigured()) {
+    setTimeout(async () => {
+      console.log('Starting SignalEngine (database-based signals)...');
+
+      // Initialize SignalEngine with optimized parameters
+      const signalEngine = initializeSignalEngine({
+        enabled: true,
+        computeIntervalMs: 60000,  // Compute signals every 1 minute
+        maxMarketsPerCycle: 50,    // Process top 50 markets per cycle
+        minPriceBars: 30,          // Require at least 30 price bars
+      });
+
+      // Start the Polymarket service to load markets (it will update SignalEngine)
+      const polymarketService = getPolymarketService();
+      await polymarketService.start();
+
+      // Start the signal engine
+      await signalEngine.start();
+      console.log('SignalEngine started');
+    }, 10000); // 10 second delay to let server fully initialize
   }
 
   // Graceful shutdown
