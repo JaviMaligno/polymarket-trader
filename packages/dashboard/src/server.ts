@@ -10,6 +10,7 @@ import { createTradingSystem } from '@polymarket-trader/trader';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured } from './database/index.js';
 import { autoInitialize, createAndStartStrategy } from './services/AutoInitService.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
+import { initializePaperTradingService } from './services/PaperTradingService.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -66,6 +67,53 @@ async function main(): Promise<void> {
     });
 
     server.setTradingSystem(tradingSystem);
+
+    // Connect paper trading persistence
+    if (isDatabaseConfigured()) {
+      const paperTradingService = initializePaperTradingService(
+        parseFloat(process.env.INITIAL_CAPITAL ?? '10000')
+      );
+
+      // Listen to order fills and persist trades
+      tradingSystem.engine.on('order:filled', (order: any, fill: any) => {
+        paperTradingService.recordTrade(order, fill).catch((err: Error) => {
+          console.error('Failed to record trade:', err);
+        });
+      });
+
+      // Listen to position changes and persist
+      tradingSystem.engine.on('position:opened', (position: any) => {
+        paperTradingService.updatePosition(position).catch((err: Error) => {
+          console.error('Failed to update position:', err);
+        });
+      });
+
+      tradingSystem.engine.on('position:updated', (position: any) => {
+        paperTradingService.updatePosition(position).catch((err: Error) => {
+          console.error('Failed to update position:', err);
+        });
+      });
+
+      tradingSystem.engine.on('position:closed', (position: any) => {
+        paperTradingService.closePosition(position.marketId).catch((err: Error) => {
+          console.error('Failed to close position:', err);
+        });
+      });
+
+      // Start periodic equity snapshots (every 5 minutes)
+      paperTradingService.startSnapshotRecording(
+        () => tradingSystem.engine.getPortfolioState(),
+        () => {
+          const stats = tradingSystem.engine.getStatistics();
+          return {
+            totalTrades: stats.totalTrades,
+          };
+        },
+        300000 // 5 minutes
+      );
+
+      console.log('Paper trading persistence connected');
+    }
 
     // Start trading system
     await tradingSystem.start();
