@@ -18,6 +18,11 @@ export interface PolymarketConfig {
   autoDiscoverMarkets: boolean;
   minVolume24h: number;
   minLiquidity: number;
+  // Rate limiting
+  requestDelayMs: number;       // Delay between individual requests
+  maxRequestsPerMinute: number; // Max requests per minute
+  backoffMultiplier: number;    // Multiplier for exponential backoff
+  maxBackoffMs: number;         // Max backoff delay
 }
 
 const DEFAULT_CONFIG: PolymarketConfig = {
@@ -28,6 +33,11 @@ const DEFAULT_CONFIG: PolymarketConfig = {
   autoDiscoverMarkets: true,
   minVolume24h: 1000,
   minLiquidity: 500,
+  // Rate limiting - conservative defaults to avoid 429s
+  requestDelayMs: 200,          // 200ms between requests (5 req/sec max)
+  maxRequestsPerMinute: 60,     // 60 requests per minute
+  backoffMultiplier: 2,         // Double backoff on each 429
+  maxBackoffMs: 30000,          // Max 30 second backoff
 };
 
 export interface PolymarketMarket {
@@ -84,10 +94,28 @@ export class PolymarketService extends EventEmitter {
   private discoveryInterval: NodeJS.Timeout | null = null;
   private lastUpdate: Date | null = null;
   private errorCount = 0;
+  private currentBackoffMs = 0;
+  private consecutiveErrors = 0;
 
   constructor(config?: Partial<PolymarketConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  /**
+   * Sleep for a specified duration
+   */
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Calculate backoff delay based on consecutive errors
+   */
+  private calculateBackoff(): number {
+    if (this.consecutiveErrors === 0) return 0;
+    const backoff = this.config.requestDelayMs * Math.pow(this.config.backoffMultiplier, this.consecutiveErrors);
+    return Math.min(backoff, this.config.maxBackoffMs);
   }
 
   /**
@@ -243,13 +271,28 @@ export class PolymarketService extends EventEmitter {
     }
 
     const priceUpdates: PriceData[] = [];
+    const marketIds = Array.from(this.markets.keys());
+    let successCount = 0;
+    let errorCount = 0;
 
-    for (const [marketId, market] of this.markets) {
+    for (const marketId of marketIds) {
+      // Apply rate limiting delay
+      const delay = this.config.requestDelayMs + this.calculateBackoff();
+      if (delay > 0) {
+        await this.sleep(delay);
+      }
+
       try {
         const updatedMarket = await this.fetchMarket(marketId);
 
         if (updatedMarket) {
           this.markets.set(marketId, updatedMarket);
+          successCount++;
+
+          // Reset consecutive errors on success
+          if (this.consecutiveErrors > 0) {
+            this.consecutiveErrors = Math.max(0, this.consecutiveErrors - 1);
+          }
 
           // Update prices
           for (let i = 0; i < updatedMarket.tokenIds.length; i++) {
@@ -278,12 +321,24 @@ export class PolymarketService extends EventEmitter {
           }
         }
       } catch (error) {
-        console.error(`[PolymarketService] Failed to poll market ${marketId}:`, error);
+        errorCount++;
+        // Check for rate limit error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes('429')) {
+          this.consecutiveErrors++;
+          const backoff = this.calculateBackoff();
+          console.warn(`[PolymarketService] Rate limited, backing off for ${backoff}ms`);
+          await this.sleep(backoff);
+        }
       }
     }
 
     this.lastUpdate = new Date();
-    this.errorCount = 0;
+    this.errorCount = errorCount;
+
+    if (successCount > 0 || errorCount > 0) {
+      console.log(`[PolymarketService] Polled ${successCount}/${marketIds.length} markets (${errorCount} errors)`);
+    }
 
     // Send price updates to data collector
     if (priceUpdates.length > 0) {
