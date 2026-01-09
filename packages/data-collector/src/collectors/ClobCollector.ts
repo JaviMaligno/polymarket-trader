@@ -8,6 +8,10 @@ const logger = pino({ name: 'clob-collector' });
 
 const CLOB_API_URL = process.env.CLOB_API_URL || 'https://clob.polymarket.com';
 
+// Maximum number of markets to track for price history
+// Set to 0 or undefined to track all markets
+const MAX_TRACKED_MARKETS = parseInt(process.env.MAX_TRACKED_MARKETS || '0', 10) || undefined;
+
 interface PriceHistoryResponse {
   history: PriceHistory[];
 }
@@ -316,6 +320,7 @@ export class ClobCollector {
 
   /**
    * Sync price history for all active markets
+   * Respects MAX_TRACKED_MARKETS config to limit storage usage
    */
   async syncAllMarketsPriceHistory(): Promise<{
     markets: number;
@@ -323,15 +328,22 @@ export class ClobCollector {
     totalSkipped: number;
     errors: number;
   }> {
-    // Get all active markets with their token IDs
+    // Get active markets with their token IDs, ordered by volume
+    // If MAX_TRACKED_MARKETS is set, only get top N markets by volume
+    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
     const marketsResult = await query(
       `
       SELECT id, clob_token_id_yes, clob_token_id_no
       FROM markets
       WHERE is_active = true AND clob_token_id_yes IS NOT NULL
       ORDER BY volume_24h DESC NULLS LAST
+      ${limitClause}
       `
     );
+
+    if (MAX_TRACKED_MARKETS) {
+      logger.info({ maxMarkets: MAX_TRACKED_MARKETS }, 'Limiting price history sync to top markets by volume');
+    }
 
     const markets = marketsResult.rows;
     let totalInserted = 0;
@@ -379,15 +391,20 @@ export class ClobCollector {
   }
 
   /**
-   * Update current prices for all active markets
+   * Update current prices for active markets
+   * Respects MAX_TRACKED_MARKETS config to limit API calls
    */
   async updateAllMarketPrices(): Promise<{ updated: number; errors: number }> {
-    // Get all active token IDs
+    // Get active token IDs, ordered by volume
+    // If MAX_TRACKED_MARKETS is set, only get top N markets
+    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
     const tokensResult = await query(
       `
       SELECT id, clob_token_id_yes, clob_token_id_no
       FROM markets
       WHERE is_active = true AND clob_token_id_yes IS NOT NULL
+      ORDER BY volume_24h DESC NULLS LAST
+      ${limitClause}
       `
     );
 
