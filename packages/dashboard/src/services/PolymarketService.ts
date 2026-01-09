@@ -40,6 +40,9 @@ const DEFAULT_CONFIG: PolymarketConfig = {
   maxBackoffMs: 60000,          // Max 60 second backoff
 };
 
+// Startup delay to allow rate limits to reset during deploy (2 minutes default)
+const STARTUP_DELAY_MS = parseInt(process.env.POLYMARKET_STARTUP_DELAY_MS || '120000', 10);
+
 export interface PolymarketMarket {
   id: string;
   conditionId: string;
@@ -129,18 +132,36 @@ export class PolymarketService extends EventEmitter {
     }
 
     this.isRunning = true;
-    console.log('[PolymarketService] Starting...');
+
+    // Emit started immediately so health checks pass
+    this.emit('started');
+    console.log('[PolymarketService] Service registered');
+
+    // Add startup delay to allow rate limits to reset during deploy
+    // This prevents the new instance from hitting 429s immediately
+    if (STARTUP_DELAY_MS > 0) {
+      console.log(`[PolymarketService] Waiting ${STARTUP_DELAY_MS / 1000}s before making API calls (rate limit cooldown)...`);
+      await this.sleep(STARTUP_DELAY_MS);
+    }
+
+    console.log('[PolymarketService] Starting API operations...');
 
     // Verify API is reachable
     try {
       await this.healthCheck();
       console.log('[PolymarketService] API health check passed');
+      this.consecutiveErrors = 0;
     } catch (error) {
-      console.warn('[PolymarketService] API health check failed, will retry:', error);
+      console.warn('[PolymarketService] API health check failed, will retry later:', error);
+      this.consecutiveErrors++;
     }
 
-    // Discover markets if enabled
+    // Discover markets if enabled (with extra delay if health check failed)
     if (this.config.autoDiscoverMarkets) {
+      if (this.consecutiveErrors > 0) {
+        console.log('[PolymarketService] Waiting 30s after health check failure before discovery...');
+        await this.sleep(30000);
+      }
       await this.discoverMarkets();
     }
 
@@ -157,9 +178,7 @@ export class PolymarketService extends EventEmitter {
       }, 600000);  // 10 minutes
     }
 
-    // No initial poll - wait for first interval to avoid rate limits
-    this.emit('started');
-    console.log('[PolymarketService] Started (first poll in 60s)');
+    console.log('[PolymarketService] Fully started');
   }
 
   /**
@@ -197,13 +216,33 @@ export class PolymarketService extends EventEmitter {
     console.log('[PolymarketService] Discovering markets...');
 
     try {
+      // Apply any current backoff before making request
+      const backoff = this.calculateBackoff();
+      if (backoff > 0) {
+        console.log(`[PolymarketService] Applying backoff: ${backoff}ms before discovery`);
+        await this.sleep(backoff);
+      }
+
       const response = await fetch(
         `${this.config.apiUrl}/markets?active=true&closed=false&limit=${this.config.maxMarketsToTrack}`
       );
 
+      // Handle rate limiting (429)
+      if (response.status === 429) {
+        this.consecutiveErrors++;
+        const waitTime = this.calculateBackoff();
+        console.warn(`[PolymarketService] Rate limited (429) during discovery, will retry in ${waitTime / 1000}s`);
+        await this.sleep(waitTime);
+        // Return empty array, will retry on next interval
+        return [];
+      }
+
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
+
+      // Reset consecutive errors on success
+      this.consecutiveErrors = 0;
 
       const data = await response.json() as ClobMarketsResponse;
       const marketsData = Array.isArray(data) ? data : (data.data || []);
@@ -334,8 +373,10 @@ export class PolymarketService extends EventEmitter {
         if (errorMessage.includes('429')) {
           this.consecutiveErrors++;
           const backoff = this.calculateBackoff();
-          console.warn(`[PolymarketService] Rate limited, backing off for ${backoff}ms`);
+          console.warn(`[PolymarketService] Rate limited, stopping poll early and backing off for ${backoff}ms`);
           await this.sleep(backoff);
+          // Break out of the loop - don't continue polling after 429
+          break;
         }
       }
     }
@@ -369,6 +410,10 @@ export class PolymarketService extends EventEmitter {
         if (response.status === 404) {
           this.markets.delete(marketId);
           return null;
+        }
+        // For 429, throw a specific error so pollMarkets can handle it
+        if (response.status === 429) {
+          throw new Error('Rate limited: 429');
         }
         throw new Error(`API error: ${response.status}`);
       }
