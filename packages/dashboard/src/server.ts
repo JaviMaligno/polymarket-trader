@@ -13,6 +13,7 @@ import { initializeOptimizationScheduler } from './services/OptimizationSchedule
 import { initializePaperTradingService } from './services/PaperTradingService.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
+import { getTradingAutomation } from './services/TradingAutomation.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -175,6 +176,11 @@ async function main(): Promise<void> {
       // Start the signal engine
       await signalEngine.start();
       console.log('SignalEngine started');
+
+      // Start TradingAutomation so signals can be executed
+      const automation = getTradingAutomation();
+      await automation.start();
+      console.log('TradingAutomation started');
     }, 10000); // 10 second delay to let server fully initialize
   }
 
