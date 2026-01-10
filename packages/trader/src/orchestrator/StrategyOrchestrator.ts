@@ -39,6 +39,10 @@ export interface OrchestratorConfig {
   kellyFraction: number;
   /** Minimum time between trades for same market (ms) */
   marketCooldownMs: number;
+  /** Minimum potential ROI to accept a trade (e.g., 0.15 = 15%) */
+  minPotentialROI: number;
+  /** Minimum implied probability to accept (e.g., 0.10 = 10%) */
+  minImpliedProbability: number;
 }
 
 export interface OrchestratorEvents {
@@ -71,6 +75,9 @@ const DEFAULT_CONFIG: OrchestratorConfig = {
   enablePositionSizing: true,
   kellyFraction: 0.25,
   marketCooldownMs: 60000,
+  // ROI-based price validation: reject trades at extreme prices
+  minPotentialROI: parseFloat(process.env.ORCHESTRATOR_MIN_POTENTIAL_ROI || '0.15'),
+  minImpliedProbability: parseFloat(process.env.ORCHESTRATOR_MIN_IMPLIED_PROB || '0.10'),
 };
 
 // ============================================
@@ -571,6 +578,48 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
     const price = signal.direction === 'LONG'
       ? market.outcomePrices[0]
       : market.outcomePrices[1];
+
+    // ============================================
+    // ROI-based Price Validation (prevent bad trades)
+    // ============================================
+    const maxPotentialROI = price > 0 ? (1.0 - price) / price : 0;
+    const impliedProbability = price;
+
+    // Reject if potential ROI is too low (high price = no upside)
+    if (maxPotentialROI < this.config.minPotentialROI) {
+      const maxAcceptablePrice = 1 / (1 + this.config.minPotentialROI);
+      this.emit('trade:skipped', config.id,
+        `Insufficient ROI: ${(maxPotentialROI * 100).toFixed(1)}% < ${(this.config.minPotentialROI * 100).toFixed(0)}% required (price $${price.toFixed(4)} > $${maxAcceptablePrice.toFixed(2)})`);
+      logger.warn({
+        strategyId: config.id,
+        marketId: market.id,
+        price,
+        maxROI: maxPotentialROI,
+        minRequired: this.config.minPotentialROI,
+      }, 'Trade rejected: insufficient ROI potential');
+      return;
+    }
+
+    // Reject if implied probability is too low (low price = likely resolved NO)
+    if (impliedProbability < this.config.minImpliedProbability) {
+      this.emit('trade:skipped', config.id,
+        `Too speculative: probability ${(impliedProbability * 100).toFixed(1)}% < ${(this.config.minImpliedProbability * 100).toFixed(0)}% required`);
+      logger.warn({
+        strategyId: config.id,
+        marketId: market.id,
+        price,
+        impliedProb: impliedProbability,
+        minRequired: this.config.minImpliedProbability,
+      }, 'Trade rejected: price too speculative');
+      return;
+    }
+
+    logger.info({
+      strategyId: config.id,
+      marketId: market.id,
+      price,
+      maxROI: `${(maxPotentialROI * 100).toFixed(1)}%`,
+    }, 'Price validation passed');
 
     // Build order request
     const orderRequest: OrderRequest = {
