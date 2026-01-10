@@ -41,9 +41,9 @@ export interface ExecutorConfig {
   maxDailyTrades: number;       // Max trades per day (50)
   cooldownMs: number;           // Cooldown between trades same market (60000)
   feeRate: number;              // Trading fee rate (0.001)
-  // Price bounds to avoid bad trades
-  minEntryPrice: number;        // Minimum price to buy (0.10) - below this is too speculative
-  maxEntryPrice: number;        // Maximum price to buy (0.90) - above this has no upside
+  // Smart price validation based on ROI and probability
+  minPotentialROI: number;      // Minimum potential ROI to accept (0.15 = 15%)
+  minImpliedProbability: number; // Minimum market probability (0.10 = 10%)
 }
 
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -55,9 +55,11 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   maxDailyTrades: 50,
   cooldownMs: 60000,
   feeRate: 0.001,
-  // Price bounds - configurable via environment variables
-  minEntryPrice: parseFloat(process.env.EXECUTOR_MIN_ENTRY_PRICE || '0.10'),
-  maxEntryPrice: parseFloat(process.env.EXECUTOR_MAX_ENTRY_PRICE || '0.90'),
+  // Smart price validation - configurable via environment variables
+  // minPotentialROI: 0.15 means need at least 15% potential gain → rejects prices > ~0.87
+  // minImpliedProbability: 0.10 means market must show at least 10% chance → rejects prices < 0.10
+  minPotentialROI: parseFloat(process.env.EXECUTOR_MIN_POTENTIAL_ROI || '0.15'),
+  minImpliedProbability: parseFloat(process.env.EXECUTOR_MIN_IMPLIED_PROB || '0.10'),
 };
 
 interface TradeRecord {
@@ -174,19 +176,31 @@ export class AutoSignalExecutor extends EventEmitter {
    * Open a new LONG position
    */
   private async openPosition(signal: SignalResult): Promise<SignalProcessResult> {
-    // PRICE VALIDATION: Reject trades at extreme prices
-    // Prices near 0 are likely resolved to NO or worthless
-    // Prices near 1 are likely resolved to YES with no upside
-    if (signal.price < this.config.minEntryPrice) {
+    // SMART PRICE VALIDATION based on ROI and probability
+    // This is more intuitive than fixed bounds and adapts to market conditions
+
+    // 1. Calculate potential ROI: if we buy at price P, max payout is $1.00
+    //    maxROI = (1 - P) / P
+    //    At P=0.90: ROI=11%, P=0.80: ROI=25%, P=0.50: ROI=100%
+    const maxPotentialROI = signal.price > 0 ? (1.0 - signal.price) / signal.price : 0;
+
+    // 2. The market price IS the implied probability of YES outcome
+    const impliedProbability = signal.price;
+
+    // Reject if potential ROI is too low (high price = no upside)
+    if (maxPotentialROI < this.config.minPotentialROI) {
+      const maxAcceptablePrice = 1 / (1 + this.config.minPotentialROI);
       return {
         executed: false,
-        reason: `Price $${signal.price.toFixed(4)} below minimum $${this.config.minEntryPrice} (too speculative/likely resolved NO)`,
+        reason: `Insufficient upside: max ROI ${(maxPotentialROI * 100).toFixed(1)}% < ${(this.config.minPotentialROI * 100).toFixed(0)}% required (price $${signal.price.toFixed(4)} > $${maxAcceptablePrice.toFixed(2)})`,
       };
     }
-    if (signal.price > this.config.maxEntryPrice) {
+
+    // Reject if implied probability is too low (low price = likely resolved NO)
+    if (impliedProbability < this.config.minImpliedProbability) {
       return {
         executed: false,
-        reason: `Price $${signal.price.toFixed(4)} above maximum $${this.config.maxEntryPrice} (no upside potential)`,
+        reason: `Too speculative: implied probability ${(impliedProbability * 100).toFixed(1)}% < ${(this.config.minImpliedProbability * 100).toFixed(0)}% required (likely resolved NO)`,
       };
     }
 
