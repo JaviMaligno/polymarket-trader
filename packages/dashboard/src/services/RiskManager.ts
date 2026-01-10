@@ -23,8 +23,8 @@ export interface RiskConfig {
 // Defaults are intentionally high for paper trading observation
 const DEFAULT_CONFIG: RiskConfig = {
   enabled: process.env.RISK_MANAGER_ENABLED !== 'false',
-  maxDrawdownPct: parseFloat(process.env.RISK_MAX_DRAWDOWN_PCT || '30'),
-  maxDailyLossPct: parseFloat(process.env.RISK_MAX_DAILY_LOSS_PCT || '25'),  // High for paper trading
+  maxDrawdownPct: parseFloat(process.env.RISK_MAX_DRAWDOWN_PCT || '40'),    // High for testing exit strategy
+  maxDailyLossPct: parseFloat(process.env.RISK_MAX_DAILY_LOSS_PCT || '35'), // High for testing exit strategy
   maxPositionSizePct: parseFloat(process.env.RISK_MAX_POSITION_PCT || '15'),
   maxTotalExposurePct: parseFloat(process.env.RISK_MAX_EXPOSURE_PCT || '90'),
   checkIntervalMs: 30000,  // 30 seconds
