@@ -70,9 +70,21 @@ export class WeightedAverageCombiner implements ISignalCombiner {
     const params = this.parameters;
     const now = currentTime ?? new Date();
 
-    // Filter and prepare signals
+    // Filter and prepare signals - exclude null/NaN strength values
     const validSignals = signals
-      .filter(s => s.confidence >= params.minConfidence)
+      .filter(s => {
+        // Must have valid confidence
+        if (s.confidence < params.minConfidence) return false;
+        // Must have valid numeric strength (not null, undefined, or NaN)
+        if (s.strength == null || Number.isNaN(s.strength)) {
+          this.logger.debug(
+            { signalId: s.signalId, strength: s.strength },
+            'Filtering signal with invalid strength'
+          );
+          return false;
+        }
+        return true;
+      })
       .map(s => ({
         signal: s,
         weight: this.getSignalWeight(s, now),
