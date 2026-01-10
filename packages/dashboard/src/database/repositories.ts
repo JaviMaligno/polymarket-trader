@@ -331,7 +331,7 @@ export const paperPositionsRepo = {
         unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
         opened_at, signal_type, metadata)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-       ON CONFLICT (market_id) DO UPDATE SET
+       ON CONFLICT (market_id, token_id) DO UPDATE SET
          current_price = EXCLUDED.current_price,
          unrealized_pnl = EXCLUDED.unrealized_pnl,
          unrealized_pnl_pct = EXCLUDED.unrealized_pnl_pct,
@@ -358,8 +358,9 @@ export const paperPositionsRepo = {
   },
 
   async getAll(): Promise<PaperPosition[]> {
+    // Only return open positions (not closed)
     const result = await query<PaperPosition>(
-      'SELECT * FROM paper_positions ORDER BY opened_at DESC'
+      'SELECT * FROM paper_positions WHERE closed_at IS NULL ORDER BY opened_at DESC'
     );
     return result.rows;
   },
