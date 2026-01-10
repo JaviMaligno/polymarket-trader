@@ -41,6 +41,9 @@ export interface ExecutorConfig {
   maxDailyTrades: number;       // Max trades per day (50)
   cooldownMs: number;           // Cooldown between trades same market (60000)
   feeRate: number;              // Trading fee rate (0.001)
+  // Price bounds to avoid bad trades
+  minEntryPrice: number;        // Minimum price to buy (0.10) - below this is too speculative
+  maxEntryPrice: number;        // Maximum price to buy (0.90) - above this has no upside
 }
 
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -52,6 +55,9 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   maxDailyTrades: 50,
   cooldownMs: 60000,
   feeRate: 0.001,
+  // Price bounds - configurable via environment variables
+  minEntryPrice: parseFloat(process.env.EXECUTOR_MIN_ENTRY_PRICE || '0.10'),
+  maxEntryPrice: parseFloat(process.env.EXECUTOR_MAX_ENTRY_PRICE || '0.90'),
 };
 
 interface TradeRecord {
@@ -168,6 +174,22 @@ export class AutoSignalExecutor extends EventEmitter {
    * Open a new LONG position
    */
   private async openPosition(signal: SignalResult): Promise<SignalProcessResult> {
+    // PRICE VALIDATION: Reject trades at extreme prices
+    // Prices near 0 are likely resolved to NO or worthless
+    // Prices near 1 are likely resolved to YES with no upside
+    if (signal.price < this.config.minEntryPrice) {
+      return {
+        executed: false,
+        reason: `Price $${signal.price.toFixed(4)} below minimum $${this.config.minEntryPrice} (too speculative/likely resolved NO)`,
+      };
+    }
+    if (signal.price > this.config.maxEntryPrice) {
+      return {
+        executed: false,
+        reason: `Price $${signal.price.toFixed(4)} above maximum $${this.config.maxEntryPrice} (no upside potential)`,
+      };
+    }
+
     // Get signal weight from database
     let weight = 0.5;
     try {
