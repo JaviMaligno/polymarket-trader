@@ -19,12 +19,13 @@ export interface RiskConfig {
   cooldownAfterHaltMs: number;   // How long to stay halted (3600000 = 1h)
 }
 
+// Allow override via environment variables for paper trading flexibility
 const DEFAULT_CONFIG: RiskConfig = {
-  enabled: true,
-  maxDrawdownPct: 15,
-  maxDailyLossPct: 5,
-  maxPositionSizePct: 10,
-  maxTotalExposurePct: 80,
+  enabled: process.env.RISK_MANAGER_ENABLED !== 'false',
+  maxDrawdownPct: parseFloat(process.env.RISK_MAX_DRAWDOWN_PCT || '25'),
+  maxDailyLossPct: parseFloat(process.env.RISK_MAX_DAILY_LOSS_PCT || '10'),
+  maxPositionSizePct: parseFloat(process.env.RISK_MAX_POSITION_PCT || '10'),
+  maxTotalExposurePct: parseFloat(process.env.RISK_MAX_EXPOSURE_PCT || '80'),
   checkIntervalMs: 30000,  // 30 seconds
   cooldownAfterHaltMs: 3600000,  // 1 hour
 };
@@ -117,23 +118,31 @@ export class RiskManager extends EventEmitter {
       if (accountResult.rows[0]) {
         const currentCapital = parseFloat(accountResult.rows[0].current_capital);
         this.peakEquity = parseFloat(accountResult.rows[0].peak_equity) || currentCapital;
-        this.dayStartEquity = currentCapital;  // Will be set properly on day reset
+        // Default to current capital - this is the safest approach to avoid
+        // triggering false daily loss limits on service restarts
+        this.dayStartEquity = currentCapital;
       }
 
-      // Try to get today's starting equity from snapshots
+      // Only use snapshot-based day start if we have a snapshot from near midnight
+      // This prevents accumulated losses across days from being counted as daily loss
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
+      const earlyMorning = new Date(todayStart);
+      earlyMorning.setHours(1, 0, 0, 0);  // Within first hour of day
 
-      const snapshotResult = await query<{ current_capital: string }>(
-        `SELECT current_capital FROM portfolio_snapshots
-         WHERE time >= $1
+      const snapshotResult = await query<{ current_capital: string; time: Date }>(
+        `SELECT current_capital, time FROM portfolio_snapshots
+         WHERE time >= $1 AND time <= $2
          ORDER BY time ASC
          LIMIT 1`,
-        [todayStart]
+        [todayStart, earlyMorning]
       );
 
       if (snapshotResult.rows[0]) {
         this.dayStartEquity = parseFloat(snapshotResult.rows[0].current_capital);
+        console.log(`[RiskManager] Using day-start snapshot from ${snapshotResult.rows[0].time}: $${this.dayStartEquity.toFixed(2)}`);
+      } else {
+        console.log(`[RiskManager] No early-morning snapshot found, using current capital as day start: $${this.dayStartEquity.toFixed(2)}`);
       }
 
     } catch (error) {
