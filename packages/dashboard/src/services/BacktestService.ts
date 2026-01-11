@@ -11,6 +11,7 @@ import {
   createBacktestConfig,
   PerformanceCalculator,
   PredictionMarketCalculator,
+  mergeRiskConfig,
   type BacktestConfig,
   type BacktestResult,
   type MarketData,
@@ -240,6 +241,17 @@ export class BacktestService extends EventEmitter {
    * Create backtest config from request
    */
   private createConfig(request: BacktestRequest): BacktestConfig {
+    // Use centralized CONSERVATIVE risk profile with user overrides
+    const riskConfig = mergeRiskConfig('CONSERVATIVE', {
+      maxPositionSizePct: request.riskConfig?.maxPositionSizePct ?? 10,
+      maxExposurePct: request.riskConfig?.maxExposurePct ?? 50,
+      maxDrawdownPct: request.riskConfig?.maxDrawdownPct ?? 20,
+      maxDailyLossPct: 5, // 5% daily loss limit
+      maxPositions: 20,
+      stopLossPct: request.riskConfig?.stopLossPct ?? 10,
+      takeProfitPct: request.riskConfig?.takeProfitPct ?? 25,
+    });
+
     return createBacktestConfig({
       startDate: new Date(request.startDate),
       endDate: new Date(request.endDate),
@@ -247,15 +259,7 @@ export class BacktestService extends EventEmitter {
       feeRate: 0.002,
       granularityMinutes: 60,
       marketIds: request.marketIds,
-      risk: {
-        maxPositionSizePct: request.riskConfig?.maxPositionSizePct ?? 10,
-        maxExposurePct: request.riskConfig?.maxExposurePct ?? 50,
-        maxDrawdownPct: request.riskConfig?.maxDrawdownPct ?? 20,
-        dailyLossLimit: request.initialCapital * 0.05, // 5% daily loss limit
-        maxPositions: 20,
-        stopLossPct: request.riskConfig?.stopLossPct ?? 10,
-        takeProfitPct: request.riskConfig?.takeProfitPct ?? 25,
-      },
+      risk: riskConfig,
     });
   }
 
