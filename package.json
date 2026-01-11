@@ -46,6 +46,7 @@
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.0.16",
+    "tsx": "^4.21.0",
     "vitest": "^4.0.16"
   }
 }

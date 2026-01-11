@@ -15,6 +15,10 @@ import { signalWeightsRepo } from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
 // Import from signals package
 import {
   MomentumSignal,
@@ -23,6 +27,7 @@ import {
   OrderFlowImbalanceSignal,
   MultiLevelOFISignal,
   HawkesSignal,
+  RLSignal,
   WeightedAverageCombiner,
   type ISignal,
   type SignalContext,
@@ -75,16 +80,18 @@ export class SignalEngine extends EventEmitter {
     this.initializeSignals();
 
     // Initialize combiner with default weights
-    // Core signals: 60% total, Microstructure signals: 40% total
+    // Core signals: 50% total, Microstructure: 35%, RL: 15%
     this.combiner = new WeightedAverageCombiner({
-      // Core signals
-      momentum: 0.20,
-      mean_reversion: 0.20,
-      wallet_tracking: 0.20,
-      // Microstructure signals (order flow analysis)
-      ofi: 0.15,           // Order Flow Imbalance
-      mlofi: 0.15,         // Multi-Level OFI
-      hawkes: 0.10,        // Trade clustering (Hawkes process)
+      // Core signals (50%)
+      momentum: 0.17,
+      mean_reversion: 0.17,
+      wallet_tracking: 0.16,
+      // Microstructure signals (35%)
+      ofi: 0.12,           // Order Flow Imbalance
+      mlofi: 0.12,         // Multi-Level OFI
+      hawkes: 0.11,        // Trade clustering (Hawkes process)
+      // RL signal (15%)
+      rl: 0.15,            // Reinforcement Learning
     });
   }
 
@@ -102,7 +109,47 @@ export class SignalEngine extends EventEmitter {
     this.signals.set('mlofi', new MultiLevelOFISignal());
     this.signals.set('hawkes', new HawkesSignal());
 
+    // RL Signal (if model is available)
+    this.initializeRLSignal();
+
     console.log(`[SignalEngine] Initialized ${this.signals.size} signal generators`);
+  }
+
+  /**
+   * Initialize RL signal with trained model
+   */
+  private initializeRLSignal(): void {
+    try {
+      // Try to load the RL model from various locations
+      const modelPaths = [
+        path.join(process.cwd(), 'models', 'rl-model.json'),
+        path.join(process.cwd(), 'rl-model.json'),
+        '/app/models/rl-model.json', // Docker path
+      ];
+
+      let modelData: { weights: number[][][]; biases?: number[][] } | null = null;
+      let loadedPath = '';
+
+      for (const modelPath of modelPaths) {
+        if (fs.existsSync(modelPath)) {
+          const rawData = fs.readFileSync(modelPath, 'utf-8');
+          modelData = JSON.parse(rawData);
+          loadedPath = modelPath;
+          break;
+        }
+      }
+
+      if (modelData) {
+        const rlSignal = new RLSignal({ minConfidence: 0.6 });
+        rlSignal.loadModel(modelData);
+        this.signals.set('rl', rlSignal);
+        console.log(`[SignalEngine] Loaded RL model from ${loadedPath}`);
+      } else {
+        console.log('[SignalEngine] No RL model found, skipping RL signal');
+      }
+    } catch (error) {
+      console.error('[SignalEngine] Failed to load RL model:', error);
+    }
   }
 
   /**
