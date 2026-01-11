@@ -74,8 +74,23 @@ export class RLSignal extends BaseSignal {
       ...modelData.config,
     };
 
+    // Transpose weights: training script uses [out][in], DQNAgent uses [in][out]
+    const transposedWeights = modelData.weights.map(layer => {
+      const rows = layer.length;        // outputSize
+      const cols = layer[0]?.length || 0; // inputSize
+      const transposed: number[][] = [];
+      for (let j = 0; j < cols; j++) {
+        const row: number[] = [];
+        for (let i = 0; i < rows; i++) {
+          row.push(layer[i][j]);
+        }
+        transposed.push(row);
+      }
+      return transposed;
+    });
+
     this.agent = new DQNAgent(agentConfig);
-    this.agent.load(modelData);
+    this.agent.load({ ...modelData, weights: transposedWeights });
     this.agent.setEpsilon(0); // No exploration in production
     this.isModelLoaded = true;
   }
