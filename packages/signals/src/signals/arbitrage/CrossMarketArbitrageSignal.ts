@@ -5,20 +5,185 @@ import type {
   MarketInfo,
 } from '../../core/types/signal.types.js';
 
-interface ArbitrageParams extends Record<string, unknown> {
-  /** Minimum correlation to consider markets related */
-  minCorrelation: number;
-  /** Minimum price divergence to signal (%) */
-  minDivergencePct: number;
-  /** Lookback period for correlation calculation */
-  correlationLookback: number;
-  /** Maximum spread to consider opportunity */
-  maxSpreadPct: number;
-  /** Decay factor for stale correlations */
-  correlationDecay: number;
+/**
+ * Supported external platforms for cross-platform arbitrage
+ */
+export type ExternalPlatform = 'kalshi' | 'predictit' | 'metaculus' | 'manifold' | 'polymarket';
+
+/**
+ * Fee structure for platforms
+ */
+export interface PlatformFees {
+  /** Winner fee (e.g., 0.02 = 2%) */
+  winnerFee: number;
+  /** Maker fee */
+  makerFee: number;
+  /** Taker fee */
+  takerFee: number;
+  /** Withdrawal fee (flat) */
+  withdrawalFee: number;
+  /** Minimum bet size */
+  minBetSize: number;
 }
 
-interface MarketCorrelation {
+/** Default platform fees */
+export const PLATFORM_FEES: Record<ExternalPlatform, PlatformFees> = {
+  polymarket: {
+    winnerFee: 0.02, // 2% winner fee
+    makerFee: 0,
+    takerFee: 0,
+    withdrawalFee: 0,
+    minBetSize: 1,
+  },
+  kalshi: {
+    winnerFee: 0,
+    makerFee: 0,
+    takerFee: 0.07, // 7 cents per contract
+    withdrawalFee: 0,
+    minBetSize: 1,
+  },
+  predictit: {
+    winnerFee: 0.10, // 10% winner fee
+    makerFee: 0,
+    takerFee: 0,
+    withdrawalFee: 0.05, // 5% withdrawal fee
+    minBetSize: 1,
+  },
+  metaculus: {
+    winnerFee: 0,
+    makerFee: 0,
+    takerFee: 0,
+    withdrawalFee: 0,
+    minBetSize: 0,
+  },
+  manifold: {
+    winnerFee: 0,
+    makerFee: 0,
+    takerFee: 0,
+    withdrawalFee: 0,
+    minBetSize: 1,
+  },
+};
+
+/**
+ * External platform market data
+ */
+export interface ExternalMarketData {
+  platform: ExternalPlatform;
+  marketId: string;
+  question: string;
+  yesPrice: number;
+  noPrice: number;
+  volume24h: number;
+  liquidity: number;
+  lastUpdate: Date;
+  /** Latency to fetch this data in ms */
+  latencyMs: number;
+  /** Whether data is from WebSocket (real-time) or REST (polled) */
+  isRealTime: boolean;
+}
+
+/**
+ * Cross-platform arbitrage opportunity
+ */
+export interface CrossPlatformOpportunity {
+  polymarketMarket: MarketInfo;
+  externalMarket: ExternalMarketData;
+  /** Price difference after fees */
+  netDivergence: number;
+  /** Expected profit after all fees */
+  expectedNetProfit: number;
+  /** ROI after fees */
+  netROI: number;
+  /** Which side to buy on Polymarket */
+  polymarketSide: 'YES' | 'NO';
+  /** Which side to buy on external platform */
+  externalSide: 'YES' | 'NO';
+  /** Detection latency in ms */
+  detectionLatencyMs: number;
+  /** Time window before opportunity likely closes */
+  estimatedWindowMs: number;
+  /** Risk score (0-1, higher = riskier) */
+  riskScore: number;
+}
+
+/**
+ * External platform data provider interface
+ */
+export interface IExternalPlatformProvider {
+  /** Platform name */
+  getPlatform(): ExternalPlatform;
+  /** Get market data by ID */
+  getMarket(marketId: string): Promise<ExternalMarketData | null>;
+  /** Find similar markets to a Polymarket question */
+  findSimilarMarkets(question: string, category: string): Promise<ExternalMarketData[]>;
+  /** Subscribe to real-time updates (returns unsubscribe function) */
+  subscribe(marketId: string, callback: (data: ExternalMarketData) => void): () => void;
+  /** Get connection latency estimate */
+  getLatencyEstimate(): number;
+}
+
+/**
+ * Configuration for enhanced arbitrage signal
+ */
+export interface CrossMarketArbitrageConfig extends Record<string, unknown> {
+  /** Minimum correlation to consider markets related */
+  minCorrelation?: number;
+  /** Minimum price divergence to signal (%) */
+  minDivergencePct?: number;
+  /** Lookback period for correlation calculation */
+  correlationLookback?: number;
+  /** Maximum spread to consider opportunity */
+  maxSpreadPct?: number;
+  /** Decay factor for stale correlations */
+  correlationDecay?: number;
+  /** Minimum net ROI after fees (%) - default: 1.5 */
+  minNetROIPct?: number;
+  /** Maximum acceptable latency (ms) - default: 500 */
+  maxLatencyMs?: number;
+  /** Enable cross-platform arbitrage - default: true */
+  enableCrossPlatform?: boolean;
+  /** Platforms to consider for cross-platform arb */
+  enabledPlatforms?: ExternalPlatform[];
+  /** Minimum liquidity required - default: 1000 */
+  minLiquidity?: number;
+  /** Risk tolerance (0-1) - default: 0.5 */
+  riskTolerance?: number;
+}
+
+interface ArbitrageParams extends Record<string, unknown> {
+  minCorrelation: number;
+  minDivergencePct: number;
+  correlationLookback: number;
+  maxSpreadPct: number;
+  correlationDecay: number;
+  minNetROIPct: number;
+  maxLatencyMs: number;
+  enableCrossPlatform: boolean;
+  enabledPlatforms: ExternalPlatform[];
+  minLiquidity: number;
+  riskTolerance: number;
+}
+
+/** Default parameters */
+export const DEFAULT_ARBITRAGE_PARAMS: ArbitrageParams = {
+  minCorrelation: 0.7,
+  minDivergencePct: 3,
+  correlationLookback: 30,
+  maxSpreadPct: 5,
+  correlationDecay: 0.95,
+  minNetROIPct: 1.5,
+  maxLatencyMs: 500,
+  enableCrossPlatform: true,
+  enabledPlatforms: ['kalshi', 'predictit'],
+  minLiquidity: 1000,
+  riskTolerance: 0.5,
+};
+
+/**
+ * Market correlation data
+ */
+export interface MarketCorrelation {
   marketA: string;
   marketB: string;
   correlation: number;
@@ -27,12 +192,19 @@ interface MarketCorrelation {
 }
 
 /**
- * Cross-Market Arbitrage Signal
+ * Enhanced Cross-Market Arbitrage Signal
  *
  * Detects price discrepancies between related prediction markets:
  * 1. Correlated markets that should move together
  * 2. Complementary markets (e.g., Yes/No of related events)
  * 3. Mutually exclusive events that must sum to 1
+ * 4. Cross-platform arbitrage (Polymarket vs Kalshi, PredictIt, etc.)
+ *
+ * New features:
+ * - Cross-platform integration with external providers
+ * - Net ROI calculation after all fees (2% winner fee on Polymarket)
+ * - Latency-aware opportunity detection
+ * - Risk scoring for arbitrage opportunities
  *
  * Example opportunities:
  * - "Biden wins 2024" vs "Trump wins 2024" should sum to ~1
@@ -42,43 +214,72 @@ interface MarketCorrelation {
 export class CrossMarketArbitrageSignal extends BaseSignal {
   readonly signalId = 'cross_market_arb';
   readonly name = 'Cross-Market Arbitrage';
-  readonly description = 'Detects price discrepancies between related markets';
+  readonly description = 'Detects price discrepancies between related markets with cross-platform support';
 
-  protected parameters: ArbitrageParams = {
-    minCorrelation: 0.7,
-    minDivergencePct: 3,
-    correlationLookback: 30,
-    maxSpreadPct: 5,
-    correlationDecay: 0.95,
-  };
+  protected parameters: ArbitrageParams = { ...DEFAULT_ARBITRAGE_PARAMS };
 
-  // Cache of market correlations
+  /** Cache of market correlations */
   private correlations: Map<string, MarketCorrelation> = new Map();
+  /** External platform providers */
+  private externalProviders: Map<ExternalPlatform, IExternalPlatformProvider> = new Map();
+  /** Cache of external market data */
+  private externalMarketCache: Map<string, { data: ExternalMarketData; expiry: number }> = new Map();
+  /** Active cross-platform opportunities */
+  private crossPlatformOpportunities: CrossPlatformOpportunity[] = [];
+  /** Latency tracking per platform */
+  private platformLatencies: Map<ExternalPlatform, number[]> = new Map();
+
+  private readonly CACHE_TTL_MS = 5000; // 5 seconds for external data
+  private readonly MAX_LATENCY_SAMPLES = 100;
+
+  constructor(config?: CrossMarketArbitrageConfig) {
+    super();
+    if (config) {
+      this.parameters = { ...DEFAULT_ARBITRAGE_PARAMS, ...config };
+    }
+  }
+
+  /**
+   * Register an external platform provider
+   */
+  registerProvider(provider: IExternalPlatformProvider): void {
+    this.externalProviders.set(provider.getPlatform(), provider);
+    this.logger.info({ platform: provider.getPlatform() }, 'External platform provider registered');
+  }
+
+  /**
+   * Remove an external platform provider
+   */
+  unregisterProvider(platform: ExternalPlatform): void {
+    this.externalProviders.delete(platform);
+  }
 
   getRequiredLookback(): number {
     return this.parameters.correlationLookback;
   }
 
   isReady(context: SignalContext): boolean {
-    // Need related markets to analyze
-    return (context.relatedMarkets?.length || 0) > 0 && super.isReady(context);
+    // Can work with related markets OR external providers
+    const hasRelatedMarkets = (context.relatedMarkets?.length || 0) > 0;
+    const hasExternalProviders = this.externalProviders.size > 0;
+    return (hasRelatedMarkets || hasExternalProviders) && super.isReady(context);
   }
 
   async compute(context: SignalContext): Promise<SignalOutput | null> {
-    if (!this.isReady(context)) {
-      return null;
-    }
-
     const params = this.parameters;
     const currentMarket = context.market;
     const relatedMarkets = context.relatedMarkets || [];
 
-    // Find best arbitrage opportunity
-    let bestOpportunity: {
+    // Track detection start time for latency measurement
+    const detectionStartMs = Date.now();
+
+    // Find best intra-platform arbitrage opportunity
+    let bestIntraPlatform: {
       relatedMarket: MarketInfo;
       divergence: number;
       expectedDirection: 'LONG' | 'SHORT';
       correlation: MarketCorrelation | null;
+      netROI: number;
     } | null = null;
 
     for (const relatedMarket of relatedMarkets) {
@@ -89,35 +290,394 @@ export class CrossMarketArbitrageSignal extends BaseSignal {
         params
       );
 
-      if (opportunity && (!bestOpportunity || Math.abs(opportunity.divergence) > Math.abs(bestOpportunity.divergence))) {
-        bestOpportunity = opportunity;
+      if (opportunity) {
+        // Calculate net ROI after Polymarket fees
+        const netROI = this.calculateNetROI(
+          opportunity.divergence,
+          'polymarket',
+          'polymarket'
+        );
+
+        if (netROI >= params.minNetROIPct / 100) {
+          if (!bestIntraPlatform || netROI > bestIntraPlatform.netROI) {
+            bestIntraPlatform = { ...opportunity, netROI };
+          }
+        }
       }
     }
 
-    if (!bestOpportunity || Math.abs(bestOpportunity.divergence) < params.minDivergencePct / 100) {
-      return null;
+    // Find best cross-platform arbitrage opportunity
+    let bestCrossPlatform: CrossPlatformOpportunity | null = null;
+
+    if (params.enableCrossPlatform && this.externalProviders.size > 0) {
+      bestCrossPlatform = await this.findBestCrossPlatformOpportunity(
+        currentMarket,
+        params,
+        detectionStartMs
+      );
     }
 
-    // Calculate strength and confidence
-    const strength = this.calculateStrength(bestOpportunity);
-    const confidence = this.calculateConfidence(bestOpportunity, params);
-    const direction = bestOpportunity.expectedDirection;
+    // Choose best overall opportunity
+    const useCrossPlatform = bestCrossPlatform &&
+      (!bestIntraPlatform || bestCrossPlatform.netROI > bestIntraPlatform.netROI);
+
+    if (useCrossPlatform && bestCrossPlatform) {
+      return this.createCrossPlatformOutput(context, bestCrossPlatform, params);
+    }
+
+    if (bestIntraPlatform) {
+      return this.createIntraPlatformOutput(context, bestIntraPlatform, params);
+    }
+
+    return null;
+  }
+
+  /**
+   * Find best cross-platform arbitrage opportunity
+   */
+  private async findBestCrossPlatformOpportunity(
+    polymarketMarket: MarketInfo,
+    params: ArbitrageParams,
+    detectionStartMs: number
+  ): Promise<CrossPlatformOpportunity | null> {
+    let bestOpportunity: CrossPlatformOpportunity | null = null;
+
+    for (const [platform, provider] of this.externalProviders) {
+      if (!params.enabledPlatforms.includes(platform)) continue;
+
+      try {
+        // Check latency
+        const estimatedLatency = provider.getLatencyEstimate();
+        if (estimatedLatency > params.maxLatencyMs) {
+          this.logger.debug({ platform, latency: estimatedLatency }, 'Skipping platform due to high latency');
+          continue;
+        }
+
+        // Find similar markets on external platform
+        const startTime = Date.now();
+        const externalMarkets = await provider.findSimilarMarkets(
+          polymarketMarket.question,
+          polymarketMarket.category || ''
+        );
+        const fetchLatency = Date.now() - startTime;
+
+        // Track latency
+        this.trackLatency(platform, fetchLatency);
+
+        for (const externalMarket of externalMarkets) {
+          // Check liquidity
+          if (externalMarket.liquidity < params.minLiquidity) continue;
+
+          // Check total latency
+          const totalLatency = fetchLatency + externalMarket.latencyMs;
+          if (totalLatency > params.maxLatencyMs) continue;
+
+          // Analyze opportunity
+          const opportunity = this.analyzeCrossPlatformPair(
+            polymarketMarket,
+            externalMarket,
+            totalLatency,
+            detectionStartMs,
+            params
+          );
+
+          if (opportunity && opportunity.netROI >= params.minNetROIPct / 100) {
+            if (!bestOpportunity || opportunity.netROI > bestOpportunity.netROI) {
+              bestOpportunity = opportunity;
+            }
+          }
+        }
+      } catch (error) {
+        this.logger.warn({
+          platform,
+          error: error instanceof Error ? error.message : String(error),
+        }, 'Failed to fetch external platform data');
+      }
+    }
+
+    return bestOpportunity;
+  }
+
+  /**
+   * Analyze cross-platform pair for arbitrage
+   */
+  private analyzeCrossPlatformPair(
+    polymarketMarket: MarketInfo,
+    externalMarket: ExternalMarketData,
+    latencyMs: number,
+    detectionStartMs: number,
+    params: ArbitrageParams
+  ): CrossPlatformOpportunity | null {
+    const polyYes = polymarketMarket.currentPriceYes ?? 0.5;
+    const polyNo = 1 - polyYes;
+    const extYes = externalMarket.yesPrice;
+    const extNo = externalMarket.noPrice;
+
+    // Calculate potential arbitrage scenarios:
+    // 1. Buy YES on Poly, Buy NO on External (if polyYes + extNo < 1)
+    // 2. Buy NO on Poly, Buy YES on External (if polyNo + extYes < 1)
+
+    const scenario1Cost = polyYes + extNo;
+    const scenario2Cost = polyNo + extYes;
+
+    let bestScenario: {
+      polySide: 'YES' | 'NO';
+      extSide: 'YES' | 'NO';
+      grossProfit: number;
+    } | null = null;
+
+    if (scenario1Cost < 0.98) { // ~2% margin needed for fees
+      bestScenario = {
+        polySide: 'YES',
+        extSide: 'NO',
+        grossProfit: 1 - scenario1Cost,
+      };
+    } else if (scenario2Cost < 0.98) {
+      bestScenario = {
+        polySide: 'NO',
+        extSide: 'YES',
+        grossProfit: 1 - scenario2Cost,
+      };
+    }
+
+    if (!bestScenario) return null;
+
+    // Calculate net ROI after fees
+    // FIXED: Correct fee calculation for arbitrage
+    const polyFees = PLATFORM_FEES.polymarket;
+    const extFees = PLATFORM_FEES[externalMarket.platform];
+
+    // In arbitrage, we buy BOTH sides upfront (one on each platform)
+    // Cost includes purchase prices AND any taker fees paid at purchase time
+    // Payout is $1 from the winning side minus winner fee
+
+    // Determine the actual cost and potential payouts for the chosen scenario
+    let cost: number;
+    let payoutIfPolyWins: number;
+    let payoutIfExtWins: number;
+
+    if (bestScenario.polySide === 'YES') {
+      // Scenario 1: Buy YES on Poly, Buy NO on External
+      cost = polyYes + extNo + polyFees.takerFee + extFees.takerFee;
+      // If YES wins (event happens): Poly wins, External loses
+      payoutIfPolyWins = 1 - polyFees.winnerFee;
+      // If NO wins (event doesn't happen): External wins, Poly loses
+      payoutIfExtWins = 1 - extFees.winnerFee;
+    } else {
+      // Scenario 2: Buy NO on Poly, Buy YES on External
+      cost = polyNo + extYes + polyFees.takerFee + extFees.takerFee;
+      // If NO wins (event doesn't happen): Poly wins, External loses
+      payoutIfPolyWins = 1 - polyFees.winnerFee;
+      // If YES wins (event happens): External wins, Poly loses
+      payoutIfExtWins = 1 - extFees.winnerFee;
+    }
+
+    // For arbitrage, we care about the WORST-CASE payout (guaranteed profit)
+    const minPayout = Math.min(payoutIfPolyWins, payoutIfExtWins);
+    const expectedNet = minPayout - cost;
+
+    if (expectedNet <= 0) return null;
+
+    // cost is already calculated above
+    const netROI = expectedNet / cost;
+
+    // Calculate risk score
+    const riskScore = this.calculateCrossPlatformRisk(
+      polymarketMarket,
+      externalMarket,
+      latencyMs,
+      params
+    );
+
+    // Estimate time window (opportunity likely to close)
+    const estimatedWindow = this.estimateOpportunityWindow(
+      bestScenario.grossProfit,
+      externalMarket.volume24h
+    );
+
+    return {
+      polymarketMarket,
+      externalMarket,
+      netDivergence: bestScenario.grossProfit,
+      expectedNetProfit: expectedNet,
+      netROI,
+      polymarketSide: bestScenario.polySide,
+      externalSide: bestScenario.extSide,
+      detectionLatencyMs: Date.now() - detectionStartMs,
+      estimatedWindowMs: estimatedWindow,
+      riskScore,
+    };
+  }
+
+  /**
+   * Calculate net ROI after platform fees
+   */
+  calculateNetROI(
+    grossDivergence: number,
+    buyPlatform: ExternalPlatform,
+    sellPlatform: ExternalPlatform
+  ): number {
+    const buyFees = PLATFORM_FEES[buyPlatform];
+    const sellFees = PLATFORM_FEES[sellPlatform];
+
+    // Account for winner fees and trading fees
+    const totalFees = buyFees.winnerFee + buyFees.takerFee + sellFees.takerFee;
+    const netProfit = grossDivergence - totalFees;
+
+    return netProfit;
+  }
+
+  /**
+   * Calculate risk score for cross-platform arbitrage
+   */
+  private calculateCrossPlatformRisk(
+    polyMarket: MarketInfo,
+    extMarket: ExternalMarketData,
+    latencyMs: number,
+    params: ArbitrageParams
+  ): number {
+    let risk = 0;
+
+    // Latency risk (higher latency = higher risk of price change)
+    risk += Math.min(0.3, latencyMs / params.maxLatencyMs * 0.3);
+
+    // Liquidity risk
+    const minLiquidity = Math.min(polyMarket.volume24h || 0, extMarket.liquidity);
+    risk += Math.max(0, 0.2 - minLiquidity / (params.minLiquidity * 10) * 0.2);
+
+    // Data staleness risk
+    if (!extMarket.isRealTime) {
+      risk += 0.15;
+    }
+
+    // Price volatility risk (approximated by spread)
+    const polySpread = (polyMarket.currentPriceYes ?? 0.5) - (1 - (polyMarket.currentPriceYes ?? 0.5));
+    const extSpread = extMarket.yesPrice + extMarket.noPrice - 1;
+    const avgSpread = (Math.abs(polySpread) + Math.abs(extSpread)) / 2;
+    risk += Math.min(0.2, avgSpread * 2);
+
+    // Execution risk (platform reliability)
+    // Could be based on historical success rates
+
+    return Math.min(1, risk);
+  }
+
+  /**
+   * Estimate how long arbitrage opportunity will last
+   */
+  private estimateOpportunityWindow(profit: number, volume24h: number): number {
+    // Higher volume = faster closure, larger profit = longer window
+    const baseWindow = 60000; // 1 minute base
+    const volumeFactor = Math.max(0.1, Math.min(2, 10000 / (volume24h + 1)));
+    const profitFactor = Math.max(0.5, Math.min(3, profit * 20));
+
+    return baseWindow * volumeFactor * profitFactor;
+  }
+
+  /**
+   * Track platform latency
+   */
+  private trackLatency(platform: ExternalPlatform, latencyMs: number): void {
+    if (!this.platformLatencies.has(platform)) {
+      this.platformLatencies.set(platform, []);
+    }
+    const samples = this.platformLatencies.get(platform)!;
+    samples.push(latencyMs);
+    if (samples.length > this.MAX_LATENCY_SAMPLES) {
+      samples.shift();
+    }
+  }
+
+  /**
+   * Get average latency for a platform
+   */
+  getAverageLatency(platform: ExternalPlatform): number {
+    const samples = this.platformLatencies.get(platform);
+    if (!samples || samples.length === 0) return Infinity;
+    return samples.reduce((a, b) => a + b, 0) / samples.length;
+  }
+
+  /**
+   * Create output for cross-platform opportunity
+   */
+  private createCrossPlatformOutput(
+    context: SignalContext,
+    opportunity: CrossPlatformOpportunity,
+    params: ArbitrageParams
+  ): SignalOutput {
+    const direction = opportunity.polymarketSide === 'YES' ? 'LONG' : 'SHORT';
+    const strength = Math.min(1, opportunity.netROI * 5); // Scale ROI to strength
+    const confidence = Math.max(0, 1 - opportunity.riskScore);
+
+    // Store for external access
+    this.crossPlatformOpportunities.push(opportunity);
+    if (this.crossPlatformOpportunities.length > 10) {
+      this.crossPlatformOpportunities.shift();
+    }
 
     return this.createOutput(context, direction, strength, confidence, {
       features: [
-        bestOpportunity.divergence,
-        bestOpportunity.correlation?.correlation || 0,
-        currentMarket.currentPriceYes || 0,
-        bestOpportunity.relatedMarket.currentPriceYes || 0,
+        opportunity.netDivergence,
+        opportunity.netROI,
+        opportunity.riskScore,
+        opportunity.detectionLatencyMs,
       ],
       metadata: {
-        relatedMarketId: bestOpportunity.relatedMarket.id,
-        relatedMarketQuestion: bestOpportunity.relatedMarket.question,
-        divergence: bestOpportunity.divergence,
-        correlation: bestOpportunity.correlation?.correlation,
-        relationship: bestOpportunity.correlation?.relationship,
-        currentPrice: currentMarket.currentPriceYes,
-        relatedPrice: bestOpportunity.relatedMarket.currentPriceYes,
+        type: 'cross_platform',
+        externalPlatform: opportunity.externalMarket.platform,
+        externalMarketId: opportunity.externalMarket.marketId,
+        polymarketSide: opportunity.polymarketSide,
+        externalSide: opportunity.externalSide,
+        netROI: opportunity.netROI,
+        expectedNetProfit: opportunity.expectedNetProfit,
+        detectionLatencyMs: opportunity.detectionLatencyMs,
+        estimatedWindowMs: opportunity.estimatedWindowMs,
+        riskScore: opportunity.riskScore,
+        polyPrice: opportunity.polymarketSide === 'YES'
+          ? context.market.currentPriceYes
+          : 1 - (context.market.currentPriceYes ?? 0.5),
+        externalPrice: opportunity.externalSide === 'YES'
+          ? opportunity.externalMarket.yesPrice
+          : opportunity.externalMarket.noPrice,
+      },
+    });
+  }
+
+  /**
+   * Create output for intra-platform opportunity
+   */
+  private createIntraPlatformOutput(
+    context: SignalContext,
+    opportunity: {
+      relatedMarket: MarketInfo;
+      divergence: number;
+      expectedDirection: 'LONG' | 'SHORT';
+      correlation: MarketCorrelation | null;
+      netROI: number;
+    },
+    params: ArbitrageParams
+  ): SignalOutput {
+    const strength = this.calculateStrength(opportunity);
+    const confidence = this.calculateConfidence(opportunity, params);
+
+    return this.createOutput(context, opportunity.expectedDirection, strength, confidence, {
+      features: [
+        opportunity.divergence,
+        opportunity.correlation?.correlation || 0,
+        context.market.currentPriceYes || 0,
+        opportunity.relatedMarket.currentPriceYes || 0,
+        opportunity.netROI,
+      ],
+      metadata: {
+        type: 'intra_platform',
+        relatedMarketId: opportunity.relatedMarket.id,
+        relatedMarketQuestion: opportunity.relatedMarket.question,
+        divergence: opportunity.divergence,
+        netROI: opportunity.netROI,
+        correlation: opportunity.correlation?.correlation,
+        relationship: opportunity.correlation?.relationship,
+        currentPrice: context.market.currentPriceYes,
+        relatedPrice: opportunity.relatedMarket.currentPriceYes,
       },
     });
   }

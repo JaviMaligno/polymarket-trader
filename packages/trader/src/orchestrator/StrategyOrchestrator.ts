@@ -21,6 +21,7 @@ import type {
 import type { LiveDataFeed } from '../feeds/LiveDataFeed.js';
 import type { PaperTradingEngine } from '../engine/PaperTradingEngine.js';
 import type { ISignal, ISignalCombiner, SignalContext, SignalOutput, CombinedSignalOutput, MarketInfo, PriceBar } from '@polymarket-trader/signals';
+import { RegimeDetector, MarketRegime, type RegimeState } from '@polymarket-trader/signals';
 
 const logger = pino({ name: 'StrategyOrchestrator' });
 
@@ -43,6 +44,12 @@ export interface OrchestratorConfig {
   minPotentialROI: number;
   /** Minimum implied probability to accept (e.g., 0.10 = 10%) */
   minImpliedProbability: number;
+  /** Enable regime-adaptive trading */
+  enableRegimeDetection: boolean;
+  /** Use regime-adjusted thresholds */
+  useRegimeThresholds: boolean;
+  /** Use regime-adjusted position sizing */
+  useRegimePositionSizing: boolean;
 }
 
 export interface OrchestratorEvents {
@@ -52,6 +59,7 @@ export interface OrchestratorEvents {
   'trade:executed': (strategyId: string, order: Order) => void;
   'trade:skipped': (strategyId: string, reason: string) => void;
   'risk:triggered': (strategyId: string, limitType: string, value: number) => void;
+  'regime:changed': (from: MarketRegime, to: MarketRegime, state: RegimeState) => void;
   'error': (strategyId: string, error: Error) => void;
 }
 
@@ -78,6 +86,10 @@ const DEFAULT_CONFIG: OrchestratorConfig = {
   // ROI-based price validation: reject trades at extreme prices
   minPotentialROI: parseFloat(process.env.ORCHESTRATOR_MIN_POTENTIAL_ROI || '0.15'),
   minImpliedProbability: parseFloat(process.env.ORCHESTRATOR_MIN_IMPLIED_PROB || '0.10'),
+  // Regime-adaptive trading
+  enableRegimeDetection: process.env.ENABLE_REGIME_DETECTION === 'true',
+  useRegimeThresholds: process.env.USE_REGIME_THRESHOLDS === 'true',
+  useRegimePositionSizing: process.env.USE_REGIME_POSITION_SIZING === 'true',
 };
 
 // ============================================
@@ -98,6 +110,10 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
   private priceHistory: Map<string, PriceBar[]> = new Map();
   private readonly MAX_HISTORY_BARS = 100;
 
+  /** Regime detector for adaptive trading */
+  private regimeDetector: RegimeDetector | null = null;
+  private currentRegime: MarketRegime = MarketRegime.NEUTRAL;
+
   constructor(
     feed: LiveDataFeed,
     engine: PaperTradingEngine,
@@ -107,6 +123,25 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
     this.feed = feed;
     this.engine = engine;
     this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // Initialize regime detector if enabled
+    if (this.config.enableRegimeDetection) {
+      this.regimeDetector = new RegimeDetector({
+        lookbackPeriod: 20,
+        minObservations: 10,
+        regimeChangeThreshold: 0.6,
+        confirmationBars: 3,
+      });
+
+      // Forward regime change events
+      this.regimeDetector.on('regime:changed', (from, to, state) => {
+        this.currentRegime = to;
+        this.emit('regime:changed', from, to, state);
+        logger.info({ from, to, probability: state.probability }, 'Market regime changed');
+      });
+
+      logger.info('Regime detection enabled');
+    }
   }
 
   // ============================================
@@ -290,6 +325,11 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
     this.evaluating = true;
 
     try {
+      // Update regime detector first (if enabled)
+      if (this.config.enableRegimeDetection) {
+        this.updateRegimeDetector();
+      }
+
       const activeStrategies = Array.from(this.strategies.entries())
         .filter(([_, runtime]) => runtime.config.enabled && runtime.state.isRunning);
 
@@ -476,12 +516,35 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
 
   /**
    * Check if signal meets execution thresholds
+   * Uses regime-adjusted thresholds when enabled
    */
   private shouldExecute(signal: CombinedSignalOutput | null, params: ExecutionParams): boolean {
     if (!signal) return false;
     if (signal.direction === 'NEUTRAL') return false;
-    if (Math.abs(signal.strength) < params.minEdge) return false;
-    if (signal.confidence < params.minConfidence) return false;
+
+    // Get thresholds - use regime-adjusted if enabled
+    let minEdge = params.minEdge;
+    let minConfidence = params.minConfidence;
+
+    if (this.config.useRegimeThresholds && this.regimeDetector) {
+      const regimeParams = this.regimeDetector.getCurrentParameters();
+      minEdge = Math.max(minEdge, regimeParams.minStrength);
+      minConfidence = Math.max(minConfidence, regimeParams.minConfidence);
+
+      // Check if signal type should be avoided in current regime
+      for (const componentSignal of signal.componentSignals) {
+        if (this.regimeDetector.shouldAvoidSignal(componentSignal.signalId)) {
+          logger.debug({
+            signalId: componentSignal.signalId,
+            regime: this.currentRegime,
+          }, 'Signal avoided in current regime');
+          return false;
+        }
+      }
+    }
+
+    if (Math.abs(signal.strength) < minEdge) return false;
+    if (signal.confidence < minConfidence) return false;
     return true;
   }
 
@@ -520,6 +583,7 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
 
   /**
    * Calculate position size
+   * Uses regime-adjusted position sizing when enabled
    */
   private calculatePositionSize(
     runtime: StrategyRuntime,
@@ -546,6 +610,18 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
 
       // Take minimum of Kelly and max position size
       positionSize = Math.min(positionSize, kellySize);
+    }
+
+    // Apply regime-adjusted position sizing multiplier
+    if (this.config.useRegimePositionSizing && this.regimeDetector) {
+      const regimeMultiplier = this.regimeDetector.getPositionSizeMultiplier();
+      positionSize *= regimeMultiplier;
+
+      logger.debug({
+        regime: this.currentRegime,
+        multiplier: regimeMultiplier,
+        adjustedSize: positionSize,
+      }, 'Applied regime position size multiplier');
     }
 
     // Apply max position size limit
@@ -738,6 +814,66 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
    */
   private getTodayDateString(): string {
     return new Date().toISOString().split('T')[0];
+  }
+
+  // ============================================
+  // Regime Detection Methods
+  // ============================================
+
+  /**
+   * Update regime detector with aggregated market data
+   */
+  private updateRegimeDetector(): void {
+    if (!this.regimeDetector) return;
+
+    // Aggregate price data across all tracked markets
+    const allBars: PriceBar[] = [];
+    for (const history of this.priceHistory.values()) {
+      if (history.length > 0) {
+        allBars.push(history[history.length - 1]);
+      }
+    }
+
+    if (allBars.length === 0) return;
+
+    // Calculate aggregate market metrics
+    const avgPrice = allBars.reduce((sum, bar) => sum + bar.close, 0) / allBars.length;
+    const totalVolume = allBars.reduce((sum, bar) => sum + bar.volume, 0);
+
+    // Update regime detector with latest bar
+    this.regimeDetector.update({
+      close: avgPrice,
+      volume: totalVolume,
+      timestamp: new Date(),
+    });
+  }
+
+  /**
+   * Get current market regime
+   */
+  getCurrentRegime(): MarketRegime {
+    return this.currentRegime;
+  }
+
+  /**
+   * Get full regime state
+   */
+  getRegimeState(): RegimeState | null {
+    return this.regimeDetector?.getCurrentState() ?? null;
+  }
+
+  /**
+   * Get regime-adjusted trading parameters
+   */
+  getRegimeParameters(): ReturnType<RegimeDetector['getCurrentParameters']> | null {
+    return this.regimeDetector?.getCurrentParameters() ?? null;
+  }
+
+  /**
+   * Check if a signal type is preferred in current regime
+   */
+  isSignalPreferred(signalId: string): boolean {
+    return this.regimeDetector?.isSignalPreferred(signalId) ?? true;
   }
 }
 

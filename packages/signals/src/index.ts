@@ -47,7 +47,14 @@ export * from './core/types/signal.types.js';
 export { BaseSignal } from './core/base/BaseSignal.js';
 
 // Signals
-export { WalletTrackingSignal } from './signals/wallet/WalletTrackingSignal.js';
+export {
+  WalletTrackingSignal,
+  type WalletTrackingConfig,
+  type WalletProfile,
+  type TopTrader,
+  type WalletCluster,
+  DEFAULT_WALLET_TRACKING_PARAMS,
+} from './signals/wallet/WalletTrackingSignal.js';
 export {
   MomentumSignal,
   type MomentumSignalConfig,
@@ -58,10 +65,88 @@ export {
   type MeanReversionSignalConfig,
   DEFAULT_MEAN_REVERSION_PARAMS,
 } from './signals/technical/MeanReversionSignal.js';
-export { CrossMarketArbitrageSignal } from './signals/arbitrage/CrossMarketArbitrageSignal.js';
+export {
+  CrossMarketArbitrageSignal,
+  type CrossMarketArbitrageConfig,
+  type ExternalPlatform,
+  type PlatformFees,
+  type ExternalMarketData,
+  type CrossPlatformOpportunity,
+  type IExternalPlatformProvider,
+  type MarketCorrelation,
+  PLATFORM_FEES,
+  DEFAULT_ARBITRAGE_PARAMS,
+} from './signals/arbitrage/CrossMarketArbitrageSignal.js';
+
+// Microstructure Signals
+export {
+  OrderFlowImbalanceSignal,
+  type OFISignalConfig,
+  DEFAULT_OFI_PARAMS,
+} from './signals/microstructure/OrderFlowImbalanceSignal.js';
+export {
+  MultiLevelOFISignal,
+  type MLOFISignalConfig,
+  type MultiLevelOrderBook,
+  DEFAULT_MLOFI_PARAMS,
+} from './signals/microstructure/MultiLevelOFISignal.js';
+export {
+  HawkesSignal,
+  type HawkesSignalConfig,
+  DEFAULT_HAWKES_PARAMS,
+} from './signals/microstructure/HawkesSignal.js';
+
+// Sentiment Signals
+export {
+  SentimentSignal,
+  type SentimentSignalConfig,
+  type SentimentAnalysis,
+  type ISentimentProvider,
+  type SentimentSource,
+  DEFAULT_SENTIMENT_PARAMS,
+} from './signals/sentiment/SentimentSignal.js';
+
+// Event-Driven Signals
+export {
+  EventDrivenSignal,
+  type EventDrivenSignalConfig,
+  DEFAULT_EVENT_SIGNAL_PARAMS,
+  EventCalendar,
+  type EventCalendarConfig,
+  type IEventProvider,
+  EventCategory,
+  EventSubType,
+  EventImportance,
+  EventPhase,
+  type ScheduledEvent,
+  type MarketEventContext,
+  type EventPattern,
+  type EventTradingConfig,
+  DEFAULT_EVENT_TRADING_CONFIG,
+} from './signals/event/index.js';
 
 // Combiners
 export { WeightedAverageCombiner } from './combiners/WeightedAverageCombiner.js';
+export {
+  AttentionCombiner,
+  type AttentionCombinerConfig,
+  type AttentionWeights,
+  type AttentionCombinedResult,
+  DEFAULT_ATTENTION_CONFIG,
+} from './combiners/AttentionCombiner.js';
+
+// Regime Detection
+export {
+  HiddenMarkovModel,
+  type HMMConfig,
+  RegimeDetector,
+  type RegimeDetectorConfig,
+  MarketRegime,
+  type RegimeState,
+  type RegimeParameters,
+  type MarketObservation,
+  DEFAULT_REGIME_PARAMETERS,
+} from './regime/index.js';
 
 // Optimizers
 export {
@@ -79,11 +164,44 @@ export {
   type TrainingExample,
 } from './optimizers/BayesianOptimizer.js';
 
+// Reinforcement Learning
+export {
+  RLMarketMaker,
+  type RLMarketMakerConfig,
+  type TrainingCallback,
+  type TrainingResult,
+  DEFAULT_RL_CONFIG,
+  DQNAgent,
+  MarketMakingEnvironment,
+  type OrderBookSnapshot,
+  type MarketTick,
+  type StepResult,
+  ReplayBuffer,
+  type ReplayBufferConfig,
+  DEFAULT_BUFFER_CONFIG,
+  type RLState,
+  type RLAction,
+  DiscreteAction,
+  type Experience,
+  type TrainingBatch,
+  type AgentConfig,
+  type EnvironmentConfig,
+  type MarketMakerMetrics,
+  type ModelCheckpoint,
+  DEFAULT_AGENT_CONFIG,
+  DEFAULT_ENV_CONFIG,
+} from './ml/index.js';
+
 // Signal Registry (factory for creating signals)
 import { MomentumSignal } from './signals/technical/MomentumSignal.js';
 import { MeanReversionSignal } from './signals/technical/MeanReversionSignal.js';
 import { WalletTrackingSignal } from './signals/wallet/WalletTrackingSignal.js';
 import { CrossMarketArbitrageSignal } from './signals/arbitrage/CrossMarketArbitrageSignal.js';
+import { OrderFlowImbalanceSignal } from './signals/microstructure/OrderFlowImbalanceSignal.js';
+import { MultiLevelOFISignal } from './signals/microstructure/MultiLevelOFISignal.js';
+import { HawkesSignal } from './signals/microstructure/HawkesSignal.js';
+import { SentimentSignal } from './signals/sentiment/SentimentSignal.js';
+import { EventDrivenSignal } from './signals/event/EventDrivenSignal.js';
 import type { ISignal, SignalConfig } from './core/types/signal.types.js';
 
 const signalRegistry: Record<string, () => ISignal> = {
@@ -91,6 +209,11 @@ const signalRegistry: Record<string, () => ISignal> = {
   mean_reversion: () => new MeanReversionSignal(),
   wallet_tracking: () => new WalletTrackingSignal(),
   cross_market_arb: () => new CrossMarketArbitrageSignal(),
+  ofi: () => new OrderFlowImbalanceSignal(),
+  mlofi: () => new MultiLevelOFISignal(),
+  hawkes: () => new HawkesSignal(),
+  sentiment: () => new SentimentSignal(),
+  event_driven: () => new EventDrivenSignal(),
 };
 
 /**
