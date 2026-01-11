@@ -20,6 +20,9 @@ import {
   MomentumSignal,
   MeanReversionSignal,
   WalletTrackingSignal,
+  OrderFlowImbalanceSignal,
+  MultiLevelOFISignal,
+  HawkesSignal,
   WeightedAverageCombiner,
   type ISignal,
   type SignalContext,
@@ -72,10 +75,16 @@ export class SignalEngine extends EventEmitter {
     this.initializeSignals();
 
     // Initialize combiner with default weights
+    // Core signals: 60% total, Microstructure signals: 40% total
     this.combiner = new WeightedAverageCombiner({
-      momentum: 0.35,
-      mean_reversion: 0.35,
-      wallet_tracking: 0.30,
+      // Core signals
+      momentum: 0.20,
+      mean_reversion: 0.20,
+      wallet_tracking: 0.20,
+      // Microstructure signals (order flow analysis)
+      ofi: 0.15,           // Order Flow Imbalance
+      mlofi: 0.15,         // Multi-Level OFI
+      hawkes: 0.10,        // Trade clustering (Hawkes process)
     });
   }
 
@@ -83,9 +92,15 @@ export class SignalEngine extends EventEmitter {
    * Initialize all signal generators
    */
   private initializeSignals(): void {
+    // Core signals
     this.signals.set('momentum', new MomentumSignal());
     this.signals.set('mean_reversion', new MeanReversionSignal());
     this.signals.set('wallet_tracking', new WalletTrackingSignal());
+
+    // Microstructure signals (order flow analysis)
+    this.signals.set('ofi', new OrderFlowImbalanceSignal());
+    this.signals.set('mlofi', new MultiLevelOFISignal());
+    this.signals.set('hawkes', new HawkesSignal());
 
     console.log(`[SignalEngine] Initialized ${this.signals.size} signal generators`);
   }
