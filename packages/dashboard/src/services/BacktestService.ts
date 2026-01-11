@@ -11,7 +11,7 @@ import {
   createBacktestConfig,
   PerformanceCalculator,
   PredictionMarketCalculator,
-  mergeRiskConfig,
+  AGGRESSIVE_PROFILE,
   type BacktestConfig,
   type BacktestResult,
   type MarketData,
@@ -241,16 +241,15 @@ export class BacktestService extends EventEmitter {
    * Create backtest config from request
    */
   private createConfig(request: BacktestRequest): BacktestConfig {
-    // Use centralized CONSERVATIVE risk profile with user overrides
-    const riskConfig = mergeRiskConfig('CONSERVATIVE', {
-      maxPositionSizePct: request.riskConfig?.maxPositionSizePct ?? 10,
-      maxExposurePct: request.riskConfig?.maxExposurePct ?? 50,
-      maxDrawdownPct: request.riskConfig?.maxDrawdownPct ?? 20,
-      maxDailyLossPct: 5, // 5% daily loss limit
-      maxPositions: 20,
-      stopLossPct: request.riskConfig?.stopLossPct ?? 10,
-      takeProfitPct: request.riskConfig?.takeProfitPct ?? 25,
-    });
+    // Use AGGRESSIVE profile with user overrides only if provided
+    const riskConfig = {
+      ...AGGRESSIVE_PROFILE,
+      ...(request.riskConfig?.maxPositionSizePct && { maxPositionSizePct: request.riskConfig.maxPositionSizePct }),
+      ...(request.riskConfig?.maxExposurePct && { maxExposurePct: request.riskConfig.maxExposurePct }),
+      ...(request.riskConfig?.maxDrawdownPct && { maxDrawdownPct: request.riskConfig.maxDrawdownPct }),
+      ...(request.riskConfig?.stopLossPct && { stopLossPct: request.riskConfig.stopLossPct }),
+      ...(request.riskConfig?.takeProfitPct && { takeProfitPct: request.riskConfig.takeProfitPct }),
+    };
 
     return createBacktestConfig({
       startDate: new Date(request.startDate),
