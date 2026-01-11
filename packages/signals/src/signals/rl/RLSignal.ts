@@ -66,10 +66,11 @@ export class RLSignal extends BaseSignal {
     biases?: number[][];
     config?: Partial<AgentConfig>;
   }): void {
-    // Initialize agent with matching config
+    // Initialize agent with matching config (must match training script)
     const agentConfig: Partial<AgentConfig> = {
       stateDim: this.config.stateDim,
       actionDim: this.config.actionDim,
+      hiddenLayers: [64, 32], // Must match training script
       ...modelData.config,
     };
 
