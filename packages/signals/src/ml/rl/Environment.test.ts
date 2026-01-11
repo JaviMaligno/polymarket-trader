@@ -14,10 +14,15 @@ describe('MarketMakingEnvironment', () => {
   beforeEach(() => {
     env = new MarketMakingEnvironment({
       maxPosition: 100,
-      positionPenalty: 0.001,
-      tradeCost: 0.001,
+      inventoryPenalty: 0.001,
+      makerFee: 0.001,
+      takerFee: 0.002,
       episodeLength: 100,
-      priceVolatility: 0.02,
+      tickSize: 0.01,
+      riskAversion: 0.1,
+      orderBookDepth: 5,
+      priceHistoryLength: 10,
+      rewardScale: 1.0,
     });
   });
 
