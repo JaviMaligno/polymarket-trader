@@ -14,6 +14,9 @@
 // Core types
 export * from './types/index.js';
 
+// Import utilities needed for default config below
+import { mergeRiskConfig } from './types/index.js';
+
 // Engine
 export { EventBus } from './engine/EventBus.js';
 export {
@@ -162,15 +165,15 @@ export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
     model: 'fixed',
     fixedSlippage: 0.005, // 0.5% slippage
   },
-  risk: {
+  risk: mergeRiskConfig('CONSERVATIVE', {
     maxPositionSizePct: 5,    // Optimized: smaller positions reduce risk
     maxExposurePct: 80,
     maxDrawdownPct: 25,
-    dailyLossLimit: 1000,
+    maxDailyLossPct: 10,      // 10% daily loss limit (scalable)
     maxPositions: 10,
     stopLossPct: 20,
     takeProfitPct: 50,
-  },
+  }),
   // SHORT-only strategy is profitable (+31% vs -30% for LONG)
   // Mean reversion signals work better for identifying overpriced markets
   onlyDirection: 'SHORT',

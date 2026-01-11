@@ -3,6 +3,50 @@
  */
 
 // ============================================
+// Risk Management (must be first for BacktestConfig)
+// ============================================
+
+import type {
+  RiskConfig as RiskConfigImport,
+  RiskProfileType as RiskProfileTypeImport,
+  AdaptiveMode as AdaptiveModeImport,
+} from './RiskProfiles.js';
+
+import {
+  getRiskProfile as getRiskProfileImport,
+  getDefaultRiskProfile as getDefaultRiskProfileImport,
+  mergeRiskConfig as mergeRiskConfigImport,
+  validateRiskConfig as validateRiskConfigImport,
+  calculateAdaptiveMultiplier as calculateAdaptiveMultiplierImport,
+  calculateVolatilityAdjustedSL as calculateVolatilityAdjustedSLImport,
+  calculateVolatilityAdjustedTP as calculateVolatilityAdjustedTPImport,
+  convertUSDLimitToPercent as convertUSDLimitToPercentImport,
+  convertPercentLimitToUSD as convertPercentLimitToUSDImport,
+  AGGRESSIVE_PROFILE as AGGRESSIVE_PROFILE_IMPORT,
+  MODERATE_PROFILE as MODERATE_PROFILE_IMPORT,
+  CONSERVATIVE_PROFILE as CONSERVATIVE_PROFILE_IMPORT,
+} from './RiskProfiles.js';
+
+// Re-export types
+export type RiskConfig = RiskConfigImport;
+export type RiskProfileType = RiskProfileTypeImport;
+export type AdaptiveMode = AdaptiveModeImport;
+
+// Re-export functions and constants
+export const getRiskProfile = getRiskProfileImport;
+export const getDefaultRiskProfile = getDefaultRiskProfileImport;
+export const mergeRiskConfig = mergeRiskConfigImport;
+export const validateRiskConfig = validateRiskConfigImport;
+export const calculateAdaptiveMultiplier = calculateAdaptiveMultiplierImport;
+export const calculateVolatilityAdjustedSL = calculateVolatilityAdjustedSLImport;
+export const calculateVolatilityAdjustedTP = calculateVolatilityAdjustedTPImport;
+export const convertUSDLimitToPercent = convertUSDLimitToPercentImport;
+export const convertPercentLimitToUSD = convertPercentLimitToUSDImport;
+export const AGGRESSIVE_PROFILE = AGGRESSIVE_PROFILE_IMPORT;
+export const MODERATE_PROFILE = MODERATE_PROFILE_IMPORT;
+export const CONSERVATIVE_PROFILE = CONSERVATIVE_PROFILE_IMPORT;
+
+// ============================================
 // Event Types
 // ============================================
 
@@ -185,23 +229,6 @@ export interface SlippageConfig {
   proportionalRate?: number;
   /** Order book impact factor */
   impactFactor?: number;
-}
-
-export interface RiskConfig {
-  /** Maximum position size as % of portfolio */
-  maxPositionSizePct: number;
-  /** Maximum total exposure as % of portfolio */
-  maxExposurePct: number;
-  /** Maximum drawdown before halt (%) */
-  maxDrawdownPct: number;
-  /** Daily loss limit in USD */
-  dailyLossLimit: number;
-  /** Maximum concurrent positions */
-  maxPositions: number;
-  /** Stop loss per position (%) */
-  stopLossPct: number;
-  /** Take profit per position (%) */
-  takeProfitPct: number;
 }
 
 // ============================================

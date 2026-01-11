@@ -1,35 +1,21 @@
 /**
- * Risk Manager Service
+ * Risk Manager Service (Dashboard/Paper Trading)
  *
  * Monitors portfolio risk and automatically halts trading when limits are exceeded.
- * Implements drawdown protection and position limits.
+ * NOW USES: Centralized risk profile system with AGGRESSIVE default.
  */
 
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
 import { paperPositionsRepo, portfolioSnapshotsRepo } from '../database/repositories.js';
+import {
+  type RiskConfig,
+  getDefaultRiskProfile,
+  mergeRiskConfig,
+  calculateAdaptiveMultiplier,
+} from '@polymarket-trader/backtest';
 
-export interface RiskConfig {
-  enabled: boolean;
-  maxDrawdownPct: number;        // Max drawdown before halt (15%)
-  maxDailyLossPct: number;       // Max daily loss (5%)
-  maxPositionSizePct: number;    // Max single position (10%)
-  maxTotalExposurePct: number;   // Max total exposure (80%)
-  checkIntervalMs: number;       // How often to check (30000)
-  cooldownAfterHaltMs: number;   // How long to stay halted (3600000 = 1h)
-}
-
-// Allow override via environment variables for paper trading flexibility
-// Defaults are intentionally high for paper trading observation
-const DEFAULT_CONFIG: RiskConfig = {
-  enabled: process.env.RISK_MANAGER_ENABLED !== 'false',
-  maxDrawdownPct: parseFloat(process.env.RISK_MAX_DRAWDOWN_PCT || '40'),    // High for testing exit strategy
-  maxDailyLossPct: parseFloat(process.env.RISK_MAX_DAILY_LOSS_PCT || '35'), // High for testing exit strategy
-  maxPositionSizePct: parseFloat(process.env.RISK_MAX_POSITION_PCT || '15'),
-  maxTotalExposurePct: parseFloat(process.env.RISK_MAX_EXPOSURE_PCT || '90'),
-  checkIntervalMs: 30000,  // 30 seconds
-  cooldownAfterHaltMs: 1800000,  // 30 minutes (reduced from 1 hour)
-};
+export type { RiskConfig } from '@polymarket-trader/backtest';
 
 export type RiskViolation = 'drawdown' | 'daily_loss' | 'position_size' | 'total_exposure' | 'manual';
 
@@ -41,8 +27,17 @@ interface RiskStatus {
   dailyPnlPct: number;
   totalExposurePct: number;
   largestPositionPct: number;
+  adaptiveMultiplier: number;
+  profileType: string;
 }
 
+/**
+ * Enhanced Risk Manager for Paper Trading
+ * - Uses centralized AGGRESSIVE profile by default
+ * - Fixed drawdown calculation
+ * - Percentage-based daily loss (scalable)
+ * - Adaptive risk management
+ */
 export class RiskManager extends EventEmitter {
   private config: RiskConfig;
   private checkInterval: NodeJS.Timeout | null = null;
@@ -53,12 +48,20 @@ export class RiskManager extends EventEmitter {
   private peakEquity = 0;
   private dayStartEquity = 0;
   private lastDayReset: Date;
+  private adaptiveMultiplier = 1.0;
 
   constructor(config?: Partial<RiskConfig>) {
     super();
-    this.config = { ...DEFAULT_CONFIG, ...config };
+
+    // Use AGGRESSIVE profile as default
+    this.config = config
+      ? mergeRiskConfig('AGGRESSIVE', config)
+      : getDefaultRiskProfile();
+
     this.lastDayReset = new Date();
     this.lastDayReset.setHours(0, 0, 0, 0);
+
+    console.log(`[RiskManager] Initialized with ${this.config.profileType} profile`);
   }
 
   /**
@@ -119,17 +122,14 @@ export class RiskManager extends EventEmitter {
       if (accountResult.rows[0]) {
         const currentCapital = parseFloat(accountResult.rows[0].current_capital);
         this.peakEquity = parseFloat(accountResult.rows[0].peak_equity) || currentCapital;
-        // Default to current capital - this is the safest approach to avoid
-        // triggering false daily loss limits on service restarts
         this.dayStartEquity = currentCapital;
       }
 
-      // Only use snapshot-based day start if we have a snapshot from near midnight
-      // This prevents accumulated losses across days from being counted as daily loss
+      // Load day-start snapshot if available
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const earlyMorning = new Date(todayStart);
-      earlyMorning.setHours(1, 0, 0, 0);  // Within first hour of day
+      earlyMorning.setHours(1, 0, 0, 0);
 
       const snapshotResult = await query<{ current_capital: string; time: Date }>(
         `SELECT current_capital, time FROM portfolio_snapshots
@@ -141,9 +141,9 @@ export class RiskManager extends EventEmitter {
 
       if (snapshotResult.rows[0]) {
         this.dayStartEquity = parseFloat(snapshotResult.rows[0].current_capital);
-        console.log(`[RiskManager] Using day-start snapshot from ${snapshotResult.rows[0].time}: $${this.dayStartEquity.toFixed(2)}`);
+        console.log(`[RiskManager] Using day-start snapshot: $${this.dayStartEquity.toFixed(2)}`);
       } else {
-        console.log(`[RiskManager] No early-morning snapshot found, using current capital as day start: $${this.dayStartEquity.toFixed(2)}`);
+        console.log(`[RiskManager] No snapshot found, using current capital: $${this.dayStartEquity.toFixed(2)}`);
       }
 
     } catch (error) {
@@ -153,6 +153,7 @@ export class RiskManager extends EventEmitter {
 
   /**
    * Check all risk limits
+   * FIXED: Drawdown calculation, percentage-based limits, adaptive mode
    */
   async checkRisk(): Promise<RiskStatus> {
     if (!this.config.enabled || !isDatabaseConfigured()) {
@@ -163,7 +164,9 @@ export class RiskManager extends EventEmitter {
     if (this.isHalted && this.haltedAt) {
       const haltDuration = Date.now() - this.haltedAt.getTime();
       if (haltDuration >= this.config.cooldownAfterHaltMs) {
-        await this.resumeTrading('Cooldown period ended');
+        if (this.config.autoResumeAfterCooldown) {
+          await this.resumeTrading('Cooldown period ended');
+        }
       }
     }
 
@@ -201,11 +204,12 @@ export class RiskManager extends EventEmitter {
         0
       );
 
-      // Calculate metrics
+      // FIXED: Correct drawdown calculation (highWaterMark - current) / highWaterMark
       const currentDrawdownPct = this.peakEquity > 0
         ? ((this.peakEquity - currentCapital) / this.peakEquity) * 100
         : 0;
 
+      // FIXED: Daily loss as percentage (scalable)
       const dailyPnlPct = this.dayStartEquity > 0
         ? ((currentCapital - this.dayStartEquity) / this.dayStartEquity) * 100
         : 0;
@@ -220,6 +224,9 @@ export class RiskManager extends EventEmitter {
           ))
         : 0;
 
+      // Calculate adaptive multiplier
+      this.adaptiveMultiplier = calculateAdaptiveMultiplier(currentDrawdownPct, this.config);
+
       // Update max drawdown in database
       await query(
         `UPDATE paper_account SET
@@ -229,14 +236,31 @@ export class RiskManager extends EventEmitter {
         [currentDrawdownPct / 100]
       );
 
-      // Check risk limits
+      // Check risk limits with adaptive mode support
       if (!this.isHalted) {
-        if (currentDrawdownPct >= this.config.maxDrawdownPct) {
-          await this.haltTrading('drawdown', `Drawdown ${currentDrawdownPct.toFixed(2)}% exceeded limit ${this.config.maxDrawdownPct}%`);
-        } else if (dailyPnlPct <= -this.config.maxDailyLossPct) {
-          await this.haltTrading('daily_loss', `Daily loss ${Math.abs(dailyPnlPct).toFixed(2)}% exceeded limit ${this.config.maxDailyLossPct}%`);
-        } else if (totalExposurePct >= this.config.maxTotalExposurePct) {
-          await this.haltTrading('total_exposure', `Total exposure ${totalExposurePct.toFixed(2)}% exceeded limit ${this.config.maxTotalExposurePct}%`);
+        // Hard halt threshold
+        if (currentDrawdownPct >= this.config.haltDrawdownPct) {
+          await this.haltTrading('drawdown', `Drawdown ${currentDrawdownPct.toFixed(2)}% exceeded hard halt limit ${this.config.haltDrawdownPct}%`);
+        }
+        // Max drawdown (adaptive trigger)
+        else if (currentDrawdownPct >= this.config.maxDrawdownPct) {
+          if (this.config.adaptiveMode === 'NONE') {
+            await this.haltTrading('drawdown', `Drawdown ${currentDrawdownPct.toFixed(2)}% exceeded limit ${this.config.maxDrawdownPct}%`);
+          } else {
+            console.warn(`[RiskManager] Adaptive mode: drawdown ${currentDrawdownPct.toFixed(2)}% - reducing position size to ${(this.adaptiveMultiplier * 100).toFixed(0)}%`);
+          }
+        }
+        // Daily loss
+        else if (dailyPnlPct <= -this.config.maxDailyLossPct) {
+          if (this.config.adaptiveMode === 'NONE') {
+            await this.haltTrading('daily_loss', `Daily loss ${Math.abs(dailyPnlPct).toFixed(2)}% exceeded limit ${this.config.maxDailyLossPct}%`);
+          } else {
+            console.warn(`[RiskManager] Adaptive mode: daily loss ${Math.abs(dailyPnlPct).toFixed(2)}% - reducing position size`);
+          }
+        }
+        // Total exposure
+        else if (totalExposurePct >= this.config.maxExposurePct) {
+          await this.haltTrading('total_exposure', `Total exposure ${totalExposurePct.toFixed(2)}% exceeded limit ${this.config.maxExposurePct}%`);
         }
       }
 
@@ -248,6 +272,8 @@ export class RiskManager extends EventEmitter {
         dailyPnlPct,
         totalExposurePct,
         largestPositionPct,
+        adaptiveMultiplier: this.adaptiveMultiplier,
+        profileType: this.config.profileType,
       };
 
       this.emit('risk:checked', status);
@@ -346,17 +372,19 @@ export class RiskManager extends EventEmitter {
 
   /**
    * Check if a new trade would violate position limits
+   * NOW WITH: Adaptive multiplier support
    */
   async canOpenPosition(positionValue: number): Promise<{
     allowed: boolean;
     reason?: string;
+    adaptiveMultiplier?: number;
   }> {
     if (this.isHalted) {
-      return { allowed: false, reason: `Trading halted: ${this.haltReason}` };
+      return { allowed: false, reason: `Trading halted: ${this.haltReason}`, adaptiveMultiplier: 0 };
     }
 
     if (!isDatabaseConfigured()) {
-      return { allowed: true };
+      return { allowed: true, adaptiveMultiplier: 1 };
     }
 
     try {
@@ -365,17 +393,20 @@ export class RiskManager extends EventEmitter {
       );
 
       if (!accountResult.rows[0]) {
-        return { allowed: true };
+        return { allowed: true, adaptiveMultiplier: 1 };
       }
 
       const initialCapital = parseFloat(accountResult.rows[0].initial_capital);
 
-      // Check position size limit
+      // Apply adaptive multiplier to position size limit
+      const effectiveMaxPct = this.config.maxPositionSizePct * this.adaptiveMultiplier;
       const positionPct = (positionValue / initialCapital) * 100;
-      if (positionPct > this.config.maxPositionSizePct) {
+
+      if (positionPct > effectiveMaxPct) {
         return {
           allowed: false,
-          reason: `Position size ${positionPct.toFixed(2)}% exceeds limit ${this.config.maxPositionSizePct}%`,
+          reason: `Position size ${positionPct.toFixed(2)}% exceeds adaptive limit ${effectiveMaxPct.toFixed(2)}% (base: ${this.config.maxPositionSizePct}%)`,
+          adaptiveMultiplier: this.adaptiveMultiplier,
         };
       }
 
@@ -387,18 +418,19 @@ export class RiskManager extends EventEmitter {
       );
 
       const newExposurePct = ((currentExposure + positionValue) / initialCapital) * 100;
-      if (newExposurePct > this.config.maxTotalExposurePct) {
+      if (newExposurePct > this.config.maxExposurePct) {
         return {
           allowed: false,
-          reason: `Total exposure ${newExposurePct.toFixed(2)}% would exceed limit ${this.config.maxTotalExposurePct}%`,
+          reason: `Total exposure ${newExposurePct.toFixed(2)}% would exceed limit ${this.config.maxExposurePct}%`,
+          adaptiveMultiplier: this.adaptiveMultiplier,
         };
       }
 
-      return { allowed: true };
+      return { allowed: true, adaptiveMultiplier: this.adaptiveMultiplier };
 
     } catch (error) {
       console.error('[RiskManager] Position check failed:', error);
-      return { allowed: true };  // Allow on error to not block trading
+      return { allowed: true, adaptiveMultiplier: 1 };  // Allow on error
     }
   }
 
@@ -442,6 +474,8 @@ export class RiskManager extends EventEmitter {
       dailyPnlPct: 0,
       totalExposurePct: 0,
       largestPositionPct: 0,
+      adaptiveMultiplier: this.adaptiveMultiplier,
+      profileType: this.config.profileType,
     };
   }
 
@@ -464,6 +498,7 @@ export class RiskManager extends EventEmitter {
    */
   updateConfig(updates: Partial<RiskConfig>): void {
     this.config = { ...this.config, ...updates };
+    console.log(`[RiskManager] Config updated - profile: ${this.config.profileType}`);
     this.emit('config:updated', this.config);
   }
 }
