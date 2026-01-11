@@ -124,6 +124,8 @@ export class RiskManager extends EventEmitter {
         const currentCapital = parseFloat(accountResult.rows[0].current_capital);
         this.peakEquity = parseFloat(accountResult.rows[0].peak_equity) || currentCapital;
         this.dayStartEquity = currentCapital;
+
+        console.log(`[RiskManager] Peak equity: $${this.peakEquity.toFixed(2)}, Current: $${currentCapital.toFixed(2)}`);
       }
 
       // Load day-start snapshot if available
