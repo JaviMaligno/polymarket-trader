@@ -46,7 +46,7 @@ describe('ValidationService', () => {
     });
 
     it('should fail for insufficient trades', () => {
-      const metrics = createMockMetrics({ totalTrades: 5 });
+      const metrics = createMockMetrics({ totalTrades: 4 });
       const result = service.quickValidate(metrics as any);
 
       expect(result.passed).toBe(false);
@@ -97,9 +97,9 @@ describe('ValidationService', () => {
   describe('configuration', () => {
     it('should use default config', () => {
       const config = service.getConfig();
-      expect(config.minSharpeRatio).toBe(0.5);
-      expect(config.maxSharpeRatio).toBe(5.0);
-      expect(config.minTrades).toBe(20);
+      expect(config.minSharpeRatio).toBe(0.3);
+      expect(config.maxSharpeRatio).toBe(8.0);
+      expect(config.minTrades).toBe(5);
     });
 
     it('should accept custom config', () => {
@@ -130,9 +130,9 @@ describe('ValidationService', () => {
 
     it('should handle exactly at thresholds', () => {
       const metrics = createMockMetrics({
-        totalTrades: 20, // exactly at minimum
-        sharpeRatio: 0.5, // exactly at minimum
-        maxDrawdown: 0.30, // exactly at maximum
+        totalTrades: 5, // exactly at minimum
+        sharpeRatio: 0.3, // exactly at minimum
+        maxDrawdown: 0.40, // exactly at maximum
       });
       const result = service.quickValidate(metrics as any);
 
