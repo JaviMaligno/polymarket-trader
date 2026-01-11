@@ -125,6 +125,12 @@ export {
   DEFAULT_EVENT_TRADING_CONFIG,
 } from './signals/event/index.js';
 
+// RL Signal
+export {
+  RLSignal,
+  type RLSignalConfig,
+} from './signals/rl/RLSignal.js';
+
 // Combiners
 export { WeightedAverageCombiner } from './combiners/WeightedAverageCombiner.js';
 export {
@@ -202,6 +208,7 @@ import { MultiLevelOFISignal } from './signals/microstructure/MultiLevelOFISigna
 import { HawkesSignal } from './signals/microstructure/HawkesSignal.js';
 import { SentimentSignal } from './signals/sentiment/SentimentSignal.js';
 import { EventDrivenSignal } from './signals/event/EventDrivenSignal.js';
+import { RLSignal } from './signals/rl/RLSignal.js';
 import type { ISignal, SignalConfig } from './core/types/signal.types.js';
 
 const signalRegistry: Record<string, () => ISignal> = {
@@ -214,6 +221,7 @@ const signalRegistry: Record<string, () => ISignal> = {
   hawkes: () => new HawkesSignal(),
   sentiment: () => new SentimentSignal(),
   event_driven: () => new EventDrivenSignal(),
+  rl: () => new RLSignal(),
 };
 
 /**
