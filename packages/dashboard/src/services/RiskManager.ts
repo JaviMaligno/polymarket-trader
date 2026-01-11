@@ -49,6 +49,7 @@ export class RiskManager extends EventEmitter {
   private dayStartEquity = 0;
   private lastDayReset: Date;
   private adaptiveMultiplier = 1.0;
+  private isResuming = false; // Prevent infinite recursion
 
   constructor(config?: Partial<RiskConfig>) {
     super();
@@ -160,8 +161,8 @@ export class RiskManager extends EventEmitter {
       return this.getStatus();
     }
 
-    // Check if halt cooldown has passed
-    if (this.isHalted && this.haltedAt) {
+    // Check if halt cooldown has passed (skip if already resuming to prevent recursion)
+    if (this.isHalted && this.haltedAt && !this.isResuming) {
       const haltDuration = Date.now() - this.haltedAt.getTime();
       if (haltDuration >= this.config.cooldownAfterHaltMs) {
         if (this.config.autoResumeAfterCooldown) {
@@ -326,8 +327,13 @@ export class RiskManager extends EventEmitter {
   async resumeTrading(reason = 'Manual resume'): Promise<boolean> {
     if (!this.isHalted) return true;
 
+    // Set flag to prevent infinite recursion when checkRisk is called
+    this.isResuming = true;
+
     // Re-check risk before resuming
     const status = await this.checkRisk();
+
+    this.isResuming = false;
 
     // Don't resume if still violating limits (with some buffer)
     if (status.currentDrawdownPct >= this.config.maxDrawdownPct * 0.9) {
