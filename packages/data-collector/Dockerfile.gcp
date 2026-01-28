@@ -1,0 +1,38 @@
+# Polymarket Data Collector - GCP optimized (standalone)
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY packages/data-collector/package.json ./
+
+# Install all dependencies (including dev for build)
+RUN npm install
+
+# Copy source code and tsconfig
+COPY packages/data-collector/src ./src
+COPY packages/data-collector/tsconfig.json ./
+
+# Build TypeScript
+RUN npm run build
+
+# Production stage - minimal image
+FROM node:20-alpine AS production
+
+# Install wget for healthcheck
+RUN apk add --no-cache wget
+
+WORKDIR /app
+
+# Copy package.json and install production deps only
+COPY packages/data-collector/package.json ./
+RUN npm install --omit=dev
+
+# Copy built files
+COPY --from=builder /app/dist ./dist
+
+# Set environment
+ENV NODE_ENV=production
+
+# Run the data collector
+CMD ["node", "dist/index.js"]

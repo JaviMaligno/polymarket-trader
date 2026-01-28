@@ -1,0 +1,75 @@
+# Docker Compose for Google Cloud e2-micro VM
+# Optimized for 1GB RAM total (both services + overhead)
+#
+# Usage:
+#   docker-compose -f docker-compose.gcp.yml up -d
+
+services:
+  # ============================================
+  # Data Collector (Node.js)
+  # ============================================
+  data-collector:
+    build:
+      context: .
+      dockerfile: packages/data-collector/Dockerfile.gcp
+    container_name: polymarket-data-collector
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: ${DATABASE_URL}
+      GAMMA_API_URL: https://gamma-api.polymarket.com
+      CLOB_API_URL: https://clob.polymarket.com
+      DATA_API_URL: https://data-api.polymarket.com
+      PORT: 10000
+    ports:
+      - "10000:10000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+        reservations:
+          memory: 100M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # Optimizer Server (Python/FastAPI)
+  # ============================================
+  optimizer:
+    build:
+      context: ./services/optimizer-server
+      dockerfile: Dockerfile
+    container_name: polymarket-optimizer
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: "1"
+      LOG_LEVEL: info
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 300M
+        reservations:
+          memory: 150M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
