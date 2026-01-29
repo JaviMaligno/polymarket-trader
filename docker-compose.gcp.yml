@@ -1,10 +1,62 @@
 # Docker Compose for Google Cloud e2-micro VM
-# Optimized for 1GB RAM total (both services + overhead)
+# Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
 #
 # Usage:
-#   docker-compose -f docker-compose.gcp.yml up -d
+#   docker compose -f docker-compose.gcp.yml up -d
 
 services:
+  # ============================================
+  # TimescaleDB (PostgreSQL with time-series)
+  # ============================================
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: polymarket-timescaledb
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: polymarket
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-polymarket_prod}
+      POSTGRES_DB: polymarket_trading
+    volumes:
+      - timescaledb_data:/var/lib/postgresql/data
+      - ./packages/data-collector/src/database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    # Tune PostgreSQL for low memory (1GB VM shared with other services)
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=64MB"
+      - "-c"
+      - "effective_cache_size=128MB"
+      - "-c"
+      - "work_mem=2MB"
+      - "-c"
+      - "maintenance_work_mem=32MB"
+      - "-c"
+      - "max_connections=20"
+      - "-c"
+      - "wal_buffers=4MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "random_page_cost=1.1"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U polymarket -d polymarket_trading"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 350M
+        reservations:
+          memory: 200M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ============================================
   # Data Collector (Node.js)
   # ============================================
@@ -14,10 +66,13 @@ services:
       dockerfile: packages/data-collector/Dockerfile.gcp
     container_name: polymarket-data-collector
     restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
-      DATABASE_URL: ${DATABASE_URL}
+      DATABASE_URL: postgresql://polymarket:${DB_PASSWORD:-polymarket_prod}@timescaledb:5432/polymarket_trading
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
@@ -33,9 +88,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 200M
+          memory: 150M
         reservations:
-          memory: 100M
+          memory: 80M
     logging:
       driver: "json-file"
       options:
@@ -65,11 +120,15 @@ services:
     deploy:
       resources:
         limits:
-          memory: 300M
+          memory: 200M
         reservations:
-          memory: 150M
+          memory: 120M
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  timescaledb_data:
+    driver: local
