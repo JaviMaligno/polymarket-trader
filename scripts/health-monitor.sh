@@ -49,6 +49,15 @@ else
   DETAILS="$DETAILS\n- Optimizer: OK"
 fi
 
+# Check Dashboard API
+DASH_HEALTH=$(curl -sf http://localhost:3001/health 2>/dev/null)
+if [ $? -ne 0 ]; then
+  FAILURES="$FAILURES dashboard-api"
+  DETAILS="$DETAILS\n- Dashboard API: NOT RESPONDING"
+else
+  DETAILS="$DETAILS\n- Dashboard API: OK"
+fi
+
 # Get memory info
 MEM_INFO=$(free -h | grep Mem | awk '{print "RAM: " $3 "/" $2 " used"}')
 SWAP_INFO=$(free -h | grep Swap | awk '{print "Swap: " $3 "/" $2 " used"}')

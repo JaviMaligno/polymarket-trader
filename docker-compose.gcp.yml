@@ -1,5 +1,6 @@
 # Docker Compose for Google Cloud e2-micro VM
-# Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
+# Optimized for 1GB RAM total (TimescaleDB + 3 services + overhead)
+# Memory budget: TimescaleDB 280M + Data Collector 100M + Optimizer 80M + Dashboard 150M = 610M
 #
 # Usage:
 #   docker compose -f docker-compose.gcp.yml up -d
@@ -48,9 +49,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 350M
+          memory: 280M
         reservations:
-          memory: 200M
+          memory: 180M
     logging:
       driver: "json-file"
       options:
@@ -88,9 +89,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 150M
+          memory: 100M
         reservations:
-          memory: 80M
+          memory: 60M
     logging:
       driver: "json-file"
       options:
@@ -120,9 +121,55 @@ services:
     deploy:
       resources:
         limits:
-          memory: 200M
+          memory: 80M
         reservations:
-          memory: 120M
+          memory: 30M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ============================================
+  # Dashboard API (Node.js - Signals + Trading)
+  # ============================================
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+    container_name: polymarket-dashboard-api
+    restart: unless-stopped
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOST: 0.0.0.0
+      CORS_ORIGIN: "*"
+      DATABASE_URL: postgresql://polymarket:${DB_PASSWORD:-polymarket_prod}@timescaledb:5432/polymarket_trading
+      CONNECT_TRADER: "true"
+      ENABLE_SIGNAL_ENGINE: "true"
+      ENABLE_OPTIMIZATION: "true"
+      POLYMARKET_API_URL: https://clob.polymarket.com
+      INITIAL_CAPITAL: "10000"
+      FEE_RATE: "0.001"
+      MAX_DRAWDOWN: "0.15"
+      MAX_DAILY_LOSS: "500"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 150M
+        reservations:
+          memory: 80M
     logging:
       driver: "json-file"
       options:
