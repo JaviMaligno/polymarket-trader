@@ -735,12 +735,15 @@ export class BacktestEngine {
           continue;
         }
 
-        if (Math.abs(combined.strength) <= 0.1) {
+        const minStrength = this.config.signalFilters?.minStrength ?? 0.1;
+        const minConfidence = this.config.signalFilters?.minConfidence ?? 0.15;
+
+        if (Math.abs(combined.strength) <= minStrength) {
           this.combiningStats.strengthTooLow++;
           continue;
         }
 
-        if (combined.confidence <= 0.15) {
+        if (combined.confidence <= minConfidence) {
           this.combiningStats.confidenceTooLow++;
           continue;
         }

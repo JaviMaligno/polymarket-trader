@@ -6,6 +6,7 @@
  */
 
 import { query, isDatabaseConfigured } from '../database/index.js';
+import { getTradingAutomation } from './TradingAutomation.js';
 
 // Best parameters from optimization (Sharpe: 17.66)
 const OPTIMIZED_PARAMS = {
@@ -176,6 +177,17 @@ export async function createAndStartStrategy(baseUrl: string): Promise<void> {
         method: 'POST',
       });
       console.log(`Strategy ${strategyId} created and started`);
+
+      // Apply optimized thresholds to executor
+      try {
+        getTradingAutomation().getExecutor().updateConfig({
+          minStrength: params.minEdge,
+          minConfidence: params.minConfidence,
+        });
+        console.log(`[AutoInit] Applied optimized thresholds: minStrength=${params.minEdge}, minConfidence=${params.minConfidence}`);
+      } catch (err) {
+        console.error('[AutoInit] Could not update executor thresholds:', err);
+      }
     }
   } catch (error) {
     console.error('Failed to create/start strategy:', error);

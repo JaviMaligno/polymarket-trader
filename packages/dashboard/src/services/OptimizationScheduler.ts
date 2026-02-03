@@ -11,6 +11,7 @@
 import { query, isDatabaseConfigured } from '../database/index.js';
 import { getBacktestService, BacktestService } from './BacktestService.js';
 import { getValidationService, type ValidationService } from './ValidationService.js';
+import { getTradingAutomation } from './TradingAutomation.js';
 
 // Parameter ranges for optimization
 // More permissive ranges to allow trades to execute
@@ -262,6 +263,10 @@ export class OptimizationScheduler {
             maxPositionSizePct: 10,
             maxExposurePct: 50,
           },
+          signalFilters: {
+            minStrength: params.minEdge,
+            minConfidence: params.minConfidence,
+          },
         });
 
         if (backtest.result && backtest.result.metrics) {
@@ -425,6 +430,17 @@ export class OptimizationScheduler {
           // Start the new strategy
           await fetch(`${this.dashboardApiUrl}/api/strategies/${strategyId}/start`, { method: 'POST' });
           console.log(`[OptimizationScheduler] Created and started new strategy: ${strategyId}`);
+
+          // Update executor runtime thresholds with optimized params
+          try {
+            getTradingAutomation().getExecutor().updateConfig({
+              minStrength: result.params.minEdge,
+              minConfidence: result.params.minConfidence,
+            });
+            console.log(`[OptimizationScheduler] Updated executor: minStrength=${result.params.minEdge}, minConfidence=${result.params.minConfidence}`);
+          } catch (err) {
+            console.error('[OptimizationScheduler] Failed to update executor config:', err);
+          }
         }
       }
     } catch (error) {

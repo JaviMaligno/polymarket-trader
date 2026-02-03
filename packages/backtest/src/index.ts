@@ -199,5 +199,6 @@ export function createBacktestConfig(
     risk: { ...DEFAULT_BACKTEST_CONFIG.risk!, ...overrides.risk },
     marketIds: overrides.marketIds,
     onlyDirection: overrides.onlyDirection ?? DEFAULT_BACKTEST_CONFIG.onlyDirection,
+    signalFilters: overrides.signalFilters,
   };
 }

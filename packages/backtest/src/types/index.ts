@@ -218,6 +218,11 @@ export interface BacktestConfig {
   granularityMinutes: number;
   /** Only trade signals in this direction (for testing) */
   onlyDirection?: 'LONG' | 'SHORT';
+  /** Signal filtering thresholds (overrides engine defaults) */
+  signalFilters?: {
+    minStrength?: number;
+    minConfidence?: number;
+  };
 }
 
 export interface SlippageConfig {

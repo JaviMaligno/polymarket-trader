@@ -42,6 +42,10 @@ export interface BacktestRequest {
     stopLossPct?: number;
     takeProfitPct?: number;
   };
+  signalFilters?: {
+    minStrength?: number;
+    minConfidence?: number;
+  };
 }
 
 export interface StoredBacktest {
@@ -259,6 +263,7 @@ export class BacktestService extends EventEmitter {
       granularityMinutes: 60,
       marketIds: request.marketIds,
       risk: riskConfig,
+      signalFilters: request.signalFilters,
     });
   }
 
