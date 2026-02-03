@@ -29,7 +29,7 @@ const DEFAULT_CONFIG: PolymarketConfig = {
   apiUrl: 'https://clob.polymarket.com',
   wsUrl: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
   pollingIntervalMs: 60000,  // 60 seconds (increased from 30)
-  maxMarketsToTrack: 20,     // Reduced from 50 to stay under rate limits
+  maxMarketsToTrack: 100,    // Increased to find more tradeable price ranges
   autoDiscoverMarkets: true,
   minVolume24h: 1000,
   minLiquidity: 500,
