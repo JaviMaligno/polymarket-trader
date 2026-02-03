@@ -130,9 +130,16 @@ async function loadBestOptimizationParams(): Promise<{ minEdge: number; minConfi
     const params = result.rows[0].best_params;
     if (!params) return null;
 
+    // Support both Optuna flat keys and legacy grid-search keys
     return {
-      minEdge: params.execution_minEdge || params.minEdge || OPTIMIZED_PARAMS.minEdge,
-      minConfidence: params.combiner_minCombinedConfidence || params.minConfidence || OPTIMIZED_PARAMS.minConfidence,
+      minEdge: params['combiner.minCombinedStrength']
+        ?? params.execution_minEdge
+        ?? params.minEdge
+        ?? OPTIMIZED_PARAMS.minEdge,
+      minConfidence: params['combiner.minCombinedConfidence']
+        ?? params.combiner_minCombinedConfidence
+        ?? params.minConfidence
+        ?? OPTIMIZED_PARAMS.minConfidence,
     };
   } catch (error) {
     console.error('Failed to load optimization params:', error);

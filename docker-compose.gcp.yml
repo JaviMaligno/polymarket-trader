@@ -1,6 +1,7 @@
 # Docker Compose for Google Cloud e2-micro VM
-# Optimized for 1GB RAM total (TimescaleDB + 3 services + overhead)
-# Memory budget: TimescaleDB 280M + Data Collector 100M + Optimizer 80M + Dashboard 150M = 610M
+# Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
+# Memory budget: TimescaleDB 280M + Data Collector 100M + Dashboard 200M = 580M
+# NOTE: Optimizer runs on Render (polymarket-optimizer-server.onrender.com)
 #
 # Usage:
 #   docker compose -f docker-compose.gcp.yml up -d
@@ -99,38 +100,6 @@ services:
         max-file: "3"
 
   # ============================================
-  # Optimizer Server (Python/FastAPI)
-  # ============================================
-  optimizer:
-    build:
-      context: ./services/optimizer-server
-      dockerfile: Dockerfile
-    container_name: polymarket-optimizer
-    restart: unless-stopped
-    environment:
-      PYTHONUNBUFFERED: "1"
-      LOG_LEVEL: info
-    ports:
-      - "8000:8000"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
-      interval: 30s
-      timeout: 10s
-      start_period: 30s
-      retries: 3
-    deploy:
-      resources:
-        limits:
-          memory: 80M
-        reservations:
-          memory: 30M
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  # ============================================
   # Dashboard API (Node.js - Signals + Trading)
   # ============================================
   dashboard-api:
@@ -151,6 +120,7 @@ services:
       CONNECT_TRADER: "true"
       ENABLE_SIGNAL_ENGINE: "true"
       ENABLE_OPTIMIZATION: "true"
+      OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
       POLYMARKET_API_URL: https://clob.polymarket.com
       INITIAL_CAPITAL: "10000"
       FEE_RATE: "0.001"
@@ -167,9 +137,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 150M
+          memory: 200M
         reservations:
-          memory: 80M
+          memory: 100M
     logging:
       driver: "json-file"
       options:

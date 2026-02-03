@@ -41,10 +41,34 @@ export interface BacktestRequest {
     maxDrawdownPct?: number;
     stopLossPct?: number;
     takeProfitPct?: number;
+    maxPositions?: number;
   };
   signalFilters?: {
     minStrength?: number;
     minConfidence?: number;
+  };
+  /** Signal construction config for Optuna optimization */
+  momentumConfig?: {
+    rsiPeriod?: number;
+    rsiOverbought?: number;
+    rsiOversold?: number;
+    macdFast?: number;
+    macdSlow?: number;
+    macdSignal?: number;
+  };
+  meanReversionConfig?: {
+    bbPeriod?: number;
+    bbStdDev?: number;
+    zScoreThreshold?: number;
+  };
+  /** Combiner config for Optuna optimization */
+  combinerConfig?: {
+    momentumWeight?: number;
+    meanReversionWeight?: number;
+    minCombinedConfidence?: number;
+    minCombinedStrength?: number;
+    onlyDirection?: string | null;
+    conflictResolution?: string;
   };
 }
 
@@ -123,16 +147,23 @@ export class BacktestService extends EventEmitter {
       // Create signals
       this.updateProgress(backtestId, 30, 'Initializing signals');
       const signals = this.createSignals(
-        request.signalTypes || this.config.defaultSignalTypes
+        request.signalTypes || this.config.defaultSignalTypes,
+        request.momentumConfig,
+        request.meanReversionConfig,
       );
 
       // Create combiner with weights
+      const cc = request.combinerConfig;
       const weights = request.signalWeights || {
-        momentum: 0.5,
-        mean_reversion: 0.5,
+        momentum: cc?.momentumWeight ?? 0.5,
+        mean_reversion: cc?.meanReversionWeight ?? 0.5,
         wallet_tracking: 0.3,
       };
-      const combiner = new WeightedAverageCombiner(weights);
+      const combiner = new WeightedAverageCombiner(weights, cc ? {
+        minCombinedConfidence: cc.minCombinedConfidence,
+        minCombinedStrength: cc.minCombinedStrength,
+        conflictResolution: cc.conflictResolution as any,
+      } : undefined);
 
       // Create backtest engine
       this.updateProgress(backtestId, 40, 'Creating backtest engine');
@@ -253,7 +284,11 @@ export class BacktestService extends EventEmitter {
       ...(request.riskConfig?.maxDrawdownPct && { maxDrawdownPct: request.riskConfig.maxDrawdownPct }),
       ...(request.riskConfig?.stopLossPct && { stopLossPct: request.riskConfig.stopLossPct }),
       ...(request.riskConfig?.takeProfitPct && { takeProfitPct: request.riskConfig.takeProfitPct }),
+      ...(request.riskConfig?.maxPositions && { maxPositions: request.riskConfig.maxPositions }),
     };
+
+    // Map combinerConfig.onlyDirection to BacktestConfig.onlyDirection
+    const onlyDirection = request.combinerConfig?.onlyDirection as ('LONG' | 'SHORT' | undefined) ?? undefined;
 
     return createBacktestConfig({
       startDate: new Date(request.startDate),
@@ -264,6 +299,7 @@ export class BacktestService extends EventEmitter {
       marketIds: request.marketIds,
       risk: riskConfig,
       signalFilters: request.signalFilters,
+      onlyDirection: onlyDirection || undefined,
     });
   }
 
@@ -422,16 +458,31 @@ export class BacktestService extends EventEmitter {
   /**
    * Create signal instances
    */
-  private createSignals(signalTypes: string[]): ISignal[] {
+  private createSignals(
+    signalTypes: string[],
+    momentumConfig?: BacktestRequest['momentumConfig'],
+    meanReversionConfig?: BacktestRequest['meanReversionConfig'],
+  ): ISignal[] {
     const signals: ISignal[] = [];
 
     for (const type of signalTypes) {
       switch (type.toLowerCase()) {
         case 'momentum':
-          signals.push(new MomentumSignal());
+          signals.push(new MomentumSignal(momentumConfig ? {
+            rsiPeriod: momentumConfig.rsiPeriod,
+            rsiOverbought: momentumConfig.rsiOverbought,
+            rsiOversold: momentumConfig.rsiOversold,
+            macdFast: momentumConfig.macdFast,
+            macdSlow: momentumConfig.macdSlow,
+            macdSignal: momentumConfig.macdSignal,
+          } : undefined));
           break;
         case 'mean_reversion':
-          signals.push(new MeanReversionSignal());
+          signals.push(new MeanReversionSignal(meanReversionConfig ? {
+            bbPeriod: meanReversionConfig.bbPeriod,
+            bbStdDev: meanReversionConfig.bbStdDev,
+            zScoreThreshold: meanReversionConfig.zScoreThreshold,
+          } : undefined));
           break;
         case 'wallet_tracking':
           signals.push(new WalletTrackingSignal());
@@ -442,7 +493,6 @@ export class BacktestService extends EventEmitter {
     }
 
     if (signals.length === 0) {
-      // Default to momentum
       signals.push(new MomentumSignal());
     }
 
