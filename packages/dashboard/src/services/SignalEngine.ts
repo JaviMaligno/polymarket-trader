@@ -453,8 +453,8 @@ export class SignalEngine extends EventEmitter {
     // Map direction: LONG/SHORT -> long/short
     const direction: 'long' | 'short' = output.direction === 'LONG' ? 'long' : 'short';
 
-    // Map strength: -1 to 1 -> 0 to 1 (absolute value)
-    const strength = Math.abs(output.strength);
+    // Preserve original strength (negative = SHORT, positive = LONG)
+    const strength = output.strength;
 
     return {
       signalId: output.signalId,

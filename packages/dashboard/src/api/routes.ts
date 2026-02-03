@@ -1330,7 +1330,6 @@ export async function registerRoutes(
           current_capital = $1,
           available_capital = $2,
           total_fees_paid = total_fees_paid + $3,
-          total_trades = total_trades + 1,
           updated_at = NOW()
         WHERE id = 1`,
         [newCapital, newAvailable, fee]
@@ -1389,6 +1388,7 @@ export async function registerRoutes(
             total_realized_pnl = total_realized_pnl + $1,
             winning_trades = winning_trades + $2,
             losing_trades = losing_trades + $3,
+            total_trades = total_trades + 1,
             updated_at = NOW()
           WHERE id = 1`,
           [pnl, isWin ? 1 : 0, isWin ? 0 : 1]

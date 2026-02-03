@@ -48,8 +48,8 @@ export interface ExecutorConfig {
 
 const DEFAULT_CONFIG: ExecutorConfig = {
   enabled: true,
-  minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0.40'),
-  minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0.05'),
+  minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0.55'),
+  minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0.20'),
   maxPositionSize: 500,
   maxOpenPositions: 10,
   maxDailyTrades: 50,
@@ -82,6 +82,9 @@ export class AutoSignalExecutor extends EventEmitter {
   private dailyTradeCount = 0;
   private lastDayReset: Date;
   private isRunning = false;
+  // Track processed signals to prevent duplicates (key: marketId+direction, value: timestamp)
+  private processedSignals: Map<string, number> = new Map();
+  private readonly SIGNAL_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 
   constructor(config?: Partial<ExecutorConfig>) {
     super();
@@ -116,8 +119,8 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: `Confidence ${signal.confidence.toFixed(2)} below threshold ${this.config.minConfidence}` };
     }
 
-    if (signal.strength < this.config.minStrength) {
-      return { executed: false, reason: `Strength ${signal.strength.toFixed(2)} below threshold ${this.config.minStrength}` };
+    if (Math.abs(signal.strength) < this.config.minStrength) {
+      return { executed: false, reason: `Strength ${Math.abs(signal.strength).toFixed(2)} below threshold ${this.config.minStrength}` };
     }
 
     // 2. Check daily trade limit
@@ -134,6 +137,20 @@ export class AutoSignalExecutor extends EventEmitter {
       const remaining = this.config.cooldownMs - (Date.now() - recentTradeForMarket.timestamp);
       return { executed: false, reason: `Market in cooldown (${Math.ceil(remaining / 1000)}s remaining)` };
     }
+
+    // 3b. Signal deduplication - prevent processing same signal type for same market within window
+    const dedupKey = `${signal.marketId}:${signal.direction}`;
+    const lastProcessed = this.processedSignals.get(dedupKey);
+    if (lastProcessed && Date.now() - lastProcessed < this.SIGNAL_DEDUP_WINDOW_MS) {
+      return { executed: false, reason: `Duplicate signal for ${signal.marketId} (${signal.direction}) within dedup window` };
+    }
+    // Clean old entries
+    for (const [key, ts] of this.processedSignals) {
+      if (Date.now() - ts > this.SIGNAL_DEDUP_WINDOW_MS) {
+        this.processedSignals.delete(key);
+      }
+    }
+    this.processedSignals.set(dedupKey, Date.now());
 
     // 4. Get existing positions
     let positions: PaperPosition[] = [];
@@ -218,8 +235,8 @@ export class AutoSignalExecutor extends EventEmitter {
       console.warn('Failed to get signal weight, using default:', error);
     }
 
-    // Calculate position size based on confidence, strength, and weight
-    const sizeMultiplier = signal.confidence * signal.strength * weight;
+    // Calculate position size based on confidence, strength (absolute), and weight
+    const sizeMultiplier = signal.confidence * Math.abs(signal.strength) * weight;
     const positionValue = Math.min(
       this.config.maxPositionSize * sizeMultiplier,
       this.config.maxPositionSize

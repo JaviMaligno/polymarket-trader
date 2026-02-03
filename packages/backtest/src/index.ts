@@ -174,9 +174,9 @@ export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
     stopLossPct: 20,
     takeProfitPct: 50,
   }),
-  // SHORT-only strategy is profitable (+31% vs -30% for LONG)
-  // Mean reversion signals work better for identifying overpriced markets
-  onlyDirection: 'SHORT',
+  // Allow both LONG and SHORT signals by default
+  // Pass onlyDirection explicitly when needed
+  onlyDirection: undefined,
 };
 
 /**
