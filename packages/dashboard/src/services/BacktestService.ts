@@ -281,9 +281,42 @@ export class BacktestService extends EventEmitter {
     }
 
     try {
-      // Fetch price data from time-series table
-      // The price_history table already has OHLC data, so no aggregation needed
-      let priceQuery = `
+      // First, find markets with enough data for signal generation (min 35 bars)
+      // This prevents the old LIMIT 10000 problem where rows spread across
+      // thousands of markets left each with <2 bars (signals need 31+)
+      let topMarketsQuery: string;
+      let topMarketsParams: (Date | string[])[];
+
+      if (marketIds && marketIds.length > 0) {
+        topMarketsQuery = `
+          SELECT market_id FROM price_history
+          WHERE time >= $1 AND time <= $2 AND market_id = ANY($3)
+          GROUP BY market_id HAVING COUNT(*) >= 35
+          ORDER BY COUNT(*) DESC LIMIT 20
+        `;
+        topMarketsParams = [startDate, endDate, marketIds];
+      } else {
+        topMarketsQuery = `
+          SELECT market_id FROM price_history
+          WHERE time >= $1 AND time <= $2
+          GROUP BY market_id HAVING COUNT(*) >= 35
+          ORDER BY COUNT(*) DESC LIMIT 20
+        `;
+        topMarketsParams = [startDate, endDate];
+      }
+
+      const topMarketsResult = await query<{ market_id: string }>(topMarketsQuery, topMarketsParams);
+      const selectedMarkets = topMarketsResult.rows.map(r => r.market_id);
+
+      if (selectedMarkets.length === 0) {
+        console.log('[BacktestService] No markets with sufficient data (35+ bars) in date range');
+        return [];
+      }
+
+      console.log(`[BacktestService] Selected ${selectedMarkets.length} markets with sufficient data`);
+
+      // Fetch all bars for selected markets
+      const priceQuery = `
         SELECT
           time,
           market_id,
@@ -296,19 +329,11 @@ export class BacktestService extends EventEmitter {
           COALESCE(trade_count, 1) as trade_count
         FROM price_history
         WHERE time >= $1 AND time <= $2
+          AND market_id = ANY($3)
+        ORDER BY time ASC
       `;
 
-      const params: (Date | string[])[] = [startDate, endDate];
-
-      if (marketIds && marketIds.length > 0) {
-        priceQuery += ` AND market_id = ANY($3)`;
-        params.push(marketIds);
-      }
-
-      // Limit to 10000 rows to prevent memory issues on free tier
-      priceQuery += ` ORDER BY time DESC LIMIT 10000`;
-
-      const priceResult = await query(priceQuery, params);
+      const priceResult = await query(priceQuery, [startDate, endDate, selectedMarkets]);
 
       console.log(`[BacktestService] Fetched ${priceResult.rows.length} price bars from database`);
 
