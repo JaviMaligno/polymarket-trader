@@ -47,7 +47,7 @@ export interface SignalEngineConfig {
 const DEFAULT_CONFIG: SignalEngineConfig = {
   enabled: true,
   computeIntervalMs: 60000,      // 1 minute
-  maxMarketsPerCycle: 100,
+  maxMarketsPerCycle: 50,
   minPriceBars: 30,
   syncWeightsIntervalMs: 300000, // 5 minutes
 };
