@@ -8,7 +8,7 @@
 CREATE TABLE IF NOT EXISTS paper_orders (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Order details
@@ -47,7 +47,7 @@ CREATE INDEX IF NOT EXISTS idx_paper_orders_status ON paper_orders (status, time
 
 CREATE TABLE IF NOT EXISTS paper_positions (
     id SERIAL PRIMARY KEY,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Position state
@@ -139,7 +139,7 @@ SELECT create_hypertable('paper_equity_history', 'time',
 CREATE TABLE IF NOT EXISTS signal_predictions (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
 
     -- Signal details
     signal_type VARCHAR(50) NOT NULL,  -- momentum, mean_reversion, whale_following, etc.

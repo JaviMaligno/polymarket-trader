@@ -7,7 +7,7 @@ CREATE EXTENSION IF NOT EXISTS timescaledb;
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS events (
-    id VARCHAR(64) PRIMARY KEY,
+    id VARCHAR(128) PRIMARY KEY,
     slug VARCHAR(255) UNIQUE NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
@@ -27,8 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_events_category ON events(category);
 CREATE INDEX IF NOT EXISTS idx_events_active ON events(is_active) WHERE is_active = TRUE;
 
 CREATE TABLE IF NOT EXISTS markets (
-    id VARCHAR(64) PRIMARY KEY,
-    event_id VARCHAR(64) REFERENCES events(id),
+    id VARCHAR(128) PRIMARY KEY,
+    event_id VARCHAR(128) REFERENCES events(id),
     clob_token_id_yes VARCHAR(128) NOT NULL,
     clob_token_id_no VARCHAR(128),
     condition_id VARCHAR(128) NOT NULL,
@@ -75,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_markets_category ON markets(category);
 
 CREATE TABLE IF NOT EXISTS price_history (
     time TIMESTAMPTZ NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- OHLCV data
@@ -202,7 +202,7 @@ SELECT add_continuous_aggregate_policy('price_1d',
 CREATE TABLE IF NOT EXISTS trades (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Trade details
@@ -275,7 +275,7 @@ CREATE TABLE IF NOT EXISTS positions (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL,
     wallet_address VARCHAR(42) NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Position state
@@ -301,7 +301,7 @@ CREATE INDEX IF NOT EXISTS idx_positions_market ON positions (market_id, time DE
 
 CREATE TABLE IF NOT EXISTS orderbook_snapshots (
     time TIMESTAMPTZ NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Best bid/ask

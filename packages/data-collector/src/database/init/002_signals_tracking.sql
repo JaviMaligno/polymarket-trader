@@ -9,7 +9,7 @@
 CREATE TABLE IF NOT EXISTS signal_predictions (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
 
     -- Signal details
     signal_type VARCHAR(50) NOT NULL,  -- 'momentum', 'mean_reversion', 'wallet_tracking', etc.
@@ -81,7 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_signal_weights_type ON signal_weights_history (si
 CREATE TABLE IF NOT EXISTS paper_trades (
     id SERIAL,
     time TIMESTAMPTZ NOT NULL,
-    market_id VARCHAR(64) NOT NULL,
+    market_id VARCHAR(128) NOT NULL,
     token_id VARCHAR(128) NOT NULL,
 
     -- Trade details
@@ -127,7 +127,7 @@ CREATE INDEX IF NOT EXISTS idx_paper_trades_signal ON paper_trades (signal_type,
 -- ============================================
 
 CREATE TABLE IF NOT EXISTS paper_positions (
-    market_id VARCHAR(64) PRIMARY KEY,
+    market_id VARCHAR(128) PRIMARY KEY,
     token_id VARCHAR(128) NOT NULL,
 
     -- Position state
