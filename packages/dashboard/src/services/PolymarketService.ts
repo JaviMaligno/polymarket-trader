@@ -217,64 +217,119 @@ export class PolymarketService extends EventEmitter {
   }
 
   /**
-   * Extract primary category from tags array
-   * Priority: Politics > Crypto > Sports > Entertainment > Other
+   * Extract primary category from tags and question text
+   * Analyzes both tags and question content for better classification
    */
-  private extractCategory(tags: string[]): string {
-    if (!tags || tags.length === 0) return 'Other';
+  private extractCategory(tags: string[], question?: string): string {
+    // Combine tags and question for analysis
+    const tagsText = (tags || []).join(' ').toLowerCase();
+    const questionText = (question || '').toLowerCase();
+    const combined = `${tagsText} ${questionText}`;
 
-    const normalizedTags = tags.map(t => t.toLowerCase());
+    // Sports - check first as it's very common and has clear patterns
+    // Team names, leagues, game-specific patterns
+    const sportsPatterns = [
+      // Leagues
+      /\b(nba|nfl|nhl|mlb|ncaa|mls|ufc|pga|atp|wta|f1|nascar|premier league|la liga|serie a|bundesliga|ligue 1|champions league)\b/,
+      // Sports terms
+      /\b(basketball|football|soccer|hockey|baseball|tennis|golf|boxing|mma|wrestling|cricket|rugby|volleyball)\b/,
+      // Game patterns
+      /\b(vs\.?|versus|game|match|win|championship|playoff|super bowl|world series|stanley cup|finals)\b/,
+      // Team indicators (cities with "vs" nearby or sport context)
+      /\b(lakers|celtics|warriors|nets|knicks|bulls|heat|mavericks|suns|bucks|76ers|clippers|nuggets|grizzlies|cavaliers|hawks|hornets|magic|pacers|pistons|raptors|wizards|spurs|thunder|blazers|jazz|kings|pelicans|timberwolves)\b/,
+      /\b(patriots|chiefs|eagles|cowboys|49ers|bills|dolphins|ravens|bengals|lions|packers|vikings|bears|saints|buccaneers|falcons|panthers|commanders|giants|jets|steelers|browns|raiders|chargers|broncos|colts|titans|jaguars|texans|seahawks|rams|cardinals)\b/,
+      /\b(yankees|red sox|dodgers|mets|cubs|astros|braves|phillies|padres|mariners|guardians|orioles|rays|twins|rangers|tigers|royals|white sox|angels|athletics|giants|cardinals|brewers|reds|pirates|marlins|rockies|diamondbacks|nationals)\b/,
+      // Common sports betting terms
+      /\b(spread|moneyline|over.?under|point|score|quarterback|touchdown|goal|assist|rebound|strikeout|home run)\b/,
+    ];
+    if (sportsPatterns.some(p => p.test(combined))) return 'Sports';
 
-    // Politics category
-    if (normalizedTags.some(t =>
-      t.includes('politic') || t.includes('election') || t.includes('president') ||
-      t.includes('congress') || t.includes('senate') || t.includes('trump') ||
-      t.includes('biden') || t.includes('republican') || t.includes('democrat')
-    )) return 'Politics';
+    // Politics - government, elections, politicians
+    const politicsPatterns = [
+      /\b(politic|election|president|congress|senate|governor|mayor|vote|ballot|poll|campaign)\b/,
+      /\b(republican|democrat|gop|dnc|rnc|liberal|conservative|parliament|minister|legislation)\b/,
+      /\b(trump|biden|obama|harris|desantis|newsom|pence|pelosi|mcconnell|schumer)\b/,
+      /\b(white house|capitol|supreme court|impeach|executive order|veto|filibuster)\b/,
+      /\b(primary|caucus|electoral|swing state|battleground|nominee|running mate)\b/,
+      /\b(eu|european union|brexit|nato|un|united nations|g7|g20)\b/,
+    ];
+    if (politicsPatterns.some(p => p.test(combined))) return 'Politics';
 
-    // Crypto category
-    if (normalizedTags.some(t =>
-      t.includes('crypto') || t.includes('bitcoin') || t.includes('ethereum') ||
-      t.includes('blockchain') || t.includes('defi') || t.includes('nft') ||
-      t.includes('token')
-    )) return 'Crypto';
+    // Crypto - blockchain, tokens, exchanges
+    const cryptoPatterns = [
+      /\b(crypto|bitcoin|btc|ethereum|eth|blockchain|defi|nft|web3|dao)\b/,
+      /\b(binance|coinbase|kraken|ftx|uniswap|opensea|metamask|ledger)\b/,
+      /\b(altcoin|stablecoin|usdt|usdc|solana|sol|cardano|ada|polygon|matic|avalanche|avax)\b/,
+      /\b(doge|dogecoin|shib|shiba|pepe|meme.?coin|airdrop|halving|mining)\b/,
+      /\b(token|wallet|gas fee|smart contract|layer.?2|rollup|bridge)\b/,
+    ];
+    if (cryptoPatterns.some(p => p.test(combined))) return 'Crypto';
 
-    // Sports category
-    if (normalizedTags.some(t =>
-      t.includes('nba') || t.includes('nfl') || t.includes('nhl') ||
-      t.includes('mlb') || t.includes('soccer') || t.includes('football') ||
-      t.includes('basketball') || t.includes('sports') || t.includes('ncaa') ||
-      t.includes('tennis') || t.includes('golf') || t.includes('ufc') ||
-      t.includes('mma') || t.includes('boxing') || t.includes('f1') ||
-      t.includes('racing')
-    )) return 'Sports';
+    // Tech - companies, AI, software
+    const techPatterns = [
+      /\b(tech|technology|software|hardware|startup|silicon valley)\b/,
+      /\b(ai|artificial intelligence|machine learning|gpt|chatgpt|llm|neural|deepmind)\b/,
+      /\b(openai|google|apple|microsoft|amazon|meta|facebook|twitter|x\.com|tesla|nvidia|amd|intel)\b/,
+      /\b(iphone|android|app store|cloud|saas|api|developer|programming|coding)\b/,
+      /\b(spacex|starlink|neuralink|anthropic|midjourney|stability|hugging.?face)\b/,
+      /\b(tiktok|snapchat|instagram|youtube|twitch|discord|reddit|linkedin)\b/,
+      /\b(cybersecurity|hack|data breach|privacy|encryption|vpn)\b/,
+    ];
+    if (techPatterns.some(p => p.test(combined))) return 'Tech';
 
-    // Entertainment category
-    if (normalizedTags.some(t =>
-      t.includes('entertainment') || t.includes('movie') || t.includes('oscar') ||
-      t.includes('music') || t.includes('award') || t.includes('celebrity') ||
-      t.includes('tv') || t.includes('streaming')
-    )) return 'Entertainment';
+    // Entertainment - movies, music, TV, celebrities
+    const entertainmentPatterns = [
+      /\b(movie|film|cinema|box office|oscar|academy award|golden globe|emmy|grammy|tony)\b/,
+      /\b(netflix|disney|hbo|hulu|amazon prime|streaming|series|season|episode)\b/,
+      /\b(music|album|song|artist|concert|tour|billboard|spotify|grammy)\b/,
+      /\b(celebrity|actor|actress|director|producer|hollywood|bollywood)\b/,
+      /\b(taylor swift|beyonce|drake|kanye|kardashian|bieber|rihanna|adele)\b/,
+      /\b(marvel|dc|star wars|disney|pixar|dreamworks|warner|universal)\b/,
+      /\b(youtube|youtuber|influencer|viral|tiktok|content creator)\b/,
+    ];
+    if (entertainmentPatterns.some(p => p.test(combined))) return 'Entertainment';
 
-    // Finance/Economy category
-    if (normalizedTags.some(t =>
-      t.includes('finance') || t.includes('economy') || t.includes('stock') ||
-      t.includes('market') || t.includes('fed') || t.includes('inflation') ||
-      t.includes('interest rate')
-    )) return 'Finance';
+    // Finance - markets, economy, business
+    const financePatterns = [
+      /\b(stock|share|equity|nasdaq|nyse|s&p|dow jones|index|ipo|earnings)\b/,
+      /\b(fed|federal reserve|interest rate|inflation|gdp|recession|unemployment)\b/,
+      /\b(bank|banking|loan|mortgage|credit|debt|bond|treasury|yield)\b/,
+      /\b(merger|acquisition|valuation|market cap|revenue|profit|dividend)\b/,
+      /\b(economy|economic|fiscal|monetary|stimulus|bailout|default)\b/,
+      /\b(oil|gold|silver|commodity|forex|currency|dollar|euro|yen)\b/,
+    ];
+    if (financePatterns.some(p => p.test(combined))) return 'Finance';
 
-    // Tech category
-    if (normalizedTags.some(t =>
-      t.includes('tech') || t.includes('ai') || t.includes('artificial intelligence') ||
-      t.includes('openai') || t.includes('google') || t.includes('apple') ||
-      t.includes('microsoft') || t.includes('meta')
-    )) return 'Tech';
+    // Science - research, space, health
+    const sciencePatterns = [
+      /\b(science|scientific|research|study|experiment|discovery|breakthrough)\b/,
+      /\b(nasa|spacex|space|mars|moon|asteroid|rocket|satellite|orbit)\b/,
+      /\b(climate|weather|hurricane|earthquake|tornado|flood|temperature|carbon)\b/,
+      /\b(medicine|medical|drug|fda|vaccine|treatment|clinical trial|pharma)\b/,
+      /\b(covid|pandemic|virus|disease|health|hospital|doctor|patient)\b/,
+      /\b(physics|chemistry|biology|genetics|dna|crispr|quantum)\b/,
+    ];
+    if (sciencePatterns.some(p => p.test(combined))) return 'Science';
 
-    // Science/Weather
-    if (normalizedTags.some(t =>
-      t.includes('science') || t.includes('weather') || t.includes('climate') ||
-      t.includes('space') || t.includes('nasa')
-    )) return 'Science';
+    // World/Geopolitics - international events
+    const worldPatterns = [
+      /\b(war|military|army|navy|troops|invasion|conflict|peace|treaty)\b/,
+      /\b(russia|ukraine|china|taiwan|israel|palestine|iran|north korea)\b/,
+      /\b(sanctions|embargo|diplomacy|ambassador|summit|negotiation)\b/,
+      /\b(refugee|immigration|border|asylum|visa|deportation)\b/,
+      /\b(terrorism|attack|bombing|hostage|extremist)\b/,
+    ];
+    if (worldPatterns.some(p => p.test(combined))) return 'World';
+
+    // Culture/Society - social issues, trends
+    const culturePatterns = [
+      /\b(culture|social|society|community|movement|protest|activism)\b/,
+      /\b(lgbtq|gender|race|diversity|equality|discrimination|civil rights)\b/,
+      /\b(education|school|university|college|student|teacher|curriculum)\b/,
+      /\b(religion|church|faith|spiritual|pope|vatican)\b/,
+      /\b(crime|court|trial|verdict|lawsuit|legal|judge|jury)\b/,
+    ];
+    if (culturePatterns.some(p => p.test(combined))) return 'Culture';
 
     return 'Other';
   }
@@ -384,7 +439,7 @@ export class PolymarketService extends EventEmitter {
         if (m.liquidity < this.config.minLiquidity) continue;
 
         const tags = m.tags || [];
-        const category = this.extractCategory(tags);
+        const category = this.extractCategory(tags, m.question);
 
         const market: PolymarketMarket = {
           id: m.condition_id,
@@ -565,7 +620,7 @@ export class PolymarketService extends EventEmitter {
 
       const m = await response.json() as ClobMarketResponse;
       const tags = m.tags || [];
-      const category = this.extractCategory(tags);
+      const category = this.extractCategory(tags, m.question);
 
       return {
         id: marketId,
@@ -677,7 +732,7 @@ export class PolymarketService extends EventEmitter {
             isActive: m.active,
             lastUpdate: new Date(),
             tags,
-            category: this.extractCategory(tags),
+            category: this.extractCategory(tags, m.question),
           };
         });
     } catch (error) {
