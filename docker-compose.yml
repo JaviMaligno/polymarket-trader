@@ -41,6 +41,7 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
       CONNECT_TRADER: ${CONNECT_TRADER:-true}
       POLYMARKET_API_URL: ${POLYMARKET_API_URL:-https://clob.polymarket.com}
+      DATABASE_URL: postgresql://${DB_USER:-polymarket}:${DB_PASSWORD:-polymarket_dev}@timescaledb:5432/${DB_NAME:-polymarket_trading}
       INITIAL_CAPITAL: ${INITIAL_CAPITAL:-10000}
       FEE_RATE: ${FEE_RATE:-0.001}
       MAX_DRAWDOWN: ${MAX_DRAWDOWN:-0.15}
