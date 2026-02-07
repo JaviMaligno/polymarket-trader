@@ -1,9 +1,23 @@
 #!/bin/bash
-set -e
+# stop.sh - Stop Polymarket Trader services
+#
+# Stops all running Docker containers for the trading system.
+#
+# Usage: ./scripts/stop.sh [environment]
+#
+# Arguments:
+#   environment  Target environment: production|development (default: default)
+#
+# Example:
+#   ./scripts/stop.sh
+#   ./scripts/stop.sh production
 
-# ============================================
-# Stop Polymarket Trader Services
-# ============================================
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+set -e
 
 echo "Stopping Polymarket Trader services..."
 

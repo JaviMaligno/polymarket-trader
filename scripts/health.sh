@@ -1,8 +1,22 @@
 #!/bin/bash
+# health.sh - Health check for Polymarket Trader
+#
+# Checks the status of all Docker containers and services.
+# Verifies Docker, Docker Compose, containers, and API endpoints.
+#
+# Usage: ./scripts/health.sh
+#
+# Environment:
+#   API_PORT       API port to check (default: 3001)
+#   FRONTEND_PORT  Frontend port to check (default: 80)
+#
+# Example:
+#   ./scripts/health.sh
 
-# ============================================
-# Health Check for Polymarket Trader
-# ============================================
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'

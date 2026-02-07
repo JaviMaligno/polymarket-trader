@@ -1,9 +1,30 @@
+#!/usr/bin/env node
 /**
- * Start Paper Trading with Optimized Parameters
+ * start-paper-trading.js - Start paper trading with optimized parameters
  *
- * Configures and starts paper trading using the best parameters
- * found from the optimization process.
+ * Configures the trading system with optimized parameters and starts
+ * paper trading mode via the Dashboard API.
+ *
+ * Usage: node scripts/start-paper-trading.js [options]
+ *
+ * Options:
+ *   --help  Show this help message
+ *
+ * Environment:
+ *   DASHBOARD_API_URL  Dashboard API URL (default: Render deployment)
+ *
+ * Example:
+ *   node scripts/start-paper-trading.js
+ *   DASHBOARD_API_URL="http://localhost:3001" node scripts/start-paper-trading.js
  */
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  const fs = require('fs');
+  const content = fs.readFileSync(__filename, 'utf8');
+  const match = content.match(/\/\*\*[\s\S]*?\*\//);
+  if (match) console.log(match[0].replace(/^\/\*\*|\*\/$/g, '').replace(/^ \* ?/gm, '').trim());
+  process.exit(0);
+}
 
 const DASHBOARD_API_URL = process.env.DASHBOARD_API_URL || 'https://polymarket-dashboard-api.onrender.com';
 

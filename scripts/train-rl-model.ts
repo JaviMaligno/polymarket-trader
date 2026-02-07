@@ -1,16 +1,31 @@
+#!/usr/bin/env npx tsx
 /**
- * RL Model Training Script
+ * train-rl-model.ts - Train reinforcement learning model
  *
  * Trains a DQN agent on historical market data for market making.
+ * Uses experience replay and epsilon-greedy exploration.
  *
- * Usage:
- *   NODE_TLS_REJECT_UNAUTHORIZED=0 npx tsx scripts/train-rl-model.ts
+ * Usage: npx tsx scripts/train-rl-model.ts [options]
  *
- * Environment variables:
- *   DATABASE_URL - PostgreSQL connection string
- *   RL_EPISODES - Number of training episodes (default: 1000)
- *   RL_SAVE_PATH - Path to save trained model (default: ./rl-model.json)
+ * Options:
+ *   --help  Show this help message
+ *
+ * Environment:
+ *   DATABASE_URL  PostgreSQL connection string (required)
+ *   RL_EPISODES   Number of training episodes (default: 1000)
+ *   RL_SAVE_PATH  Path to save trained model (default: ./rl-model.json)
+ *
+ * Example:
+ *   DATABASE_URL="postgres://..." RL_EPISODES=500 npx tsx scripts/train-rl-model.ts
  */
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  const fs = await import('fs');
+  const content = fs.readFileSync(new URL(import.meta.url).pathname.replace(/^\/([A-Z]:)/, '$1'), 'utf8');
+  const match = content.match(/\/\*\*[\s\S]*?\*\//);
+  if (match) console.log(match[0].replace(/^\/\*\*|\*\/$/g, '').replace(/^ \* ?/gm, '').trim());
+  process.exit(0);
+}
 
 import { Pool } from 'pg';
 import * as fs from 'fs';

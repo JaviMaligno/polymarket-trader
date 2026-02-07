@@ -1,9 +1,29 @@
 #!/bin/bash
-set -e
+# deploy.sh - Deploy Polymarket Trader services
+#
+# Builds and starts all Docker containers for the trading system.
+# Supports production, development, and default modes.
+#
+# Usage: ./scripts/deploy.sh [environment]
+#
+# Arguments:
+#   environment  Target environment: production|development (default: production)
+#
+# Environment:
+#   FRONTEND_PORT  Frontend port (default: 80)
+#   API_PORT       API port (default: 3001)
+#   DB_PORT        Database port (default: 5432)
+#
+# Example:
+#   ./scripts/deploy.sh production
+#   ./scripts/deploy.sh development
 
-# ============================================
-# Polymarket Trader Deployment Script
-# ============================================
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+set -e
 
 # Colors
 RED='\033[0;31m'

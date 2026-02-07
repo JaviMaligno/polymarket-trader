@@ -1,9 +1,32 @@
+#!/usr/bin/env node
 /**
- * Real Optimization Runner
+ * run-optimization.js - Run strategy parameter optimization
  *
- * Connects the Optuna optimizer server with the BacktestEngine to run
- * real parameter optimization using historical market data.
+ * Uses Bayesian optimization (TPE) to find optimal trading parameters.
+ * Connects to the optimizer server and runs backtests with suggested params.
+ *
+ * Usage: node scripts/run-optimization.js [options]
+ *
+ * Options:
+ *   --help  Show this help message
+ *
+ * Environment:
+ *   DATABASE_URL          PostgreSQL connection string (required)
+ *   OPTIMIZER_SERVER_URL  Optimizer server URL (default: Render deployment)
+ *   ITERATIONS            Number of optimization iterations (default: 20)
+ *   OPT_NAME              Name for this optimization run
+ *
+ * Example:
+ *   DATABASE_URL="postgres://..." ITERATIONS=50 node scripts/run-optimization.js
  */
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  const fs = require('fs');
+  const content = fs.readFileSync(__filename, 'utf8');
+  const match = content.match(/\/\*\*[\s\S]*?\*\//);
+  if (match) console.log(match[0].replace(/^\/\*\*|\*\/$/g, '').replace(/^ \* ?/gm, '').trim());
+  process.exit(0);
+}
 
 const pg = require('pg');
 

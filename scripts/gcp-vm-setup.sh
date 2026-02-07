@@ -1,8 +1,24 @@
 #!/bin/bash
-# ==============================================
-# GCP e2-micro VM Setup Script
-# Run this on a fresh Debian/Ubuntu VM
-# ==============================================
+# gcp-vm-setup.sh - Setup GCP VM for Polymarket Trader
+#
+# Configures a fresh Debian/Ubuntu VM with Docker, Docker Compose,
+# and clones the polymarket-trader repository.
+# Run this script on a new GCP e2-micro instance.
+#
+# Usage: ./scripts/gcp-vm-setup.sh
+#
+# Requirements:
+#   - Fresh Debian/Ubuntu VM
+#   - Internet access
+#   - sudo privileges
+#
+# Example:
+#   curl -sSL https://raw.githubusercontent.com/.../gcp-vm-setup.sh | bash
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
 
 set -e
 

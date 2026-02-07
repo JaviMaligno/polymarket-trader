@@ -1,9 +1,26 @@
 #!/bin/bash
-# Health monitoring script for polymarket-trader on GCP VM
-# Checks services and sends email alert if any are down
-# Runs via cron every 5 minutes
+# health-monitor.sh - Continuous health monitoring for GCP VM
+#
+# Monitors all services and sends email alerts when services go down
+# or recover. Automatically attempts to restart failed services.
+# Designed to run via cron every 5 minutes.
+#
+# Usage: ./scripts/health-monitor.sh
+#
+# Environment:
+#   ALERT_EMAIL   Email for alerts (default: javiturco33@gmail.com)
+#   LOG_FILE      Log file path (default: /var/log/polymarket-health.log)
+#   COMPOSE_FILE  Docker compose file path
+#
+# Cron Example:
+#   */5 * * * * /opt/polymarket-trader/scripts/health-monitor.sh
 
-ALERT_EMAIL="javiturco33@gmail.com"
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+ALERT_EMAIL="${ALERT_EMAIL:-javiturco33@gmail.com}"
 LOG_FILE="/var/log/polymarket-health.log"
 STATE_FILE="/tmp/polymarket-health-state"
 COMPOSE_FILE="/opt/polymarket-trader/docker-compose.gcp.yml"

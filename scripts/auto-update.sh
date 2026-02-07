@@ -1,8 +1,25 @@
 #!/bin/bash
-# Auto-update script for polymarket-trader on GCP VM
-# Runs via cron, pulls latest changes and redeploys if needed
+# auto-update.sh - Auto-update Polymarket Trader on GCP VM
+#
+# Checks for new commits on main branch and redeploys if changes found.
+# Designed to run via cron for continuous deployment.
+#
+# Usage: ./scripts/auto-update.sh
+#
+# Environment:
+#   REPO_DIR      Repository directory (default: /opt/polymarket-trader)
+#   LOG_FILE      Log file path (default: /var/log/polymarket-autoupdate.log)
+#   COMPOSE_FILE  Docker compose file (default: docker-compose.gcp.yml)
+#
+# Cron Example:
+#   */10 * * * * /opt/polymarket-trader/scripts/auto-update.sh
 
-REPO_DIR="/opt/polymarket-trader"
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+REPO_DIR="${REPO_DIR:-/opt/polymarket-trader}"
 LOG_FILE="/var/log/polymarket-autoupdate.log"
 COMPOSE_FILE="docker-compose.gcp.yml"
 

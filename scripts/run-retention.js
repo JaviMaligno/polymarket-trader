@@ -1,7 +1,29 @@
+#!/usr/bin/env node
 /**
- * Run retention policies and cleanup on TimescaleDB
- * Fixes storage crisis (>80% usage)
+ * run-retention.js - Manage TimescaleDB retention policies
+ *
+ * Applies retention policies, compression settings, and cleans up old data.
+ * Use this to manage database storage and prevent disk space issues.
+ *
+ * Usage: node scripts/run-retention.js [options]
+ *
+ * Options:
+ *   --help  Show this help message
+ *
+ * Environment:
+ *   DATABASE_URL  PostgreSQL connection string (required)
+ *
+ * Example:
+ *   DATABASE_URL="postgres://..." node scripts/run-retention.js
  */
+
+if (process.argv.includes('--help') || process.argv.includes('-h')) {
+  const fs = require('fs');
+  const content = fs.readFileSync(__filename, 'utf8');
+  const match = content.match(/\/\*\*[\s\S]*?\*\//);
+  if (match) console.log(match[0].replace(/^\/\*\*|\*\/$/g, '').replace(/^ \* ?/gm, '').trim());
+  process.exit(0);
+}
 
 const { Client } = require('pg');
 

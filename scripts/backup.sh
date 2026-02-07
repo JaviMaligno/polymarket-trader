@@ -1,9 +1,24 @@
 #!/bin/bash
-set -e
+# backup.sh - Backup Polymarket Trader database
+#
+# Creates a compressed backup of the TimescaleDB database.
+# Automatically cleans up backups older than 7 days.
+#
+# Usage: ./scripts/backup.sh
+#
+# Environment:
+#   BACKUP_DIR  Directory to store backups (default: ./backups)
+#
+# Example:
+#   ./scripts/backup.sh
+#   BACKUP_DIR=/data/backups ./scripts/backup.sh
 
-# ============================================
-# Backup Polymarket Trader Database
-# ============================================
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  sed -n '2,/^[^#]/p' "$0" | grep '^#' | sed 's/^# \?//'
+  exit 0
+fi
+
+set -e
 
 BACKUP_DIR=${BACKUP_DIR:-./backups}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
