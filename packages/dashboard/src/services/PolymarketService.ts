@@ -15,6 +15,8 @@ export interface PolymarketConfig {
   wsUrl: string;
   pollingIntervalMs: number;
   maxMarketsToTrack: number;
+  marketsToFetch: number;        // Fetch more markets for diversification
+  maxMarketsPerCategory: number; // Max markets per category for diversification
   autoDiscoverMarkets: boolean;
   minVolume24h: number;
   minLiquidity: number;
@@ -30,6 +32,8 @@ const DEFAULT_CONFIG: PolymarketConfig = {
   wsUrl: 'wss://ws-subscriptions-clob.polymarket.com/ws/market',
   pollingIntervalMs: 60000,  // 60 seconds (increased from 30)
   maxMarketsToTrack: 50,     // Reduced from 100: e2-micro OOM with 100 markets
+  marketsToFetch: 200,       // Fetch more for diversified selection
+  maxMarketsPerCategory: 8,  // Max 8 per category ensures diversity across ~6+ categories
   autoDiscoverMarkets: true,
   minVolume24h: 1000,
   minLiquidity: 500,
@@ -55,6 +59,8 @@ export interface PolymarketMarket {
   endDate: Date;
   isActive: boolean;
   lastUpdate: Date;
+  tags: string[];
+  category: string;  // Primary category for diversification
 }
 
 export interface PolymarketPrice {
@@ -81,6 +87,7 @@ interface ClobMarketResponse {
   liquidity: number;
   end_date_iso: string;
   active: boolean;
+  tags?: string[];
 }
 
 interface ClobMarketsResponse {
@@ -210,7 +217,128 @@ export class PolymarketService extends EventEmitter {
   }
 
   /**
+   * Extract primary category from tags array
+   * Priority: Politics > Crypto > Sports > Entertainment > Other
+   */
+  private extractCategory(tags: string[]): string {
+    if (!tags || tags.length === 0) return 'Other';
+
+    const normalizedTags = tags.map(t => t.toLowerCase());
+
+    // Politics category
+    if (normalizedTags.some(t =>
+      t.includes('politic') || t.includes('election') || t.includes('president') ||
+      t.includes('congress') || t.includes('senate') || t.includes('trump') ||
+      t.includes('biden') || t.includes('republican') || t.includes('democrat')
+    )) return 'Politics';
+
+    // Crypto category
+    if (normalizedTags.some(t =>
+      t.includes('crypto') || t.includes('bitcoin') || t.includes('ethereum') ||
+      t.includes('blockchain') || t.includes('defi') || t.includes('nft') ||
+      t.includes('token')
+    )) return 'Crypto';
+
+    // Sports category
+    if (normalizedTags.some(t =>
+      t.includes('nba') || t.includes('nfl') || t.includes('nhl') ||
+      t.includes('mlb') || t.includes('soccer') || t.includes('football') ||
+      t.includes('basketball') || t.includes('sports') || t.includes('ncaa') ||
+      t.includes('tennis') || t.includes('golf') || t.includes('ufc') ||
+      t.includes('mma') || t.includes('boxing') || t.includes('f1') ||
+      t.includes('racing')
+    )) return 'Sports';
+
+    // Entertainment category
+    if (normalizedTags.some(t =>
+      t.includes('entertainment') || t.includes('movie') || t.includes('oscar') ||
+      t.includes('music') || t.includes('award') || t.includes('celebrity') ||
+      t.includes('tv') || t.includes('streaming')
+    )) return 'Entertainment';
+
+    // Finance/Economy category
+    if (normalizedTags.some(t =>
+      t.includes('finance') || t.includes('economy') || t.includes('stock') ||
+      t.includes('market') || t.includes('fed') || t.includes('inflation') ||
+      t.includes('interest rate')
+    )) return 'Finance';
+
+    // Tech category
+    if (normalizedTags.some(t =>
+      t.includes('tech') || t.includes('ai') || t.includes('artificial intelligence') ||
+      t.includes('openai') || t.includes('google') || t.includes('apple') ||
+      t.includes('microsoft') || t.includes('meta')
+    )) return 'Tech';
+
+    // Science/Weather
+    if (normalizedTags.some(t =>
+      t.includes('science') || t.includes('weather') || t.includes('climate') ||
+      t.includes('space') || t.includes('nasa')
+    )) return 'Science';
+
+    return 'Other';
+  }
+
+  /**
+   * Select diversified markets across categories
+   * Ensures no single category dominates the selection
+   */
+  private selectDiversifiedMarkets(allMarkets: PolymarketMarket[]): PolymarketMarket[] {
+    // Group markets by category
+    const byCategory = new Map<string, PolymarketMarket[]>();
+
+    for (const market of allMarkets) {
+      const cat = market.category;
+      if (!byCategory.has(cat)) {
+        byCategory.set(cat, []);
+      }
+      byCategory.get(cat)!.push(market);
+    }
+
+    // Sort each category by volume (highest first)
+    for (const markets of byCategory.values()) {
+      markets.sort((a, b) => b.volume - a.volume);
+    }
+
+    const selected: PolymarketMarket[] = [];
+    const maxPerCategory = this.config.maxMarketsPerCategory;
+    const maxTotal = this.config.maxMarketsToTrack;
+
+    // First pass: take up to maxPerCategory from each category
+    for (const [category, markets] of byCategory) {
+      const toTake = Math.min(maxPerCategory, markets.length);
+      selected.push(...markets.slice(0, toTake));
+      console.log(`[PolymarketService] Category '${category}': ${toTake}/${markets.length} markets selected`);
+    }
+
+    // If we have less than maxTotal, fill with remaining high-volume markets
+    if (selected.length < maxTotal) {
+      const selectedIds = new Set(selected.map(m => m.id));
+      const remaining = allMarkets
+        .filter(m => !selectedIds.has(m.id))
+        .sort((a, b) => b.volume - a.volume);
+
+      const needed = maxTotal - selected.length;
+      selected.push(...remaining.slice(0, needed));
+
+      if (remaining.length > 0) {
+        console.log(`[PolymarketService] Added ${Math.min(needed, remaining.length)} additional high-volume markets`);
+      }
+    }
+
+    // If we have more than maxTotal, trim (shouldn't happen with proper config)
+    if (selected.length > maxTotal) {
+      // Sort by volume and keep top N
+      selected.sort((a, b) => b.volume - a.volume);
+      selected.length = maxTotal;
+    }
+
+    return selected;
+  }
+
+  /**
    * Discover active markets with good volume
+   * Fetches more markets than needed and applies diversified selection
    */
   async discoverMarkets(): Promise<PolymarketMarket[]> {
     console.log('[PolymarketService] Discovering markets...');
@@ -223,8 +351,9 @@ export class PolymarketService extends EventEmitter {
         await this.sleep(backoff);
       }
 
+      // Fetch more markets than we need for diversified selection
       const response = await fetch(
-        `${this.config.apiUrl}/markets?active=true&closed=false&limit=${this.config.maxMarketsToTrack}`
+        `${this.config.apiUrl}/markets?active=true&closed=false&limit=${this.config.marketsToFetch}`
       );
 
       // Handle rate limiting (429)
@@ -246,12 +375,16 @@ export class PolymarketService extends EventEmitter {
 
       const data = await response.json() as ClobMarketsResponse;
       const marketsData = Array.isArray(data) ? data : (data.data || []);
-      const discoveredMarkets: PolymarketMarket[] = [];
+      const candidateMarkets: PolymarketMarket[] = [];
 
+      // First pass: filter and categorize all markets
       for (const m of marketsData) {
         // Filter by volume and liquidity
         if (m.volume < this.config.minVolume24h) continue;
         if (m.liquidity < this.config.minLiquidity) continue;
+
+        const tags = m.tags || [];
+        const category = this.extractCategory(tags);
 
         const market: PolymarketMarket = {
           id: m.condition_id,
@@ -265,10 +398,22 @@ export class PolymarketService extends EventEmitter {
           endDate: new Date(m.end_date_iso),
           isActive: m.active,
           lastUpdate: new Date(),
+          tags,
+          category,
         };
 
+        candidateMarkets.push(market);
+      }
+
+      console.log(`[PolymarketService] Found ${candidateMarkets.length} candidate markets (from ${marketsData.length} fetched)`);
+
+      // Apply diversified selection
+      const selectedMarkets = this.selectDiversifiedMarkets(candidateMarkets);
+
+      // Update internal state with selected markets
+      this.markets.clear();
+      for (const market of selectedMarkets) {
         this.markets.set(market.id, market);
-        discoveredMarkets.push(market);
 
         // Also cache prices
         for (let i = 0; i < market.tokenIds.length; i++) {
@@ -286,13 +431,13 @@ export class PolymarketService extends EventEmitter {
         }
       }
 
-      console.log(`[PolymarketService] Discovered ${discoveredMarkets.length} markets`);
+      console.log(`[PolymarketService] Selected ${selectedMarkets.length} diversified markets`);
 
       // Update SignalEngine with discovered markets
-      this.updateSignalEngineMarkets(discoveredMarkets);
+      this.updateSignalEngineMarkets(selectedMarkets);
 
-      this.emit('markets:discovered', discoveredMarkets);
-      return discoveredMarkets;
+      this.emit('markets:discovered', selectedMarkets);
+      return selectedMarkets;
 
     } catch (error) {
       console.error('[PolymarketService] Market discovery failed:', error);
@@ -419,6 +564,8 @@ export class PolymarketService extends EventEmitter {
       }
 
       const m = await response.json() as ClobMarketResponse;
+      const tags = m.tags || [];
+      const category = this.extractCategory(tags);
 
       return {
         id: marketId,
@@ -432,6 +579,8 @@ export class PolymarketService extends EventEmitter {
         endDate: new Date(m.end_date_iso),
         isActive: m.active,
         lastUpdate: new Date(),
+        tags,
+        category,
       };
     } catch (error) {
       console.error(`[PolymarketService] Failed to fetch market ${marketId}:`, error);
@@ -513,19 +662,24 @@ export class PolymarketService extends EventEmitter {
 
       return marketsData
         .filter(m => m.question.toLowerCase().includes(queryLower))
-        .map(m => ({
-          id: m.condition_id,
-          conditionId: m.condition_id,
-          question: m.question,
-          outcomes: m.tokens.map((t: { outcome: string }) => t.outcome),
-          outcomePrices: m.tokens.map((t: { price: number }) => t.price),
-          tokenIds: m.tokens.map((t: { token_id: string }) => t.token_id),
-          volume: m.volume,
-          liquidity: m.liquidity,
-          endDate: new Date(m.end_date_iso),
-          isActive: m.active,
-          lastUpdate: new Date(),
-        }));
+        .map(m => {
+          const tags = m.tags || [];
+          return {
+            id: m.condition_id,
+            conditionId: m.condition_id,
+            question: m.question,
+            outcomes: m.tokens.map((t: { outcome: string }) => t.outcome),
+            outcomePrices: m.tokens.map((t: { price: number }) => t.price),
+            tokenIds: m.tokens.map((t: { token_id: string }) => t.token_id),
+            volume: m.volume,
+            liquidity: m.liquidity,
+            endDate: new Date(m.end_date_iso),
+            isActive: m.active,
+            lastUpdate: new Date(),
+            tags,
+            category: this.extractCategory(tags),
+          };
+        });
     } catch (error) {
       console.error('[PolymarketService] Search failed:', error);
       return [];
