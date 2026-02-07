@@ -233,11 +233,13 @@ export class PolymarketService extends EventEmitter {
       /\b(nba|nfl|nhl|mlb|ncaa|mls|ufc|pga|atp|wta|f1|nascar|premier league|la liga|serie a|bundesliga|ligue 1|champions league)\b/,
       // Sports terms
       /\b(basketball|football|soccer|hockey|baseball|tennis|golf|boxing|mma|wrestling|cricket|rugby|volleyball)\b/,
-      // Game patterns
-      /\b(vs\.?|versus|game|match|win|championship|playoff|super bowl|world series|stanley cup|finals)\b/,
-      // Team indicators (cities with "vs" nearby or sport context)
+      // Game patterns (removed generic "win" - too many false positives)
+      /\b(vs\.?|versus|game|match|championship|playoff|super bowl|world series|stanley cup|finals)\b/,
+      // Team indicators - NBA
       /\b(lakers|celtics|warriors|nets|knicks|bulls|heat|mavericks|suns|bucks|76ers|clippers|nuggets|grizzlies|cavaliers|hawks|hornets|magic|pacers|pistons|raptors|wizards|spurs|thunder|blazers|jazz|kings|pelicans|timberwolves)\b/,
+      // Team indicators - NFL
       /\b(patriots|chiefs|eagles|cowboys|49ers|bills|dolphins|ravens|bengals|lions|packers|vikings|bears|saints|buccaneers|falcons|panthers|commanders|giants|jets|steelers|browns|raiders|chargers|broncos|colts|titans|jaguars|texans|seahawks|rams|cardinals)\b/,
+      // Team indicators - MLB
       /\b(yankees|red sox|dodgers|mets|cubs|astros|braves|phillies|padres|mariners|guardians|orioles|rays|twins|rangers|tigers|royals|white sox|angels|athletics|giants|cardinals|brewers|reds|pirates|marlins|rockies|diamondbacks|nationals)\b/,
       // Common sports betting terms
       /\b(spread|moneyline|over.?under|point|score|quarterback|touchdown|goal|assist|rebound|strikeout|home run)\b/,
@@ -265,13 +267,13 @@ export class PolymarketService extends EventEmitter {
     ];
     if (cryptoPatterns.some(p => p.test(combined))) return 'Crypto';
 
-    // Tech - companies, AI, software
+    // Tech - companies, AI, software (excluding space companies - those go to Science)
     const techPatterns = [
       /\b(tech|technology|software|hardware|startup|silicon valley)\b/,
       /\b(ai|artificial intelligence|machine learning|gpt|chatgpt|llm|neural|deepmind)\b/,
       /\b(openai|google|apple|microsoft|amazon|meta|facebook|twitter|x\.com|tesla|nvidia|amd|intel)\b/,
       /\b(iphone|android|app store|cloud|saas|api|developer|programming|coding)\b/,
-      /\b(spacex|starlink|neuralink|anthropic|midjourney|stability|hugging.?face)\b/,
+      /\b(starlink|neuralink|anthropic|midjourney|stability|hugging.?face)\b/,
       /\b(tiktok|snapchat|instagram|youtube|twitch|discord|reddit|linkedin)\b/,
       /\b(cybersecurity|hack|data breach|privacy|encryption|vpn)\b/,
     ];
@@ -297,6 +299,8 @@ export class PolymarketService extends EventEmitter {
       /\b(merger|acquisition|valuation|market cap|revenue|profit|dividend)\b/,
       /\b(economy|economic|fiscal|monetary|stimulus|bailout|default)\b/,
       /\b(oil|gold|silver|commodity|forex|currency|dollar|euro|yen)\b/,
+      /\b(gas prices?|fuel prices?|gasoline|petrol|energy prices?|electricity prices?)\b/,
+      /\b(housing|real estate|rent|property|home price)\b/,
     ];
     if (financePatterns.some(p => p.test(combined))) return 'Finance';
 
