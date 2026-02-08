@@ -25,7 +25,8 @@ export type ObjectiveFunctionName =
   | 'total_return'
   | 'risk_adjusted_return'
   | 'profit_factor'
-  | 'custom';
+  | 'custom'
+  | 'composite';
 
 export interface ObjectiveConfig {
   name: ObjectiveFunctionName;
@@ -35,6 +36,22 @@ export interface ObjectiveConfig {
     sharpeWeight: number;
     drawdownPenalty: number;
     winRateWeight: number;
+  };
+  // For composite objective (multi-objective as single score)
+  compositeWeights?: {
+    sharpe: number;
+    calmar: number;
+    sortino: number;
+    returns: number;
+    winRate: number;
+    profitFactor: number;
+  };
+  // Hard constraints for composite mode
+  constraints?: {
+    minSharpe?: number;
+    maxDrawdown?: number;
+    minWinRate?: number;
+    minProfitFactor?: number;
   };
   // Minimum trades required for valid result
   minTrades?: number;
@@ -111,6 +128,45 @@ export function calculateCustomObjective(
 }
 
 /**
+ * Calculate composite objective with multi-metric scoring and constraints
+ */
+export function calculateCompositeObjective(
+  metrics: BacktestMetrics,
+  weights: NonNullable<ObjectiveConfig['compositeWeights']>,
+  constraints?: ObjectiveConfig['constraints']
+): number {
+  // Check hard constraints first
+  if (constraints) {
+    if (constraints.minSharpe !== undefined && metrics.sharpeRatio < constraints.minSharpe) {
+      return -200 - Math.abs(constraints.minSharpe - metrics.sharpeRatio) * 50;
+    }
+    if (constraints.maxDrawdown !== undefined && Math.abs(metrics.maxDrawdown) > constraints.maxDrawdown) {
+      return -200 - Math.abs(metrics.maxDrawdown) * 100;
+    }
+    if (constraints.minWinRate !== undefined && metrics.winRate < constraints.minWinRate) {
+      return -200 - Math.abs(constraints.minWinRate - metrics.winRate) * 50;
+    }
+    if (constraints.minProfitFactor !== undefined && metrics.profitFactor < constraints.minProfitFactor) {
+      return -200 - Math.abs(constraints.minProfitFactor - metrics.profitFactor) * 50;
+    }
+  }
+
+  // Calculate composite score
+  const sharpe = calculateSharpeRatio(metrics);
+  const calmar = calculateCalmarRatio(metrics);
+  const sortino = calculateSortinoRatio(metrics);
+
+  return (
+    sharpe * weights.sharpe +
+    calmar * weights.calmar +
+    sortino * weights.sortino +
+    metrics.totalReturn * weights.returns +
+    metrics.winRate * weights.winRate +
+    Math.min(metrics.profitFactor, 10) * weights.profitFactor
+  );
+}
+
+/**
  * Main objective function evaluator
  */
 export function evaluateObjective(
@@ -154,17 +210,42 @@ export function evaluateObjective(
       }
       return calculateCustomObjective(metrics, config.customWeights);
 
+    case 'composite':
+      return calculateCompositeObjective(
+        metrics,
+        config.compositeWeights ?? DEFAULT_COMPOSITE_WEIGHTS,
+        config.constraints
+      );
+
     default:
       throw new Error(`Unknown objective function: ${name}`);
   }
 }
 
 /**
- * Get default objective configuration
+ * Default composite weights balancing multiple objectives
+ */
+export const DEFAULT_COMPOSITE_WEIGHTS: NonNullable<ObjectiveConfig['compositeWeights']> = {
+  sharpe: 0.30,
+  calmar: 0.20,
+  sortino: 0.15,
+  returns: 0.15,
+  winRate: 0.10,
+  profitFactor: 0.10,
+};
+
+/**
+ * Get default objective configuration.
+ * Now defaults to 'composite' for better multi-metric optimization.
  */
 export function getDefaultObjectiveConfig(): ObjectiveConfig {
   return {
-    name: 'sharpe_ratio',
+    name: 'composite',
+    compositeWeights: DEFAULT_COMPOSITE_WEIGHTS,
+    constraints: {
+      maxDrawdown: 0.25,
+      minWinRate: 0.40,
+    },
     minTrades: 10,
     maxAllowedDrawdown: 0.5,
   };
