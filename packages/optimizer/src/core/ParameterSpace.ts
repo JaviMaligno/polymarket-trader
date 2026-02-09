@@ -653,3 +653,90 @@ export function createMinimalParameterSpace(): ParameterSpace {
   space.parameters = MINIMAL_PARAMETER_SPACE;
   return space;
 }
+
+// ============================================
+// Importance-Based Parameter Selection
+// ============================================
+
+export interface ParameterImportanceScore {
+  name: string;
+  importance: number;
+  category: string;
+}
+
+/**
+ * Create a reduced parameter space using importance scores from feature importance analysis.
+ * Keeps only the top-N most important parameters (or above a threshold).
+ */
+export function createImportanceBasedParameterSpace(
+  importanceScores: ParameterImportanceScore[],
+  options?: {
+    /** Maximum number of parameters to keep */
+    maxParameters?: number;
+    /** Minimum importance score to include */
+    minImportance?: number;
+    /** Always include these parameter names regardless of importance */
+    alwaysInclude?: string[];
+  }
+): ParameterSpace {
+  const maxParams = options?.maxParameters ?? 15;
+  const minImportance = options?.minImportance ?? 0.05;
+  const alwaysInclude = new Set(options?.alwaysInclude ?? [
+    'combiner.minCombinedConfidence',
+    'combiner.minCombinedStrength',
+    'risk.maxPositionSizePct',
+  ]);
+
+  // Sort by importance (descending)
+  const sorted = [...importanceScores].sort((a, b) => b.importance - a.importance);
+
+  // Select parameters
+  const selectedNames = new Set<string>();
+
+  // Always include mandatory params
+  for (const name of alwaysInclude) {
+    selectedNames.add(name);
+  }
+
+  // Add by importance until we hit maxParams
+  for (const score of sorted) {
+    if (selectedNames.size >= maxParams) break;
+    if (score.importance >= minImportance) {
+      selectedNames.add(score.name);
+    }
+  }
+
+  // Filter FULL_PARAMETER_SPACE to only selected
+  const selectedParams = FULL_PARAMETER_SPACE.filter(p => selectedNames.has(p.name));
+
+  return new ParameterSpace(selectedParams);
+}
+
+/**
+ * Predefined "lean" parameter space (~15 most impactful parameters)
+ * Selected based on typical trading system sensitivity analysis.
+ */
+export const LEAN_PARAMETER_SPACE: ParameterDefinition[] = FULL_PARAMETER_SPACE.filter(p =>
+  [
+    // Combiner (most impactful: signal thresholds)
+    'combiner.minCombinedConfidence',
+    'combiner.minCombinedStrength',
+    'combiner.momentumWeight',
+    'combiner.meanReversionWeight',
+    'combiner.conflictResolution',
+    // Risk (position sizing is critical)
+    'risk.maxPositionSizePct',
+    'risk.stopLossPct',
+    'risk.takeProfitPct',
+    'risk.maxPositions',
+    // Momentum (core signal params)
+    'momentum.rsiPeriod',
+    'momentum.rsiOverbought',
+    'momentum.rsiOversold',
+    // Mean Reversion (core params)
+    'meanReversion.bollingerPeriod',
+    'meanReversion.zScoreThreshold',
+    // Market Filters (practical impact)
+    'marketFilters.priceRangeMin',
+  ].includes(p.name)
+);

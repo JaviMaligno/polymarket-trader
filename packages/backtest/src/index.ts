@@ -92,6 +92,46 @@ export {
   type PredictionMarketSection,
 } from './validation/ValidationReport.js';
 
+export {
+  ParameterPerturbationTest,
+  createParameterPerturbationTest,
+  type PerturbationConfig,
+  type PerturbationResult,
+  type ParameterPerturbationResult,
+  type PerturbationLevelResult,
+  type PerturbationBacktestRunner,
+} from './validation/ParameterPerturbationTest.js';
+
+export {
+  CrossValidator,
+  createCrossValidator,
+  type CrossValidationConfig,
+  type CrossValidationFold,
+  type CrossValidationResult,
+  type CrossValidationAggregate,
+  type GeneralizationEstimate,
+  type CVBacktestRunner,
+  type CVParameterOptimizer,
+} from './validation/CrossValidator.js';
+
+export {
+  HoldoutValidator,
+  createHoldoutValidator,
+  type HoldoutConfig,
+  type HoldoutSplit,
+  type HoldoutResult,
+  type HoldoutBacktestRunner,
+  type HoldoutParameterOptimizer,
+} from './validation/HoldoutValidator.js';
+
+export {
+  FeatureImportanceCalculator,
+  createFeatureImportanceCalculator,
+  type FeatureImportanceConfig,
+  type FeatureImportanceResult,
+  type FeatureScore,
+} from './validation/FeatureImportance.js';
+
 // Factory functions
 import { BacktestEngine } from './engine/BacktestEngine.js';
 import { OrderBookSimulator } from './simulation/OrderBookSimulator.js';
