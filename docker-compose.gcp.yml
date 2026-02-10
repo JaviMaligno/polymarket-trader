@@ -68,13 +68,11 @@ services:
       dockerfile: packages/data-collector/Dockerfile.gcp
     container_name: polymarket-data-collector
     restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
     environment:
       NODE_ENV: production
       LOG_LEVEL: info
-      DATABASE_URL: postgresql://polymarket:${DB_PASSWORD:-polymarket_prod}@timescaledb:5432/polymarket_trading
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
@@ -108,15 +106,13 @@ services:
       dockerfile: packages/dashboard/Dockerfile
     container_name: polymarket-dashboard-api
     restart: unless-stopped
-    depends_on:
-      timescaledb:
-        condition: service_healthy
     environment:
       NODE_ENV: production
       PORT: 3001
       HOST: 0.0.0.0
       CORS_ORIGIN: "*"
-      DATABASE_URL: postgresql://polymarket:${DB_PASSWORD:-polymarket_prod}@timescaledb:5432/polymarket_trading
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
       CONNECT_TRADER: "true"
       ENABLE_SIGNAL_ENGINE: "true"
       ENABLE_OPTIMIZATION: "true"
