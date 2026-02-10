@@ -1,0 +1,34 @@
+name: Deploy to GCP
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.gitignore'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy to VM
+        run: |
+          gcloud compute ssh polymarket-vm \
+            --zone=us-east1-b \
+            --command="cd ~/polymarket-trader && git pull origin main && docker compose -f docker-compose.gcp.yml up -d --build"
+
+      - name: Health check
+        run: |
+          sleep 30
+          curl -f http://34.74.36.101:3001/health || echo "API health check failed"
+          curl -f http://34.74.36.101:10000/health || echo "Data collector health check failed"
