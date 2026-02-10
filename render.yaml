@@ -1,63 +1,10 @@
+# Render configuration for Polymarket Trader
+# Only optimizer and frontend remain on Render
+# Main services (dashboard-api, data-collector) run on GCP VM
+
 services:
-  # Dashboard API (Backend)
-  - type: web
-    name: polymarket-dashboard-api
-    runtime: node
-    region: oregon
-    plan: free
-    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/signals build && pnpm --filter @polymarket-trader/backtest build && pnpm --filter @polymarket-trader/trader build && pnpm --filter @polymarket-trader/dashboard build
-    startCommand: node packages/dashboard/dist/server.js
-    healthCheckPath: /health
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: PORT
-        value: 3001
-      - key: HOST
-        value: 0.0.0.0
-      - key: CORS_ORIGIN
-        value: "*"
-      - key: CONNECT_TRADER
-        value: "true"
-      - key: POLYMARKET_API_URL
-        value: https://clob.polymarket.com
-      - key: INITIAL_CAPITAL
-        value: "10000"
-      - key: FEE_RATE
-        value: "0.001"
-      - key: MAX_DRAWDOWN
-        value: "0.15"
-      - key: MAX_DAILY_LOSS
-        value: "500"
-      - key: ENABLE_OPTIMIZATION
-        value: "true"
-      - key: DATABASE_URL
-        sync: false
-
-  # Data Collector (Background Service)
-  - type: web
-    name: polymarket-data-collector
-    runtime: node
-    region: oregon
-    plan: free
-    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/data-collector build
-    startCommand: node packages/data-collector/dist/index.js
-    healthCheckPath: /health
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: GAMMA_API_URL
-        value: https://gamma-api.polymarket.com
-      - key: CLOB_API_URL
-        value: https://clob.polymarket.com
-      - key: DATA_API_URL
-        value: https://data-api.polymarket.com
-      - key: LOG_LEVEL
-        value: info
-
   # Optimizer Server (Python FastAPI with Optuna)
+  # Kept on Render because idle time doesn't affect it
   - type: web
     name: polymarket-optimizer-server
     runtime: docker
@@ -72,31 +19,8 @@ services:
       - key: LOG_LEVEL
         value: info
 
-  # Optimization Worker (Node.js Background Service)
-  - type: worker
-    name: polymarket-optimization-worker
-    runtime: node
-    region: oregon
-    plan: free
-    buildCommand: npm install -g pnpm && pnpm install && pnpm --filter @polymarket-trader/signals build && pnpm --filter @polymarket-trader/backtest build && pnpm --filter @polymarket-trader/optimizer build
-    startCommand: node packages/optimizer/dist/cli/commands.js status
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: OPTIMIZER_SERVER_URL
-        value: http://polymarket-optimizer-server:8000
-      - key: OPTIMIZATION_ENABLED
-        value: "true"
-      - key: AUTO_ACTIVATE_PAPER
-        value: "true"
-      - key: AUTO_ACTIVATE_LIVE
-        value: "false"
-      - key: MODE
-        value: paper
-
   # Dashboard Frontend (Static Site)
+  # Connects to GCP backend via VITE_API_URL
   - type: web
     name: polymarket-dashboard-frontend
     runtime: static
@@ -112,6 +36,6 @@ services:
         destination: /index.html
     envVars:
       - key: VITE_API_URL
-        sync: false
+        value: http://34.74.36.101:3001
       - key: VITE_WS_URL
-        sync: false
+        value: ws://34.74.36.101:3001

@@ -207,13 +207,20 @@ Las VMs e2-micro no se paran automáticamente. Si se para:
 
 **Total: $0/mes** (mientras no excedas los límites)
 
-## Comparación con Render
+## Arquitectura Híbrida
 
-| Aspecto | Render Free | GCP e2-micro |
-|---------|-------------|--------------|
-| RAM total | 512MB | 1GB |
-| Horas/mes | 750 (compartidas) | Ilimitadas |
-| Servicios | Limitados por horas | Sin límite |
-| Persistencia | Se para por inactividad | Siempre activo |
-| Setup | Fácil (PaaS) | Manual (IaaS) |
-| Mantenimiento | Ninguno | Updates, etc. |
+El sistema usa una arquitectura híbrida GCP + Render:
+
+| Servicio | Ubicación | Razón |
+|----------|-----------|-------|
+| Data Collector | GCP | Necesita estar siempre activo |
+| Dashboard API | GCP | Necesita estar siempre activo |
+| TimescaleDB | GCP / Timescale Cloud | Persistencia de datos |
+| Optimizer | Render | Tolera idle time (solo se usa ocasionalmente) |
+| Frontend | Render | Static site, CDN gratuito |
+
+### URLs de Producción
+
+- **Frontend**: https://polymarket-dashboard-frontend.onrender.com
+- **API**: http://34.74.36.101:3001
+- **Optimizer**: https://polymarket-optimizer-server.onrender.com
