@@ -21,7 +21,20 @@ import type {
 import type { LiveDataFeed } from '../feeds/LiveDataFeed.js';
 import type { PaperTradingEngine } from '../engine/PaperTradingEngine.js';
 import type { ISignal, ISignalCombiner, SignalContext, SignalOutput, CombinedSignalOutput, MarketInfo, PriceBar } from '@polymarket-trader/signals';
-import { RegimeDetector, MarketRegime, type RegimeState } from '@polymarket-trader/signals';
+import {
+  RegimeDetector,
+  MarketRegime,
+  type RegimeState,
+  // Risk Protection Filters
+  PositionLimits,
+  type PositionLimitsConfig,
+  StopLossManager,
+  type StopLossConfig,
+  EntryFilterPipeline,
+  type EntryFilterConfig,
+  type SignalType as FilterSignalType,
+  type SignalDirection as FilterSignalDirection,
+} from '@polymarket-trader/signals';
 
 const logger = pino({ name: 'StrategyOrchestrator' });
 
