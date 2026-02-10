@@ -1,3 +1,4 @@
+# Auto-deploy to GCP VM on push to main
 name: Deploy to GCP
 
 on:
