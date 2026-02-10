@@ -6,7 +6,7 @@
  * the strategy to adapt based on detected market conditions.
  */
 
-import pino from 'pino';
+import { pino } from 'pino';
 import type { ParameterValues } from './ParameterSpace.js';
 import type { BacktestMetrics } from './ObjectiveFunctions.js';
 

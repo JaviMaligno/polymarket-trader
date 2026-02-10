@@ -198,6 +198,44 @@ export {
   DEFAULT_ENV_CONFIG,
 } from './ml/index.js';
 
+// Risk Protection Filters
+export {
+  // Position and Stop-Loss Management (A & B)
+  PositionLimits,
+  type PositionLimitsConfig,
+  type Position,
+  type PositionCheckResult,
+  StopLossManager,
+  type StopLossConfig,
+  type TrackedPosition,
+  type StopCheckResult,
+  STOP_LOSS_RANGES,
+  // Entry Filters (C1, C2, C3)
+  HurstFilter,
+  type HurstConfig,
+  type HurstResult,
+  type MarketRegime as HurstMarketRegime,
+  type HurstFilterDecision,
+  HURST_RANGES,
+  RSIMomentumFilter,
+  type RSIConfig,
+  type RSIResult,
+  type RSIFilterDecision,
+  RSI_RANGES,
+  ZScoreVolatilityFilter,
+  type ZScoreConfig,
+  type ZScoreResult,
+  type ZScoreFilterDecision,
+  type VolatilityAnalysis,
+  ZSCORE_RANGES,
+  // Pipeline Orchestrator
+  EntryFilterPipeline,
+  type EntryFilterConfig,
+  type PipelineDecision,
+  type SignalType,
+  type SignalDirection,
+} from './filters/index.js';
+
 // Signal Registry (factory for creating signals)
 import { MomentumSignal } from './signals/technical/MomentumSignal.js';
 import { MeanReversionSignal } from './signals/technical/MeanReversionSignal.js';
