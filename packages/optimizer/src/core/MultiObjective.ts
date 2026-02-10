@@ -6,7 +6,7 @@
  * must be satisfied) and Pareto-aware ranking.
  */
 
-import pino from 'pino';
+import { pino } from 'pino';
 import type { BacktestMetrics } from './ObjectiveFunctions.js';
 
 const logger = pino({ name: 'MultiObjective' });

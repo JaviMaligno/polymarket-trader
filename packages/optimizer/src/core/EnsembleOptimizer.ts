@@ -7,7 +7,7 @@
  * and makes the strategy more robust to overfitting.
  */
 
-import pino from 'pino';
+import { pino } from 'pino';
 import type { ParameterValues } from './ParameterSpace.js';
 import type { BacktestMetrics } from './ObjectiveFunctions.js';
 
