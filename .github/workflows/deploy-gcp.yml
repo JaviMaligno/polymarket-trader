@@ -28,9 +28,9 @@ jobs:
 
       - name: Deploy to VM
         run: |
-          gcloud compute ssh polymarket-vm \
+          gcloud compute ssh Usuario@polymarket-vm \
             --zone=us-east1-b \
-            --command="cd ~/polymarket-trader && git pull origin main && docker compose -f docker-compose.gcp.yml up -d --build"
+            --command="cd /home/Usuario/polymarket-trader && git pull origin main && docker compose -f docker-compose.gcp.yml up -d --build"
 
       - name: Health check
         run: |
