@@ -111,6 +111,7 @@ services:
       PORT: 3001
       HOST: 0.0.0.0
       CORS_ORIGIN: "*"
+      API_KEY: ${API_KEY:-}
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
       CONNECT_TRADER: "true"

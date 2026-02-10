@@ -3,14 +3,24 @@
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export async function fetchApi<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  // Build headers - include API key for mutating requests
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string>),
+  };
+
+  // Add API key for non-GET requests
+  const method = options?.method?.toUpperCase() || 'GET';
+  if (API_KEY && method !== 'GET') {
+    headers['X-API-Key'] = API_KEY;
+  }
+
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {

@@ -4,7 +4,7 @@
  * Fastify server with REST API and WebSocket support.
  */
 
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest, type FastifyReply } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import fastifyStatic from '@fastify/static';
@@ -12,6 +12,41 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 import { registerRoutes } from './routes.js';
+
+// API Key for protecting mutating endpoints
+const API_KEY = process.env.API_KEY || '';
+
+/**
+ * Authentication hook for mutating endpoints
+ * Requires X-API-Key header for POST, PUT, PATCH, DELETE requests
+ */
+async function authHook(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  // Skip auth for GET requests (read-only)
+  if (request.method === 'GET') {
+    return;
+  }
+
+  // Skip auth for health check
+  if (request.url === '/health') {
+    return;
+  }
+
+  // Skip if no API_KEY configured (development mode)
+  if (!API_KEY) {
+    return;
+  }
+
+  const providedKey = request.headers['x-api-key'];
+
+  if (!providedKey || providedKey !== API_KEY) {
+    reply.code(401).send({
+      success: false,
+      error: 'Unauthorized: Invalid or missing API key',
+      timestamp: new Date(),
+    });
+    return;
+  }
+}
 import { createWebSocketHandler, type WebSocketHandler } from '../websocket/WebSocketHandler.js';
 import { createPerformanceAnalytics, type PerformanceAnalytics } from '../analytics/PerformanceAnalytics.js';
 import { createTradeJournal, type TradeJournal } from '../analytics/TradeJournal.js';
@@ -103,6 +138,16 @@ export class DashboardServer {
     });
 
     await this.fastify.register(websocket);
+
+    // Add authentication hook for mutating endpoints
+    this.fastify.addHook('preHandler', authHook);
+
+    // Log auth status
+    if (API_KEY) {
+      console.log('API key authentication enabled for mutating endpoints');
+    } else {
+      console.log('WARNING: No API_KEY configured - mutating endpoints are unprotected');
+    }
 
     // Serve static files if directory provided
     if (this.config.staticDir) {
