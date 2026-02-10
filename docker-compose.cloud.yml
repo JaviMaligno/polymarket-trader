@@ -1,0 +1,93 @@
+# Docker Compose for Timescale Cloud (external database)
+# Use this when connecting to a managed TimescaleDB instance instead of local
+#
+# Usage:
+#   DATABASE_URL=postgres://... docker compose -f docker-compose.cloud.yml up -d
+#
+# Required environment variables in .env:
+#   DATABASE_URL - Connection string to Timescale Cloud
+#   NODE_TLS_REJECT_UNAUTHORIZED=0 - Required for self-signed certs
+
+services:
+  # ============================================
+  # Data Collector (Node.js)
+  # ============================================
+  data-collector:
+    build:
+      context: .
+      dockerfile: packages/data-collector/Dockerfile.gcp
+    container_name: polymarket-data-collector
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      GAMMA_API_URL: https://gamma-api.polymarket.com
+      CLOB_API_URL: https://clob.polymarket.com
+      DATA_API_URL: https://data-api.polymarket.com
+      PORT: 10000
+    ports:
+      - "10000:10000"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:10000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 100M
+        reservations:
+          memory: 60M
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  # ============================================
+  # Dashboard API (Node.js - Signals + Trading)
+  # ============================================
+  dashboard-api:
+    build:
+      context: .
+      dockerfile: packages/dashboard/Dockerfile
+    container_name: polymarket-dashboard-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOST: 0.0.0.0
+      CORS_ORIGIN: "*"
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      CONNECT_TRADER: "true"
+      ENABLE_SIGNAL_ENGINE: "true"
+      ENABLE_OPTIMIZATION: "true"
+      OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
+      POLYMARKET_API_URL: https://clob.polymarket.com
+      INITIAL_CAPITAL: "10000"
+      FEE_RATE: "0.001"
+      MAX_DRAWDOWN: "0.15"
+      MAX_DAILY_LOSS: "500"
+    ports:
+      - "3001:3001"
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    deploy:
+      resources:
+        limits:
+          memory: 200M
+        reservations:
+          memory: 100M
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
