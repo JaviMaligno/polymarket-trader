@@ -53,3 +53,4 @@ timescaledb_data/
 
 # Claude Code local settings (may contain credentials)
 .claude/settings.local.json
+.worktrees/
