@@ -8,6 +8,48 @@ const logger = pino({ name: 'gamma-collector' });
 
 const GAMMA_API_URL = process.env.GAMMA_API_URL || 'https://gamma-api.polymarket.com';
 
+/**
+ * Infer category from market question using keyword matching
+ */
+function inferCategoryFromQuestion(question: string): string | null {
+  const q = question.toLowerCase();
+
+  // Politics
+  if (/trump|biden|democrat|republican|election|president|congress|senate|governor|vote|poll/i.test(q)) {
+    return 'Politics';
+  }
+  // Crypto
+  if (/bitcoin|btc|ethereum|eth|crypto|solana|sol|token|blockchain|defi/i.test(q)) {
+    return 'Crypto';
+  }
+  // Sports
+  if (/nfl|nba|mlb|nhl|soccer|football|basketball|tennis|golf|championship|super bowl|world cup|olympics/i.test(q)) {
+    return 'Sports';
+  }
+  // Entertainment
+  if (/oscar|emmy|grammy|movie|film|album|artist|celebrity|netflix|spotify|tiktok/i.test(q)) {
+    return 'Entertainment';
+  }
+  // Science & Tech
+  if (/spacex|nasa|ai |artificial intelligence|openai|google|apple|microsoft|tesla|launch|rocket/i.test(q)) {
+    return 'Science & Tech';
+  }
+  // Finance
+  if (/stock|s&p|nasdaq|fed|interest rate|inflation|gdp|recession|market|economy/i.test(q)) {
+    return 'Finance';
+  }
+  // Weather
+  if (/hurricane|earthquake|weather|temperature|climate|storm/i.test(q)) {
+    return 'Weather';
+  }
+  // World Affairs
+  if (/ukraine|russia|china|war|military|nato|un |united nations/i.test(q)) {
+    return 'World Affairs';
+  }
+
+  return null; // Unknown category
+}
+
 interface GammaMarketsResponse {
   data: PolymarketMarket[];
   next_cursor?: string;
@@ -338,7 +380,7 @@ export class GammaCollector {
         market.conditionId,
         market.question,
         market.description,
-        null, // category - would need to be parsed from event
+        inferCategoryFromQuestion(market.question || ''),
         market.endDate ? new Date(market.endDate) : null,
         priceYes,
         priceNo,

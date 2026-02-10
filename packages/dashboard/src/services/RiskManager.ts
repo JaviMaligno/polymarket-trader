@@ -230,13 +230,20 @@ export class RiskManager extends EventEmitter {
       // Calculate adaptive multiplier
       this.adaptiveMultiplier = calculateAdaptiveMultiplier(currentDrawdownPct, this.config);
 
-      // Update max drawdown in database
+      // Calculate total unrealized PnL from open positions
+      const totalUnrealizedPnl = positions.reduce(
+        (sum, p) => sum + parseFloat(String(p.unrealized_pnl || 0)),
+        0
+      );
+
+      // Update max drawdown and unrealized PnL in database
       await query(
         `UPDATE paper_account SET
           max_drawdown = GREATEST(max_drawdown, $1),
+          total_unrealized_pnl = $2,
           updated_at = NOW()
         WHERE id = 1`,
-        [currentDrawdownPct / 100]
+        [currentDrawdownPct / 100, totalUnrealizedPnl]
       );
 
       // Check risk limits with adaptive mode support

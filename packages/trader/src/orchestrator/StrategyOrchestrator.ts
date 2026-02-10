@@ -707,7 +707,8 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
       price: params.orderType === 'LIMIT' ? price * (1 + params.slippageTolerance) : undefined,
       strategyId: config.id,
       metadata: {
-        signal: {
+        signalInfo: {
+          signalType: this.getPrimarySignalType(signal),
           direction: signal.direction,
           strength: signal.strength,
           confidence: signal.confidence,
@@ -739,6 +740,20 @@ export class StrategyOrchestrator extends EventEmitter<OrchestratorEvents> {
   // ============================================
   // Helper Methods
   // ============================================
+
+  /**
+   * Get the primary signal type from a combined signal
+   * Returns the signal with the highest weight contribution
+   */
+  private getPrimarySignalType(signal: CombinedSignalOutput): string {
+    if (!signal.weights || Object.keys(signal.weights).length === 0) {
+      return 'combined';
+    }
+    const maxWeight = Math.max(...Object.values(signal.weights));
+    const primary = Object.entries(signal.weights)
+      .find(([, w]) => w === maxWeight);
+    return primary?.[0] ?? 'combined';
+  }
 
   /**
    * Filter markets based on strategy config

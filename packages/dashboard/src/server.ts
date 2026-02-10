@@ -79,7 +79,16 @@ async function main(): Promise<void> {
 
       // Listen to order fills and persist trades
       tradingSystem.engine.on('order:filled', (order: any, fill: any) => {
-        paperTradingService.recordTrade(order, fill).catch((err: Error) => {
+        // Extract signalInfo from order metadata (set by StrategyOrchestrator)
+        const signalInfo = order.metadata?.signalInfo as {
+          signalId?: number;
+          signalType?: string;
+          direction?: string;
+          strength?: number;
+          confidence?: number;
+        } | undefined;
+
+        paperTradingService.recordTrade(order, fill, signalInfo).catch((err: Error) => {
           console.error('Failed to record trade:', err);
         });
       });
