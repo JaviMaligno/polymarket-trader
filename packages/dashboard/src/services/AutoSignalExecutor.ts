@@ -34,8 +34,8 @@ export interface SignalResult {
 
 export interface ExecutorConfig {
   enabled: boolean;
-  minConfidence: number;        // Minimum confidence to execute (0.6)
-  minStrength: number;          // Minimum signal strength (0.3)
+  minConfidence: number;        // Minimum confidence (0 = trust combiner)
+  minStrength: number;          // Minimum signal strength (0 = trust combiner)
   maxPositionSize: number;      // Max $ per position (500)
   maxOpenPositions: number;     // Max concurrent positions (10)
   maxDailyTrades: number;       // Max trades per day (50)
@@ -48,8 +48,10 @@ export interface ExecutorConfig {
 
 const DEFAULT_CONFIG: ExecutorConfig = {
   enabled: true,
-  minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0.55'),
-  minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0.20'),
+  // Trust the combiner's optimized thresholds - executor only applies risk limits
+  // Set to 0 to disable redundant filtering (combiner already filters)
+  minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0'),
+  minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0'),
   maxPositionSize: 500,
   maxOpenPositions: 10,
   maxDailyTrades: 50,
