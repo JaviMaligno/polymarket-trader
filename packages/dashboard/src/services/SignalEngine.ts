@@ -79,20 +79,27 @@ export class SignalEngine extends EventEmitter {
     // Initialize signal generators
     this.initializeSignals();
 
-    // Initialize combiner with default weights
+    // Initialize combiner with optimized weights and params
     // Core signals: 50% total, Microstructure: 35%, RL: 15%
-    this.combiner = new WeightedAverageCombiner({
-      // Core signals (50%)
-      momentum: 0.17,
-      mean_reversion: 0.17,
-      wallet_tracking: 0.16,
-      // Microstructure signals (35%)
-      ofi: 0.12,           // Order Flow Imbalance
-      mlofi: 0.12,         // Multi-Level OFI
-      hawkes: 0.11,        // Trade clustering (Hawkes process)
-      // RL signal (15%)
-      rl: 0.15,            // Reinforcement Learning
-    });
+    this.combiner = new WeightedAverageCombiner(
+      {
+        // Core signals (50%)
+        momentum: 0.17,
+        mean_reversion: 0.17,
+        wallet_tracking: 0.16,
+        // Microstructure signals (35%)
+        ofi: 0.12,           // Order Flow Imbalance
+        mlofi: 0.12,         // Multi-Level OFI
+        hawkes: 0.11,        // Trade clustering (Hawkes process)
+        // RL signal (15%)
+        rl: 0.15,            // Reinforcement Learning
+      },
+      {
+        // Optimized params (from optimization runs)
+        minCombinedConfidence: 0.43,
+        minCombinedStrength: 0.27,
+      }
+    );
   }
 
   /**
@@ -456,14 +463,26 @@ export class SignalEngine extends EventEmitter {
     // Preserve original strength (negative = SHORT, positive = LONG)
     const strength = output.strength;
 
+    // Calculate correct price based on direction:
+    // - LONG: buy Yes token at Yes price (market.currentPrice)
+    // - SHORT: buy No token at No price (1 - Yes price)
+    const price = direction === 'long'
+      ? market.currentPrice
+      : 1 - market.currentPrice;
+
+    // Use the appropriate token ID
+    const tokenId = direction === 'long'
+      ? market.tokenIdYes
+      : (market.tokenIdNo || market.tokenIdYes); // Fallback if No token not available
+
     return {
       signalId: output.signalId,
       marketId: output.marketId,
-      tokenId: output.tokenId,
+      tokenId,
       direction,
       strength,
       confidence: output.confidence,
-      price: market.currentPrice,
+      price,
       metadata: output.metadata,
     };
   }

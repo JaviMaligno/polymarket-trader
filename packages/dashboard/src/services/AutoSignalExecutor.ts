@@ -5,8 +5,8 @@
  * Connects the signal engine to the paper trading system.
  *
  * Trading Logic:
- * - LONG signal: Opens a buy position if none exists
- * - SHORT signal: Closes existing LONG position (exit strategy)
+ * - LONG signal: Opens a "Yes" position (buy Yes tokens)
+ * - SHORT signal: Opens a "No" position (buy No tokens) OR closes existing Yes position
  * - Positions are properly tracked with P&L calculation on close
  */
 
@@ -99,10 +99,10 @@ export class AutoSignalExecutor extends EventEmitter {
    * Process a signal and potentially execute a trade
    *
    * Trading Logic:
-   * - LONG signal + no position → Open new LONG position (buy)
-   * - LONG signal + existing LONG → Do nothing (already long)
-   * - SHORT signal + existing LONG → CLOSE position (sell to exit)
-   * - SHORT signal + no position → Do nothing (we don't short in paper trading)
+   * - LONG signal + no position → Open "Yes" position (buy Yes tokens)
+   * - LONG signal + existing position → Do nothing (already have position)
+   * - SHORT signal + existing Yes → CLOSE position (sell to exit)
+   * - SHORT signal + no position → Open "No" position (buy No tokens)
    */
   async processSignal(signal: SignalResult): Promise<SignalProcessResult> {
     if (!this.config.enabled) {
@@ -165,13 +165,21 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Failed to check positions' };
     }
 
-    // 5. Handle SHORT signal - this is our EXIT strategy
+    // 5. Handle SHORT signal - can EXIT existing LONG or ENTER "No" position
     if (signal.direction === 'short') {
-      if (!existingPosition) {
-        return { executed: false, reason: 'SHORT signal but no position to close' };
+      if (existingPosition) {
+        // Close the existing LONG position
+        return this.closePosition(existingPosition, signal);
       }
-      // Close the existing LONG position
-      return this.closePosition(existingPosition, signal);
+
+      // No existing position - open a "No" position (bet against the market)
+      // Check max open positions first
+      if (positions.length >= this.config.maxOpenPositions) {
+        return { executed: false, reason: `Max open positions reached (${this.config.maxOpenPositions})` };
+      }
+
+      // Open position on the "No" side
+      return this.openPosition(signal);
     }
 
     // 6. Handle LONG signal - this is our ENTRY strategy
@@ -343,7 +351,8 @@ export class AutoSignalExecutor extends EventEmitter {
         action: 'open',
       });
 
-      console.log(`[AutoExecutor] OPENED: BUY ${shares} shares of ${signal.marketId.substring(0, 20)}... @ $${signal.price.toFixed(4)}`);
+      const side = signal.direction === 'long' ? 'YES' : 'NO';
+      console.log(`[AutoExecutor] OPENED: BUY ${shares} ${side} shares of ${signal.marketId.substring(0, 20)}... @ $${signal.price.toFixed(4)}`);
 
       return {
         executed: true,
