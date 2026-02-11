@@ -52,9 +52,9 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // Set to 0 to disable redundant filtering (combiner already filters)
   minConfidence: parseFloat(process.env.EXECUTOR_MIN_CONFIDENCE || '0'),
   minStrength: parseFloat(process.env.EXECUTOR_MIN_STRENGTH || '0'),
-  maxPositionSize: 500,
-  maxOpenPositions: 10,
-  maxDailyTrades: 50,
+  maxPositionSize: parseInt(process.env.EXECUTOR_MAX_POSITION_SIZE || '500', 10),
+  maxOpenPositions: parseInt(process.env.EXECUTOR_MAX_OPEN_POSITIONS || '50', 10),
+  maxDailyTrades: parseInt(process.env.EXECUTOR_MAX_DAILY_TRADES || '50', 10),
   cooldownMs: 60000,
   feeRate: 0.001,
   // Smart price validation - configurable via environment variables
