@@ -240,11 +240,31 @@ export class SignalEngine extends EventEmitter {
 
   /**
    * Set active markets to compute signals for
+   * Filters out markets with extreme prices (no profitable trades possible)
    */
   setActiveMarkets(markets: ActiveMarket[]): void {
-    this.activeMarkets = markets;
-    console.log(`[SignalEngine] Updated active markets: ${markets.length}`);
-    this.emit('markets:updated', markets.length);
+    // Filter out markets with extreme prices where there's no profitable trade opportunity
+    // - Price < 5%: Market is heavily bearish, buying No at 95%+ has <5% max ROI
+    // - Price > 95%: Market is heavily bullish, buying Yes at 95%+ has <5% max ROI
+    const MIN_PRICE = 0.05;
+    const MAX_PRICE = 0.95;
+
+    const filtered = markets.filter(m => {
+      const price = m.currentPrice;
+      if (price < MIN_PRICE || price > MAX_PRICE) {
+        return false;
+      }
+      return true;
+    });
+
+    const excluded = markets.length - filtered.length;
+    if (excluded > 0) {
+      console.log(`[SignalEngine] Filtered ${excluded} markets with extreme prices (<${MIN_PRICE * 100}% or >${MAX_PRICE * 100}%)`);
+    }
+
+    this.activeMarkets = filtered;
+    console.log(`[SignalEngine] Updated active markets: ${filtered.length}`);
+    this.emit('markets:updated', filtered.length);
   }
 
   /**
@@ -452,11 +472,19 @@ export class SignalEngine extends EventEmitter {
 
   /**
    * Convert SignalOutput to SignalResult format
+   * Returns null if market price is extreme (no profitable trade possible)
    */
   private convertToSignalResult(
     output: SignalOutput,
     market: ActiveMarket
-  ): SignalResult {
+  ): SignalResult | null {
+    // Reject signals for markets with extreme prices
+    const MIN_PRICE = 0.05;
+    const MAX_PRICE = 0.95;
+    if (market.currentPrice < MIN_PRICE || market.currentPrice > MAX_PRICE) {
+      return null;
+    }
+
     // Map direction: LONG/SHORT -> long/short
     const direction: 'long' | 'short' = output.direction === 'LONG' ? 'long' : 'short';
 
