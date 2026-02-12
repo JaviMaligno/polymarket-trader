@@ -437,10 +437,18 @@ export class PolymarketService extends EventEmitter {
       const candidateMarkets: PolymarketMarket[] = [];
 
       // First pass: filter and categorize all markets
+      const MIN_PRICE = 0.05;
+      const MAX_PRICE = 0.95;
+
       for (const m of marketsData) {
         // Filter by volume and liquidity
         if (m.volume < this.config.minVolume24h) continue;
         if (m.liquidity < this.config.minLiquidity) continue;
+
+        // Filter by price - skip markets with extreme prices (resolved or near-resolved)
+        const prices = m.tokens?.map((t: { price: number }) => t.price) || [];
+        const hasExtremePrice = prices.some((p: number) => p <= MIN_PRICE || p >= MAX_PRICE);
+        if (hasExtremePrice) continue;
 
         const tags = m.tags || [];
         const category = this.extractCategory(tags, m.question);
@@ -464,7 +472,8 @@ export class PolymarketService extends EventEmitter {
         candidateMarkets.push(market);
       }
 
-      console.log(`[PolymarketService] Found ${candidateMarkets.length} candidate markets (from ${marketsData.length} fetched)`);
+      const filteredByPrice = marketsData.length - candidateMarkets.length;
+      console.log(`[PolymarketService] Found ${candidateMarkets.length} candidate markets (fetched ${marketsData.length}, filtered ${filteredByPrice} by vol/liq/price)`);
 
       // Apply diversified selection
       const selectedMarkets = this.selectDiversifiedMarkets(candidateMarkets);
