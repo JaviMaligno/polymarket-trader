@@ -142,7 +142,7 @@ export class MeanReversionSignal extends BaseSignal {
     const direction = this.getDirection(combinedStrength);
 
     // Debug logging for testing
-    console.log(`[MeanRev] ${context.market.id.slice(0,10)}... price=${currentPrice.toFixed(4)} bb=${bbSignal.strength.toFixed(3)} zScore=${zScoreSignal.zScore.toFixed(3)} strength=${combinedStrength.toFixed(3)} conf=${confidence.toFixed(3)}`);
+    // Debug logging disabled for production
 
     // Only emit if deviation is significant
     // Relaxed thresholds to generate more trades
