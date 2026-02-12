@@ -598,7 +598,7 @@ export class PolymarketService extends EventEmitter {
     this.errorCount = errorCount;
 
     if (successCount > 0 || errorCount > 0) {
-      console.log(`[PolymarketService] Polled ${successCount}/${marketIds.length} markets (${errorCount} errors)`);
+      // console.log(`[PolymarketService] Polled ${successCount}/${marketIds.length} markets (${errorCount} errors)`);
     }
 
     // Send price updates to data collector

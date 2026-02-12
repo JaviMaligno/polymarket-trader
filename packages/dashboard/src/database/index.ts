@@ -74,7 +74,7 @@ export function initializeDatabase(config?: DatabaseConfig): pg.Pool {
 
   // Log connection events
   pool.on('connect', () => {
-    console.log('Database pool: new client connected');
+    // console.log('Database pool: new client connected');
   });
 
   pool.on('error', (err) => {
@@ -109,7 +109,7 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
     const duration = Date.now() - start;
 
     if (duration > 1000) {
-      console.warn(`Slow query (${duration}ms):`, text.substring(0, 100));
+      // console.warn(`Slow query (${duration}ms):`, text.substring(0, 100));
     }
 
     return result;

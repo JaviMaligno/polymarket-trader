@@ -295,7 +295,7 @@ export class SignalEngine extends EventEmitter {
     const results: SignalResult[] = [];
     const marketsToProcess = this.activeMarkets.slice(0, this.config.maxMarketsPerCycle);
 
-    console.log(`[SignalEngine] Computing signals for ${marketsToProcess.length} markets`);
+    // console.log(`[SignalEngine] Computing signals for ${marketsToProcess.length} markets`);
 
     for (const market of marketsToProcess) {
       try {
@@ -312,7 +312,7 @@ export class SignalEngine extends EventEmitter {
     this.signalsGenerated += results.length;
 
     const elapsed = Date.now() - startTime;
-    console.log(`[SignalEngine] Generated ${results.length} signals in ${elapsed}ms`);
+    // console.log(`[SignalEngine] Generated ${results.length} signals in ${elapsed}ms`);
 
     // Send signals to automation if any
     if (results.length > 0) {
@@ -535,7 +535,7 @@ export class SignalEngine extends EventEmitter {
       }
 
       const result = await automation.processSignals(signals);
-      console.log(`[SignalEngine] Automation processed ${result.processed}, executed ${result.executed}`);
+      // console.log(`[SignalEngine] Automation processed ${result.processed}, executed ${result.executed}`);
 
       this.emit('signals:processed', result);
     } catch (error) {

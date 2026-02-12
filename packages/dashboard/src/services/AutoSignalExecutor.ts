@@ -106,12 +106,12 @@ export class AutoSignalExecutor extends EventEmitter {
    */
   async processSignal(signal: SignalResult): Promise<SignalProcessResult> {
     if (!this.config.enabled) {
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Executor disabled`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Executor disabled`);
       return { executed: false, reason: 'Executor disabled' };
     }
 
     if (!isDatabaseConfigured()) {
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Database not configured`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Database not configured`);
       return { executed: false, reason: 'Database not configured' };
     }
 
@@ -121,20 +121,20 @@ export class AutoSignalExecutor extends EventEmitter {
     // 1. Check signal thresholds
     if (signal.confidence < this.config.minConfidence) {
       const reason = `Confidence ${signal.confidence.toFixed(2)} below threshold ${this.config.minConfidence}`;
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
       return { executed: false, reason };
     }
 
     if (Math.abs(signal.strength) < this.config.minStrength) {
       const reason = `Strength ${Math.abs(signal.strength).toFixed(2)} below threshold ${this.config.minStrength}`;
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
       return { executed: false, reason };
     }
 
     // 2. Check daily trade limit
     if (this.dailyTradeCount >= this.config.maxDailyTrades) {
       const reason = `Daily trade limit reached (${this.config.maxDailyTrades})`;
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
       return { executed: false, reason };
     }
 
@@ -153,7 +153,7 @@ export class AutoSignalExecutor extends EventEmitter {
     const lastProcessed = this.processedSignals.get(dedupKey);
     if (lastProcessed && Date.now() - lastProcessed < this.SIGNAL_DEDUP_WINDOW_MS) {
       const reason = `Duplicate signal (${signal.direction}) within 5min window`;
-      console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
+      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
       return { executed: false, reason };
     }
     // Clean old entries
@@ -195,7 +195,7 @@ export class AutoSignalExecutor extends EventEmitter {
       // Check max open positions first
       if (positions.length >= this.config.maxOpenPositions) {
         const reason = `Max open positions reached (${positions.length}/${this.config.maxOpenPositions})`;
-        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
+        // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
         return { executed: false, reason };
       }
 
