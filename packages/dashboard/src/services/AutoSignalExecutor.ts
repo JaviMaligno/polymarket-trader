@@ -169,7 +169,10 @@ export class AutoSignalExecutor extends EventEmitter {
     let existingPosition: PaperPosition | undefined;
     try {
       positions = await paperPositionsRepo.getAll();
-      existingPosition = positions.find(p => p.market_id === signal.marketId);
+      // Find position for this market - check both by market_id alone and by market_id + token_id
+      // First try exact match (same token), then any position in same market
+      existingPosition = positions.find(p => p.market_id === signal.marketId && p.token_id === signal.tokenId)
+        || positions.find(p => p.market_id === signal.marketId);
     } catch (error) {
       console.error('Failed to check positions:', error);
       return { executed: false, reason: 'Failed to check positions' };
@@ -179,11 +182,16 @@ export class AutoSignalExecutor extends EventEmitter {
     if (signal.direction === 'short') {
       if (existingPosition) {
         // Close the existing LONG position
-        console.log(`[AutoExecutor] SHORT signal for ${signal.marketId.substring(0, 12)}... - closing existing position`);
+        console.log(`[AutoExecutor] SHORT signal for ${signal.marketId.substring(0, 12)}... - closing existing position (token: ${existingPosition.token_id?.substring(0, 12)}...)`);
         return this.closePosition(existingPosition, signal);
       }
 
       // No existing position - open a "No" position (bet against the market)
+      // But first verify we have a valid No token
+      if (!signal.tokenId || signal.tokenId === 'undefined') {
+        return { executed: false, reason: 'No valid token_id for No position' };
+      }
+
       // Check max open positions first
       if (positions.length >= this.config.maxOpenPositions) {
         const reason = `Max open positions reached (${positions.length}/${this.config.maxOpenPositions})`;
@@ -338,18 +346,39 @@ export class AutoSignalExecutor extends EventEmitter {
         [orderValue + fee, fee]
       );
 
-      // Create position
-      await paperPositionsRepo.upsert({
-        market_id: signal.marketId,
-        token_id: signal.tokenId,
-        side: 'long',
-        size: shares,
-        avg_entry_price: signal.price,
-        current_price: signal.price,
-        unrealized_pnl: 0,
-        opened_at: new Date(),
-        signal_type: signal.signalId,
-      });
+      // Create position - CRITICAL: if this fails, we need to reverse the trade
+      try {
+        await paperPositionsRepo.upsert({
+          market_id: signal.marketId,
+          token_id: signal.tokenId,
+          side: 'long',
+          size: shares,
+          avg_entry_price: signal.price,
+          current_price: signal.price,
+          unrealized_pnl: 0,
+          opened_at: new Date(),
+          signal_type: signal.signalId,
+        });
+      } catch (positionError) {
+        // Position creation failed - reverse the account update and delete the trade
+        console.error('Position creation failed, reversing trade:', positionError);
+        try {
+          await query(
+            `UPDATE paper_account SET
+              current_capital = current_capital + $1,
+              available_capital = available_capital + $1,
+              total_fees_paid = total_fees_paid - $2,
+              total_trades = total_trades - 1,
+              updated_at = NOW()
+            WHERE id = 1`,
+            [orderValue + fee, fee]
+          );
+          await query('DELETE FROM paper_trades WHERE id = $1', [trade.id]);
+        } catch (reverseError) {
+          console.error('Failed to reverse trade after position error:', reverseError);
+        }
+        return { executed: false, reason: `Position creation failed: ${positionError}` };
+      }
 
       // Track the trade
       this.recentTrades.push({ marketId: signal.marketId, timestamp: Date.now() });

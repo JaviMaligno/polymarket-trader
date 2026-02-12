@@ -499,9 +499,16 @@ export class SignalEngine extends EventEmitter {
       : 1 - market.currentPrice;
 
     // Use the appropriate token ID
+    // For SHORT signals, we MUST have a valid No token - don't fallback to Yes
     const tokenId = direction === 'long'
       ? market.tokenIdYes
-      : (market.tokenIdNo || market.tokenIdYes); // Fallback if No token not available
+      : market.tokenIdNo;
+
+    // Skip signal if we don't have the required token
+    if (!tokenId) {
+      console.log(`[SignalEngine] Skipping ${direction.toUpperCase()} signal for ${output.marketId.substring(0, 12)}... - no valid token_id`);
+      return null;
+    }
 
     return {
       signalId: output.signalId,
