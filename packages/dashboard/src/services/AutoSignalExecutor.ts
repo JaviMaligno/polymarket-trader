@@ -447,12 +447,14 @@ export class AutoSignalExecutor extends EventEmitter {
       );
 
       // Close the position (mark as closed)
+      // Use position.token_id, not signal.tokenId - they may differ (Yes vs No token)
       await query(
         `UPDATE paper_positions SET
           closed_at = NOW(),
-          realized_pnl = $1
+          realized_pnl = $1,
+          size = 0
         WHERE market_id = $2 AND token_id = $3 AND closed_at IS NULL`,
-        [netPnl, signal.marketId, signal.tokenId]
+        [netPnl, signal.marketId, position.token_id]
       );
 
       // Track the trade
