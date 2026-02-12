@@ -36,36 +36,42 @@ async function check() {
   const account = await pool.query(`SELECT * FROM paper_account LIMIT 1`);
   if (account.rows.length > 0) {
     const a = account.rows[0];
+    const capital = parseFloat(a.current_capital);
+    const initial = parseFloat(a.initial_capital);
+    const pnlPct = ((capital / initial) - 1) * 100;
     console.log('\n=== CUENTA PAPER ===');
-    console.log('Balance:', '$' + parseFloat(a.balance).toFixed(2));
-    console.log('Equity:', '$' + parseFloat(a.equity).toFixed(2));
-    console.log('Trades totales:', a.total_trades);
-    const pnl = ((a.equity / 10000) - 1) * 100;
-    console.log('PnL total:', pnl.toFixed(2) + '%');
+    console.log('Capital:', '$' + capital.toFixed(2), '(inicial: $' + initial.toFixed(2) + ')');
+    console.log('Disponible:', '$' + parseFloat(a.available_capital).toFixed(2));
+    console.log('PnL realizado:', '$' + parseFloat(a.total_realized_pnl).toFixed(2));
+    console.log('PnL no realizado:', '$' + parseFloat(a.total_unrealized_pnl).toFixed(2));
+    console.log('Rentabilidad:', pnlPct.toFixed(2) + '%');
+    console.log('Max drawdown:', (parseFloat(a.max_drawdown) * 100).toFixed(2) + '%');
+    console.log('Trades:', a.total_trades, '| Wins:', a.winning_trades, '| Losses:', a.losing_trades);
   }
 
-  // Señales recientes
+  // Posiciones abiertas
+  const positions = await pool.query(`
+    SELECT COUNT(*) as count, SUM(size * avg_entry_price) as value
+    FROM paper_positions
+    WHERE size > 0
+  `);
+  console.log('\n=== POSICIONES ABIERTAS ===');
+  console.log('Cantidad:', positions.rows[0].count);
+  console.log('Valor:', '$' + parseFloat(positions.rows[0].value || 0).toFixed(2));
+
+  // Señales por tipo (últimos trades)
   const signals = await pool.query(`
     SELECT signal_type, COUNT(*) as count
-    FROM signal_history
-    WHERE time > NOW() - INTERVAL '1 hour'
+    FROM paper_trades
+    WHERE time > NOW() - INTERVAL '24 hours'
     GROUP BY signal_type
     ORDER BY count DESC
-    LIMIT 5
   `);
-  console.log('\n=== SEÑALES ÚLTIMA HORA ===');
+  console.log('\n=== SEÑALES USADAS (24h) ===');
   if (signals.rows.length === 0) {
-    console.log('(ninguna señal todavía)');
+    console.log('(ningún trade todavía)');
   } else {
-    console.table(signals.rows);
-  }
-
-  // Trading config actual
-  const config = await pool.query(`SELECT * FROM trading_config LIMIT 1`);
-  if (config.rows.length > 0) {
-    console.log('\n=== CONFIG TRADING ===');
-    console.log('Auto-trade:', config.rows[0].auto_trade_enabled);
-    console.log('Max position:', '$' + config.rows[0].max_position_size);
+    signals.rows.forEach(s => console.log(' ', s.signal_type || 'unknown', ':', s.count));
   }
 
   await pool.end();
