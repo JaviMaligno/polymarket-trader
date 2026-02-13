@@ -280,8 +280,12 @@ export class OptimizationScheduler {
 
     console.log(`[OptimizationScheduler] Created Optuna optimizer ${optimizerId}, running ${iterations} trials...`);
 
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period for honest validation)
+    const now = new Date();
+    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
+
+    console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${WALKFORWARD_CONFIG.trainingPeriodDays} days)`);
 
     try {
       for (let i = 0; i < iterations; i++) {
@@ -378,8 +382,10 @@ export class OptimizationScheduler {
   // ============================================================
   private async runGridOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
     const results: OptimizationResult[] = [];
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period)
+    const now = new Date();
+    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
 
     const paramCombos = type === 'incremental'
       ? this.generateIncrementalParams()
