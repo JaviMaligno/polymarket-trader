@@ -16,6 +16,7 @@ import { getBacktestService, BacktestService, type BacktestRequest } from './Bac
 import { getValidationService, type ValidationService } from './ValidationService.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { OptunaClient, type ParameterDef } from './OptunaClient.js';
+import { checkVMHealth, tryFreeMemory, logHealthStatus } from '../utils/vmHealth.js';
 
 // ============================================================
 // Legacy grid-search parameter ranges (fallback when no OPTIMIZER_URL)
@@ -34,23 +35,77 @@ const DEFAULT_BEST_PARAMS = {
 // Optuna 12-parameter space
 // ============================================================
 const OPTUNA_PARAM_SPACE: ParameterDef[] = [
-  // Combiner thresholds
-  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.1, high: 0.6 },
-  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.1, high: 0.6 },
+  // Combiner thresholds - MORE CONSERVATIVE
+  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
+  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
   { name: 'combiner.onlyDirection', type: 'categorical', choices: [null, 'LONG', 'SHORT'] },
-  { name: 'combiner.momentumWeight', type: 'float', low: 0.1, high: 2.0 },
-  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.1, high: 2.0 },
-  // Risk
-  { name: 'risk.maxPositionSizePct', type: 'float', low: 2.0, high: 20.0 },
-  { name: 'risk.maxPositions', type: 'int', low: 3, high: 20 },
-  { name: 'risk.stopLossPct', type: 'float', low: 5.0, high: 40.0 },
-  { name: 'risk.takeProfitPct', type: 'float', low: 10.0, high: 100.0 },
+  { name: 'combiner.momentumWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.2, high: 1.5 },
+  // Risk - slightly tighter
+  { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
+  { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
+  { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
+  { name: 'risk.takeProfitPct', type: 'float', low: 15.0, high: 80.0 },
   // Momentum signal
-  { name: 'momentum.rsiPeriod', type: 'int', low: 7, high: 21 },
+  { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
   // Mean reversion signal
   { name: 'meanReversion.bollingerPeriod', type: 'int', low: 15, high: 30 },
-  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 3.0 },
+  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
 ];
+
+/**
+ * Reduced parameter space for incremental refinement
+ * Only the 8 most impactful parameters
+ */
+const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
+  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
+  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
+  { name: 'combiner.momentumWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
+  { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
+  { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
+  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+];
+
+// ============================================================
+// Walk-forward validation configuration
+// ============================================================
+const WALKFORWARD_CONFIG = {
+  /** Total data period in days */
+  totalPeriodDays: 30,
+  /** Out-of-sample validation period in days */
+  oosPeriodDays: 7,
+  /** Training period in days (totalPeriodDays - oosPeriodDays) */
+  trainingPeriodDays: 23,
+  /** Minimum Sharpe ratio on OOS data to approve deployment */
+  minOOSSharpe: 0.3,
+  /** Maximum drawdown on OOS data */
+  maxOOSDrawdown: 0.20,
+  /** Minimum trades on OOS period */
+  minOOSTrades: 10,
+  /** Minimum win rate on OOS period */
+  minOOSWinRate: 0.40,
+};
+
+// Batch processing configuration for resource management
+const BATCH_CONFIG = {
+  /** Number of trials per batch */
+  batchSize: 5,
+  /** Delay between batches in ms */
+  batchDelayMs: 30000,
+  /** Pause duration when VM is under pressure */
+  healthPauseMs: 60000,
+};
+
+interface OOSValidationResult {
+  passed: boolean;
+  sharpeOOS: number;
+  drawdownOOS: number;
+  tradesOOS: number;
+  winRateOOS: number;
+  reason?: string;
+}
 
 interface OptimizationResult {
   params: Record<string, any>;
@@ -86,9 +141,9 @@ export class OptimizationScheduler {
 
   // Schedule configuration
   private incrementalIntervalHours = 6;
-  private fullIntervalHours = 24;
-  private incrementalIterations = 5;
-  private fullIterations = 10;
+  private fullIntervalHours = 168;  // Weekly instead of daily
+  private incrementalIterations = 15;  // 3x more for better local search
+  private fullIterations = 50;  // 5x more for proper exploration
   private backtestDelayMs = 5000;
 
   constructor(dashboardApiUrl: string = 'http://localhost:3001') {
@@ -162,8 +217,22 @@ export class OptimizationScheduler {
 
   private shouldRunFull(now: Date): boolean {
     if (!this.state.lastFullAt) return true;
+
     const hoursSince = (now.getTime() - this.state.lastFullAt.getTime()) / (1000 * 60 * 60);
-    return hoursSince >= this.fullIntervalHours;
+    if (hoursSince < this.fullIntervalHours) {
+      return false;
+    }
+
+    // Prefer nighttime (2-6 UTC) for full optimization to reduce load during active trading
+    const hour = now.getUTCHours();
+    const isNighttime = hour >= 2 && hour <= 6;
+
+    if (!isNighttime && hoursSince < this.fullIntervalHours + 12) {
+      // If not nighttime and we haven't waited too long, defer to nighttime
+      return false;
+    }
+
+    return true;
   }
 
   private async runIncrementalOptimization(): Promise<void> {
@@ -222,7 +291,9 @@ export class OptimizationScheduler {
   // ============================================================
   private async runOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
     if (this.optunaClient) {
-      return this.runOptunaOptimization(iterations, type);
+      // Use refinement space for incremental, full space for full optimization
+      const paramSpace = type === 'incremental' ? REFINEMENT_PARAM_SPACE : OPTUNA_PARAM_SPACE;
+      return this.runOptunaOptimization(iterations, type, paramSpace);
     }
     return this.runGridOptimization(iterations, type);
   }
@@ -230,7 +301,7 @@ export class OptimizationScheduler {
   // ============================================================
   // Optuna Bayesian optimization
   // ============================================================
-  private async runOptunaOptimization(iterations: number, type: string): Promise<OptimizationResult[]> {
+  private async runOptunaOptimization(iterations: number, type: string, paramSpace?: ParameterDef[]): Promise<OptimizationResult[]> {
     const client = this.optunaClient!;
     const results: OptimizationResult[] = [];
 
@@ -243,20 +314,45 @@ export class OptimizationScheduler {
     }
 
     // Create fresh optimizer for this run
+    const effectiveParamSpace = paramSpace ?? OPTUNA_PARAM_SPACE;
+    const nStartupTrials = Math.ceil(iterations * 0.3);  // 30% random exploration
+
     const optimizerId = await client.createOptimizer(
       `${type}-${new Date().toISOString().slice(0, 10)}`,
-      OPTUNA_PARAM_SPACE,
-      { sampler: 'tpe', nStartupTrials: Math.min(3, iterations) }
+      effectiveParamSpace,
+      { sampler: 'tpe', nStartupTrials }
     );
 
     console.log(`[OptimizationScheduler] Created Optuna optimizer ${optimizerId}, running ${iterations} trials...`);
+    console.log(`[OptimizationScheduler] Using ${effectiveParamSpace.length} parameters, ${nStartupTrials} startup trials`);
 
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period for honest validation)
+    const now = new Date();
+    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
+
+    console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${WALKFORWARD_CONFIG.trainingPeriodDays} days)`);
 
     try {
       for (let i = 0; i < iterations; i++) {
-        if (i > 0) {
+        // Health check at start of each batch
+        if (i % BATCH_CONFIG.batchSize === 0) {
+          const health = checkVMHealth();
+          logHealthStatus(health);
+
+          if (health.shouldPause) {
+            console.log(`[OptimizationScheduler] VM under pressure, pausing for ${BATCH_CONFIG.healthPauseMs / 1000}s...`);
+            tryFreeMemory();
+            await new Promise(r => setTimeout(r, BATCH_CONFIG.healthPauseMs));
+          } else if (i > 0) {
+            // Batch delay between batches (not before first)
+            console.log(`[OptimizationScheduler] Batch complete, waiting ${BATCH_CONFIG.batchDelayMs / 1000}s...`);
+            tryFreeMemory();
+            await new Promise(r => setTimeout(r, BATCH_CONFIG.batchDelayMs));
+          }
+        }
+
+        if (i > 0 && i % BATCH_CONFIG.batchSize !== 0) {
           await new Promise(r => setTimeout(r, this.backtestDelayMs));
         }
 
@@ -349,8 +445,10 @@ export class OptimizationScheduler {
   // ============================================================
   private async runGridOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
     const results: OptimizationResult[] = [];
-    const endDate = new Date();
-    const startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period)
+    const now = new Date();
+    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
 
     const paramCombos = type === 'incremental'
       ? this.generateIncrementalParams()
@@ -443,10 +541,101 @@ export class OptimizationScheduler {
   }
 
   // ============================================================
+  // Out-of-sample validation
+  // ============================================================
+  /**
+   * Validate parameters on out-of-sample data
+   */
+  private async validateOnOOS(params: Record<string, any>): Promise<OOSValidationResult> {
+    const now = new Date();
+    // OOS period: last 7 days (data NOT used in training)
+    const oosEndDate = now;
+    const oosStartDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+
+    console.log(`[OptimizationScheduler] Running OOS validation from ${oosStartDate.toISOString().slice(0,10)} to ${oosEndDate.toISOString().slice(0,10)}`);
+
+    try {
+      const request = this.optunaClient
+        ? this.mapOptunaParamsToRequest(params, oosStartDate, oosEndDate)
+        : {
+            startDate: oosStartDate.toISOString(),
+            endDate: oosEndDate.toISOString(),
+            initialCapital: 10000,
+            signalTypes: ['momentum', 'mean_reversion'],
+            riskConfig: { maxPositionSizePct: 10, maxExposurePct: 50 },
+            signalFilters: {
+              minStrength: params.minEdge ?? params['combiner.minCombinedStrength'] ?? 0.2,
+              minConfidence: params.minConfidence ?? params['combiner.minCombinedConfidence'] ?? 0.3,
+            },
+          };
+
+      const backtest = await this.backtestService.runBacktest(request);
+
+      if (!backtest.result || !backtest.result.metrics) {
+        return {
+          passed: false,
+          sharpeOOS: 0,
+          drawdownOOS: 1,
+          tradesOOS: 0,
+          winRateOOS: 0,
+          reason: 'Backtest failed to produce results',
+        };
+      }
+
+      const metrics = backtest.result.metrics;
+      const trades = backtest.result.trades?.length || 0;
+
+      const passed = (
+        metrics.sharpeRatio >= WALKFORWARD_CONFIG.minOOSSharpe &&
+        Math.abs(metrics.maxDrawdown) <= WALKFORWARD_CONFIG.maxOOSDrawdown &&
+        trades >= WALKFORWARD_CONFIG.minOOSTrades &&
+        metrics.winRate >= WALKFORWARD_CONFIG.minOOSWinRate
+      );
+
+      let reason: string | undefined;
+      if (!passed) {
+        const failures: string[] = [];
+        if (metrics.sharpeRatio < WALKFORWARD_CONFIG.minOOSSharpe) {
+          failures.push(`Sharpe ${metrics.sharpeRatio.toFixed(2)} < ${WALKFORWARD_CONFIG.minOOSSharpe}`);
+        }
+        if (Math.abs(metrics.maxDrawdown) > WALKFORWARD_CONFIG.maxOOSDrawdown) {
+          failures.push(`Drawdown ${(Math.abs(metrics.maxDrawdown) * 100).toFixed(1)}% > ${WALKFORWARD_CONFIG.maxOOSDrawdown * 100}%`);
+        }
+        if (trades < WALKFORWARD_CONFIG.minOOSTrades) {
+          failures.push(`Trades ${trades} < ${WALKFORWARD_CONFIG.minOOSTrades}`);
+        }
+        if (metrics.winRate < WALKFORWARD_CONFIG.minOOSWinRate) {
+          failures.push(`WinRate ${(metrics.winRate * 100).toFixed(1)}% < ${WALKFORWARD_CONFIG.minOOSWinRate * 100}%`);
+        }
+        reason = failures.join(', ');
+      }
+
+      return {
+        passed,
+        sharpeOOS: metrics.sharpeRatio,
+        drawdownOOS: metrics.maxDrawdown,
+        tradesOOS: trades,
+        winRateOOS: metrics.winRate,
+        reason,
+      };
+    } catch (error) {
+      console.error('[OptimizationScheduler] OOS validation failed:', error);
+      return {
+        passed: false,
+        sharpeOOS: 0,
+        drawdownOOS: 1,
+        tradesOOS: 0,
+        winRateOOS: 0,
+        reason: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+  }
+
+  // ============================================================
   // Strategy update
   // ============================================================
   private async updateStrategy(result: OptimizationResult): Promise<void> {
-    // Sanity checks
+    // Basic sanity checks
     if (result.sharpe > 8) {
       console.log(`[OptimizationScheduler] Extremely high Sharpe ${result.sharpe.toFixed(2)}, proceeding with caution`);
     }
@@ -458,6 +647,17 @@ export class OptimizationScheduler {
       return;
     }
 
+    // OOS Validation Gate
+    console.log('[OptimizationScheduler] Running OOS validation before deployment...');
+    const oosResult = await this.validateOnOOS(result.params);
+
+    if (!oosResult.passed) {
+      console.log(`[OptimizationScheduler] OOS validation FAILED: ${oosResult.reason}`);
+      console.log(`[OptimizationScheduler] OOS metrics: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, DD=${(oosResult.drawdownOOS * 100).toFixed(1)}%, Trades=${oosResult.tradesOOS}, WR=${(oosResult.winRateOOS * 100).toFixed(1)}%`);
+      return;
+    }
+
+    console.log(`[OptimizationScheduler] OOS validation PASSED: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, Trades=${oosResult.tradesOOS}`);
     console.log('[OptimizationScheduler] Deploying optimized strategy...');
 
     // Update local state
