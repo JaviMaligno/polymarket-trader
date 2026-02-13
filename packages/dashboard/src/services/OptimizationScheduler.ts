@@ -115,9 +115,9 @@ export class OptimizationScheduler {
 
   // Schedule configuration
   private incrementalIntervalHours = 6;
-  private fullIntervalHours = 24;
-  private incrementalIterations = 5;
-  private fullIterations = 10;
+  private fullIntervalHours = 168;  // Weekly instead of daily
+  private incrementalIterations = 15;  // 3x more for better local search
+  private fullIterations = 50;  // 5x more for proper exploration
   private backtestDelayMs = 5000;
 
   constructor(dashboardApiUrl: string = 'http://localhost:3001') {
