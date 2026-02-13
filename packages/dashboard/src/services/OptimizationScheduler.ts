@@ -34,22 +34,22 @@ const DEFAULT_BEST_PARAMS = {
 // Optuna 12-parameter space
 // ============================================================
 const OPTUNA_PARAM_SPACE: ParameterDef[] = [
-  // Combiner thresholds
-  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.1, high: 0.6 },
-  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.1, high: 0.6 },
+  // Combiner thresholds - MORE CONSERVATIVE
+  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
+  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
   { name: 'combiner.onlyDirection', type: 'categorical', choices: [null, 'LONG', 'SHORT'] },
-  { name: 'combiner.momentumWeight', type: 'float', low: 0.1, high: 2.0 },
-  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.1, high: 2.0 },
-  // Risk
-  { name: 'risk.maxPositionSizePct', type: 'float', low: 2.0, high: 20.0 },
-  { name: 'risk.maxPositions', type: 'int', low: 3, high: 20 },
-  { name: 'risk.stopLossPct', type: 'float', low: 5.0, high: 40.0 },
-  { name: 'risk.takeProfitPct', type: 'float', low: 10.0, high: 100.0 },
+  { name: 'combiner.momentumWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.2, high: 1.5 },
+  // Risk - slightly tighter
+  { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
+  { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
+  { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
+  { name: 'risk.takeProfitPct', type: 'float', low: 15.0, high: 80.0 },
   // Momentum signal
-  { name: 'momentum.rsiPeriod', type: 'int', low: 7, high: 21 },
+  { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
   // Mean reversion signal
   { name: 'meanReversion.bollingerPeriod', type: 'int', low: 15, high: 30 },
-  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 3.0 },
+  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
 ];
 
 interface OptimizationResult {
