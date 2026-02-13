@@ -217,8 +217,22 @@ export class OptimizationScheduler {
 
   private shouldRunFull(now: Date): boolean {
     if (!this.state.lastFullAt) return true;
+
     const hoursSince = (now.getTime() - this.state.lastFullAt.getTime()) / (1000 * 60 * 60);
-    return hoursSince >= this.fullIntervalHours;
+    if (hoursSince < this.fullIntervalHours) {
+      return false;
+    }
+
+    // Prefer nighttime (2-6 UTC) for full optimization to reduce load during active trading
+    const hour = now.getUTCHours();
+    const isNighttime = hour >= 2 && hour <= 6;
+
+    if (!isNighttime && hoursSince < this.fullIntervalHours + 12) {
+      // If not nighttime and we haven't waited too long, defer to nighttime
+      return false;
+    }
+
+    return true;
   }
 
   private async runIncrementalOptimization(): Promise<void> {
