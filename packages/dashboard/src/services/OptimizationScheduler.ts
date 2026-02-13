@@ -566,7 +566,7 @@ export class OptimizationScheduler {
   // Strategy update
   // ============================================================
   private async updateStrategy(result: OptimizationResult): Promise<void> {
-    // Sanity checks
+    // Basic sanity checks
     if (result.sharpe > 8) {
       console.log(`[OptimizationScheduler] Extremely high Sharpe ${result.sharpe.toFixed(2)}, proceeding with caution`);
     }
@@ -578,6 +578,17 @@ export class OptimizationScheduler {
       return;
     }
 
+    // OOS Validation Gate
+    console.log('[OptimizationScheduler] Running OOS validation before deployment...');
+    const oosResult = await this.validateOnOOS(result.params);
+
+    if (!oosResult.passed) {
+      console.log(`[OptimizationScheduler] OOS validation FAILED: ${oosResult.reason}`);
+      console.log(`[OptimizationScheduler] OOS metrics: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, DD=${(oosResult.drawdownOOS * 100).toFixed(1)}%, Trades=${oosResult.tradesOOS}, WR=${(oosResult.winRateOOS * 100).toFixed(1)}%`);
+      return;
+    }
+
+    console.log(`[OptimizationScheduler] OOS validation PASSED: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, Trades=${oosResult.tradesOOS}`);
     console.log('[OptimizationScheduler] Deploying optimized strategy...');
 
     // Update local state
