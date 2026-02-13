@@ -52,6 +52,21 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
 ];
 
+/**
+ * Reduced parameter space for incremental refinement
+ * Only the 8 most impactful parameters
+ */
+const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
+  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
+  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
+  { name: 'combiner.momentumWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
+  { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
+  { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
+  { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+];
+
 // ============================================================
 // Walk-forward validation configuration
 // ============================================================
