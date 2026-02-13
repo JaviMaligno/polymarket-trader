@@ -266,7 +266,9 @@ export class OptimizationScheduler {
   // ============================================================
   private async runOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
     if (this.optunaClient) {
-      return this.runOptunaOptimization(iterations, type);
+      // Use refinement space for incremental, full space for full optimization
+      const paramSpace = type === 'incremental' ? REFINEMENT_PARAM_SPACE : OPTUNA_PARAM_SPACE;
+      return this.runOptunaOptimization(iterations, type, paramSpace);
     }
     return this.runGridOptimization(iterations, type);
   }
@@ -274,7 +276,7 @@ export class OptimizationScheduler {
   // ============================================================
   // Optuna Bayesian optimization
   // ============================================================
-  private async runOptunaOptimization(iterations: number, type: string): Promise<OptimizationResult[]> {
+  private async runOptunaOptimization(iterations: number, type: string, paramSpace?: ParameterDef[]): Promise<OptimizationResult[]> {
     const client = this.optunaClient!;
     const results: OptimizationResult[] = [];
 
@@ -287,13 +289,17 @@ export class OptimizationScheduler {
     }
 
     // Create fresh optimizer for this run
+    const effectiveParamSpace = paramSpace ?? OPTUNA_PARAM_SPACE;
+    const nStartupTrials = Math.ceil(iterations * 0.3);  // 30% random exploration
+
     const optimizerId = await client.createOptimizer(
       `${type}-${new Date().toISOString().slice(0, 10)}`,
-      OPTUNA_PARAM_SPACE,
-      { sampler: 'tpe', nStartupTrials: Math.min(3, iterations) }
+      effectiveParamSpace,
+      { sampler: 'tpe', nStartupTrials }
     );
 
     console.log(`[OptimizationScheduler] Created Optuna optimizer ${optimizerId}, running ${iterations} trials...`);
+    console.log(`[OptimizationScheduler] Using ${effectiveParamSpace.length} parameters, ${nStartupTrials} startup trials`);
 
     // Use training period only (exclude OOS period for honest validation)
     const now = new Date();
