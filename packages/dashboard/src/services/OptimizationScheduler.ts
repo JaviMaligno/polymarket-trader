@@ -16,6 +16,7 @@ import { getBacktestService, BacktestService, type BacktestRequest } from './Bac
 import { getValidationService, type ValidationService } from './ValidationService.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { OptunaClient, type ParameterDef } from './OptunaClient.js';
+import { checkVMHealth, tryFreeMemory, logHealthStatus } from '../utils/vmHealth.js';
 
 // ============================================================
 // Legacy grid-search parameter ranges (fallback when no OPTIMIZER_URL)
@@ -85,6 +86,16 @@ const WALKFORWARD_CONFIG = {
   minOOSTrades: 10,
   /** Minimum win rate on OOS period */
   minOOSWinRate: 0.40,
+};
+
+// Batch processing configuration for resource management
+const BATCH_CONFIG = {
+  /** Number of trials per batch */
+  batchSize: 5,
+  /** Delay between batches in ms */
+  batchDelayMs: 30000,
+  /** Pause duration when VM is under pressure */
+  healthPauseMs: 60000,
 };
 
 interface OOSValidationResult {
@@ -310,7 +321,24 @@ export class OptimizationScheduler {
 
     try {
       for (let i = 0; i < iterations; i++) {
-        if (i > 0) {
+        // Health check at start of each batch
+        if (i % BATCH_CONFIG.batchSize === 0) {
+          const health = checkVMHealth();
+          logHealthStatus(health);
+
+          if (health.shouldPause) {
+            console.log(`[OptimizationScheduler] VM under pressure, pausing for ${BATCH_CONFIG.healthPauseMs / 1000}s...`);
+            tryFreeMemory();
+            await new Promise(r => setTimeout(r, BATCH_CONFIG.healthPauseMs));
+          } else if (i > 0) {
+            // Batch delay between batches (not before first)
+            console.log(`[OptimizationScheduler] Batch complete, waiting ${BATCH_CONFIG.batchDelayMs / 1000}s...`);
+            tryFreeMemory();
+            await new Promise(r => setTimeout(r, BATCH_CONFIG.batchDelayMs));
+          }
+        }
+
+        if (i > 0 && i % BATCH_CONFIG.batchSize !== 0) {
           await new Promise(r => setTimeout(r, this.backtestDelayMs));
         }
 
