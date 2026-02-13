@@ -72,6 +72,15 @@ const WALKFORWARD_CONFIG = {
   minOOSWinRate: 0.40,
 };
 
+interface OOSValidationResult {
+  passed: boolean;
+  sharpeOOS: number;
+  drawdownOOS: number;
+  tradesOOS: number;
+  winRateOOS: number;
+  reason?: string;
+}
+
 interface OptimizationResult {
   params: Record<string, any>;
   sharpe: number;
@@ -460,6 +469,97 @@ export class OptimizationScheduler {
     }
 
     return combos;
+  }
+
+  // ============================================================
+  // Out-of-sample validation
+  // ============================================================
+  /**
+   * Validate parameters on out-of-sample data
+   */
+  private async validateOnOOS(params: Record<string, any>): Promise<OOSValidationResult> {
+    const now = new Date();
+    // OOS period: last 7 days (data NOT used in training)
+    const oosEndDate = now;
+    const oosStartDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+
+    console.log(`[OptimizationScheduler] Running OOS validation from ${oosStartDate.toISOString().slice(0,10)} to ${oosEndDate.toISOString().slice(0,10)}`);
+
+    try {
+      const request = this.optunaClient
+        ? this.mapOptunaParamsToRequest(params, oosStartDate, oosEndDate)
+        : {
+            startDate: oosStartDate.toISOString(),
+            endDate: oosEndDate.toISOString(),
+            initialCapital: 10000,
+            signalTypes: ['momentum', 'mean_reversion'],
+            riskConfig: { maxPositionSizePct: 10, maxExposurePct: 50 },
+            signalFilters: {
+              minStrength: params.minEdge ?? params['combiner.minCombinedStrength'] ?? 0.2,
+              minConfidence: params.minConfidence ?? params['combiner.minCombinedConfidence'] ?? 0.3,
+            },
+          };
+
+      const backtest = await this.backtestService.runBacktest(request);
+
+      if (!backtest.result || !backtest.result.metrics) {
+        return {
+          passed: false,
+          sharpeOOS: 0,
+          drawdownOOS: 1,
+          tradesOOS: 0,
+          winRateOOS: 0,
+          reason: 'Backtest failed to produce results',
+        };
+      }
+
+      const metrics = backtest.result.metrics;
+      const trades = backtest.result.trades?.length || 0;
+
+      const passed = (
+        metrics.sharpeRatio >= WALKFORWARD_CONFIG.minOOSSharpe &&
+        Math.abs(metrics.maxDrawdown) <= WALKFORWARD_CONFIG.maxOOSDrawdown &&
+        trades >= WALKFORWARD_CONFIG.minOOSTrades &&
+        metrics.winRate >= WALKFORWARD_CONFIG.minOOSWinRate
+      );
+
+      let reason: string | undefined;
+      if (!passed) {
+        const failures: string[] = [];
+        if (metrics.sharpeRatio < WALKFORWARD_CONFIG.minOOSSharpe) {
+          failures.push(`Sharpe ${metrics.sharpeRatio.toFixed(2)} < ${WALKFORWARD_CONFIG.minOOSSharpe}`);
+        }
+        if (Math.abs(metrics.maxDrawdown) > WALKFORWARD_CONFIG.maxOOSDrawdown) {
+          failures.push(`Drawdown ${(Math.abs(metrics.maxDrawdown) * 100).toFixed(1)}% > ${WALKFORWARD_CONFIG.maxOOSDrawdown * 100}%`);
+        }
+        if (trades < WALKFORWARD_CONFIG.minOOSTrades) {
+          failures.push(`Trades ${trades} < ${WALKFORWARD_CONFIG.minOOSTrades}`);
+        }
+        if (metrics.winRate < WALKFORWARD_CONFIG.minOOSWinRate) {
+          failures.push(`WinRate ${(metrics.winRate * 100).toFixed(1)}% < ${WALKFORWARD_CONFIG.minOOSWinRate * 100}%`);
+        }
+        reason = failures.join(', ');
+      }
+
+      return {
+        passed,
+        sharpeOOS: metrics.sharpeRatio,
+        drawdownOOS: metrics.maxDrawdown,
+        tradesOOS: trades,
+        winRateOOS: metrics.winRate,
+        reason,
+      };
+    } catch (error) {
+      console.error('[OptimizationScheduler] OOS validation failed:', error);
+      return {
+        passed: false,
+        sharpeOOS: 0,
+        drawdownOOS: 1,
+        tradesOOS: 0,
+        winRateOOS: 0,
+        reason: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 
   // ============================================================
