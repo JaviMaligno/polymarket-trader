@@ -52,6 +52,26 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
 ];
 
+// ============================================================
+// Walk-forward validation configuration
+// ============================================================
+const WALKFORWARD_CONFIG = {
+  /** Total data period in days */
+  totalPeriodDays: 30,
+  /** Out-of-sample validation period in days */
+  oosPeriodDays: 7,
+  /** Training period in days (totalPeriodDays - oosPeriodDays) */
+  trainingPeriodDays: 23,
+  /** Minimum Sharpe ratio on OOS data to approve deployment */
+  minOOSSharpe: 0.3,
+  /** Maximum drawdown on OOS data */
+  maxOOSDrawdown: 0.20,
+  /** Minimum trades on OOS period */
+  minOOSTrades: 10,
+  /** Minimum win rate on OOS period */
+  minOOSWinRate: 0.40,
+};
+
 interface OptimizationResult {
   params: Record<string, any>;
   sharpe: number;
