@@ -243,11 +243,12 @@ export function getDefaultObjectiveConfig(): ObjectiveConfig {
     name: 'composite',
     compositeWeights: DEFAULT_COMPOSITE_WEIGHTS,
     constraints: {
-      maxDrawdown: 0.25,
-      minWinRate: 0.40,
+      maxDrawdown: 0.20,    // Stricter: was 0.25
+      minWinRate: 0.45,     // Stricter: was 0.40
+      minProfitFactor: 1.1, // NEW: require profitable
     },
-    minTrades: 10,
-    maxAllowedDrawdown: 0.5,
+    minTrades: 15,          // Stricter: was 10
+    maxAllowedDrawdown: 0.35, // Stricter: was 0.5
   };
 }
 
