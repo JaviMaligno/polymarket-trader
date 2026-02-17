@@ -5,7 +5,7 @@
  * Listens to trading events and saves trades, positions, and snapshots.
  */
 
-import { isDatabaseConfigured } from '../database/index.js';
+import { isDatabaseConfigured, query } from '../database/index.js';
 import {
   paperTradesRepo,
   paperPositionsRepo,
@@ -174,10 +174,11 @@ export class PaperTradingService {
 
   /**
    * Record a portfolio snapshot
+   * Uses database account state for accuracy (not in-memory engine state)
    */
   async recordSnapshot(
-    portfolioState: PortfolioState,
-    stats?: {
+    _portfolioState: PortfolioState,
+    _stats?: {
       totalTrades?: number;
       winningTrades?: number;
       losingTrades?: number;
@@ -187,41 +188,74 @@ export class PaperTradingService {
     if (!isDatabaseConfigured()) return;
 
     try {
-      const totalPnl = portfolioState.equity - this.initialCapital;
-      const totalPnlPct = (totalPnl / this.initialCapital) * 100;
+      // Fetch actual account state from database (not in-memory engine)
+      const accountResult = await query<{
+        initial_capital: string;
+        current_capital: string;
+        available_capital: string;
+        total_realized_pnl: string;
+        total_trades: number;
+        winning_trades: number;
+        losing_trades: number;
+        max_drawdown: string;
+        peak_equity: string;
+      }>('SELECT * FROM paper_account LIMIT 1');
+
+      if (accountResult.rows.length === 0) {
+        console.warn('No paper account found for snapshot');
+        return;
+      }
+
+      const account = accountResult.rows[0];
+      const initialCapital = parseFloat(account.initial_capital);
+      const currentCapital = parseFloat(account.current_capital);
+      const availableCapital = parseFloat(account.available_capital);
+      const peakEquity = parseFloat(account.peak_equity || String(currentCapital));
+
+      // Get open positions from database
+      const positionsResult = await query<{ count: string; total_exposure: string }>(
+        `SELECT COUNT(*) as count, COALESCE(SUM(size * avg_entry_price), 0) as total_exposure
+         FROM paper_positions WHERE closed_at IS NULL`
+      );
+      const openPositions = parseInt(positionsResult.rows[0]?.count || '0');
+      const totalExposure = parseFloat(positionsResult.rows[0]?.total_exposure || '0');
+
+      // Calculate equity (capital + position value)
+      const equity = currentCapital + totalExposure;
+      const totalPnl = equity - initialCapital;
+      const totalPnlPct = initialCapital > 0 ? (totalPnl / initialCapital) * 100 : 0;
 
       // Calculate drawdown from peak
-      const peakEquity = this.lastSnapshot
-        ? Math.max(this.lastSnapshot.current_capital, portfolioState.equity)
-        : portfolioState.equity;
-      const currentDrawdown =
-        peakEquity > 0 ? ((peakEquity - portfolioState.equity) / peakEquity) * 100 : 0;
+      const actualPeak = Math.max(peakEquity, equity);
+      const currentDrawdown = actualPeak > 0 ? ((actualPeak - equity) / actualPeak) * 100 : 0;
 
       const snapshot: PortfolioSnapshot = {
         time: new Date(),
-        initial_capital: this.initialCapital,
-        current_capital: portfolioState.equity,
-        available_capital: portfolioState.cash,
+        initial_capital: initialCapital,
+        current_capital: equity,
+        available_capital: availableCapital,
         total_pnl: totalPnl,
         total_pnl_pct: totalPnlPct,
-        max_drawdown: stats?.maxDrawdown ?? currentDrawdown,
+        max_drawdown: parseFloat(account.max_drawdown || '0'),
         current_drawdown: currentDrawdown,
-        total_trades: stats?.totalTrades ?? 0,
-        winning_trades: stats?.winningTrades ?? 0,
-        losing_trades: stats?.losingTrades ?? 0,
+        total_trades: account.total_trades || 0,
+        winning_trades: account.winning_trades || 0,
+        losing_trades: account.losing_trades || 0,
         win_rate:
-          stats?.totalTrades && stats.totalTrades > 0
-            ? ((stats.winningTrades ?? 0) / stats.totalTrades) * 100
+          account.total_trades > 0
+            ? (account.winning_trades / account.total_trades) * 100
             : undefined,
-        open_positions: portfolioState.positions.length,
-        total_exposure: portfolioState.positions.reduce(
-          (sum, p) => sum + p.size * p.currentPrice,
-          0
-        ),
+        open_positions: openPositions,
+        total_exposure: totalExposure,
       };
 
       await portfolioSnapshotsRepo.create(snapshot);
       this.lastSnapshot = snapshot;
+
+      // Update peak equity in account if current equity is higher
+      if (equity > peakEquity) {
+        await query('UPDATE paper_account SET peak_equity = $1 WHERE id = 1', [equity]);
+      }
     } catch (error) {
       console.error('Failed to record portfolio snapshot:', error);
     }
