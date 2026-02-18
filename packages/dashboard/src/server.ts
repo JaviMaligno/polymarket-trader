@@ -15,6 +15,7 @@ import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
 import { initializePositionCleanupService } from './services/PositionCleanupService.js';
+import { initializeStopLossService } from './services/StopLossService.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -201,6 +202,17 @@ async function main(): Promise<void> {
       });
       await cleanupService.start();
       console.log('PositionCleanupService started');
+
+      // Start StopLossService to auto-close positions on stop-loss/take-profit
+      const stopLossService = initializeStopLossService({
+        enabled: true,
+        checkIntervalMs: 30 * 1000,        // Check every 30 seconds
+        defaultStopLossPct: parseFloat(process.env.STOP_LOSS_PCT || '15'),   // 15% stop loss
+        defaultTakeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || '40'), // 40% take profit
+        useTrailingStop: false,
+      });
+      await stopLossService.start();
+      console.log('StopLossService started');
     }, 10000); // 10 second delay to let server fully initialize
   }
 
