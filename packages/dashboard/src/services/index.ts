@@ -16,3 +16,4 @@ export * from './BacktestService.js';
 export * from './AutoInitService.js';
 export * from './OptimizationScheduler.js';
 export * from './ValidationService.js';
+export * from './PositionCleanupService.js';

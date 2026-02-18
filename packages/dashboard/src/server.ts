@@ -14,6 +14,7 @@ import { initializePaperTradingService } from './services/PaperTradingService.js
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
+import { initializePositionCleanupService } from './services/PositionCleanupService.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -190,6 +191,16 @@ async function main(): Promise<void> {
       const automation = getTradingAutomation();
       await automation.start();
       console.log('TradingAutomation started');
+
+      // Start PositionCleanupService to auto-close positions in inactive/resolved markets
+      const cleanupService = initializePositionCleanupService({
+        enabled: true,
+        checkIntervalMs: 30 * 60 * 1000,  // Check every 30 minutes
+        closeInactiveMarkets: true,
+        closeResolvedMarkets: true,
+      });
+      await cleanupService.start();
+      console.log('PositionCleanupService started');
     }, 10000); // 10 second delay to let server fully initialize
   }
 
