@@ -135,7 +135,7 @@ services:
       STOP_LOSS_PCT: "20"
       TAKE_PROFIT_PCT: "40"
       # Executor limits
-      EXECUTOR_MAX_DAILY_TRADES: "200"
+      EXECUTOR_MAX_DAILY_TRADES: "10000"
     ports:
       - "3001:3001"
     healthcheck:
