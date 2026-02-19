@@ -132,7 +132,7 @@ services:
       TRAILING_STOP_PCT: "0.15"
       HARD_STOP_PCT: "0.25"
       # Stop Loss Service
-      STOP_LOSS_PCT: "15"
+      STOP_LOSS_PCT: "20"
       TAKE_PROFIT_PCT: "40"
     ports:
       - "3001:3001"

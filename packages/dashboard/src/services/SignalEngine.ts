@@ -59,6 +59,8 @@ interface ActiveMarket {
   tokenIdNo?: string;
   currentPrice: number;
   volume24h?: number;
+  isActive?: boolean;    // Market is still active for trading
+  isResolved?: boolean;  // Market has been resolved
 }
 
 export class SignalEngine extends EventEmitter {
@@ -240,26 +242,43 @@ export class SignalEngine extends EventEmitter {
 
   /**
    * Set active markets to compute signals for
-   * Filters out markets with extreme prices (no profitable trades possible)
+   * Filters out inactive, resolved, and extreme-priced markets
    */
   setActiveMarkets(markets: ActiveMarket[]): void {
-    // Filter out markets with extreme prices where there's no profitable trade opportunity
-    // - Price < 5%: Market is heavily bearish, buying No at 95%+ has <5% max ROI
-    // - Price > 95%: Market is heavily bullish, buying Yes at 95%+ has <5% max ROI
     const MIN_PRICE = 0.05;
     const MAX_PRICE = 0.95;
 
+    let inactiveCount = 0;
+    let resolvedCount = 0;
+    let extremePriceCount = 0;
+
     const filtered = markets.filter(m => {
-      const price = m.currentPrice;
-      if (price < MIN_PRICE || price > MAX_PRICE) {
+      // Filter 1: Skip inactive markets
+      if (m.isActive === false) {
+        inactiveCount++;
         return false;
       }
+
+      // Filter 2: Skip resolved markets
+      if (m.isResolved === true) {
+        resolvedCount++;
+        return false;
+      }
+
+      // Filter 3: Skip extreme prices (no profitable trade opportunity)
+      const price = m.currentPrice;
+      if (price < MIN_PRICE || price > MAX_PRICE) {
+        extremePriceCount++;
+        return false;
+      }
+
       return true;
     });
 
-    const excluded = markets.length - filtered.length;
-    if (excluded > 0) {
-      console.log(`[SignalEngine] Filtered ${excluded} markets with extreme prices (<${MIN_PRICE * 100}% or >${MAX_PRICE * 100}%)`);
+    // Log filtering summary
+    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount;
+    if (totalExcluded > 0) {
+      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices`);
     }
 
     this.activeMarkets = filtered;
@@ -408,8 +427,8 @@ export class SignalEngine extends EventEmitter {
       const marketInfo: MarketInfo = {
         id: market.id,
         question: market.question,
-        isActive: true,
-        isResolved: false,
+        isActive: market.isActive ?? true,
+        isResolved: market.isResolved ?? false,
         tokenIdYes: market.tokenIdYes,
         tokenIdNo: market.tokenIdNo,
         currentPriceYes: market.currentPrice,
@@ -455,8 +474,8 @@ export class SignalEngine extends EventEmitter {
     const marketInfo: MarketInfo = {
       id: market.id,
       question: market.question,
-      isActive: true,
-      isResolved: false,
+      isActive: market.isActive ?? true,
+      isResolved: market.isResolved ?? false,
       tokenIdYes: market.tokenIdYes,
       tokenIdNo: market.tokenIdNo,
       currentPriceYes: market.currentPrice,

@@ -115,6 +115,32 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Database not configured' };
     }
 
+    // 0. CRITICAL: Verify market is active in database (defense in depth)
+    try {
+      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean }>(
+        `SELECT is_active, is_resolved FROM markets WHERE id = $1`,
+        [signal.marketId]
+      );
+
+      if (marketCheck.rows.length === 0) {
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market not found in database`);
+        return { executed: false, reason: 'Market not found in database' };
+      }
+
+      const market = marketCheck.rows[0];
+      if (market.is_active === false) {
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market is inactive`);
+        return { executed: false, reason: 'Market is inactive' };
+      }
+      if (market.is_resolved === true) {
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market is resolved`);
+        return { executed: false, reason: 'Market is already resolved' };
+      }
+    } catch (error) {
+      console.error('[AutoExecutor] Failed to verify market status:', error);
+      return { executed: false, reason: 'Cannot verify market status - rejecting for safety' };
+    }
+
     // Reset daily counter if new day
     this.checkDayReset();
 

@@ -673,6 +673,8 @@ export class PolymarketService extends EventEmitter {
           tokenIdNo: m.tokenIds[1],
           currentPrice: m.outcomePrices[0],
           volume24h: m.volume,
+          isActive: m.isActive,
+          isResolved: false, // If we're fetching it, it's not resolved yet
         }));
 
       engine.setActiveMarkets(activeMarkets);
