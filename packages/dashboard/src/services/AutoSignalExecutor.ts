@@ -116,14 +116,18 @@ export class AutoSignalExecutor extends EventEmitter {
     }
 
     // 0. CRITICAL: Verify market is active in database (defense in depth)
+    // NOTE: signal.marketId may be either:
+    //   - Gamma API's market.id (stored as 'id' in DB)
+    //   - CLOB API's condition_id (stored as 'condition_id' in DB)
+    // We search by BOTH to handle signals from PolymarketService (uses condition_id)
     try {
       const marketCheck = await query<{ is_active: boolean; is_resolved: boolean }>(
-        `SELECT is_active, is_resolved FROM markets WHERE id = $1`,
+        `SELECT is_active, is_resolved FROM markets WHERE id = $1 OR condition_id = $1`,
         [signal.marketId]
       );
 
       if (marketCheck.rows.length === 0) {
-        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market not found in database`);
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market not found in database (checked id and condition_id)`);
         return { executed: false, reason: 'Market not found in database' };
       }
 

@@ -394,16 +394,20 @@ export class SignalEngine extends EventEmitter {
 
     try {
       // Get price history from database
+      // NOTE: market.id from PolymarketService is the condition_id from CLOB API,
+      // but price_history.market_id uses Gamma's market.id
+      // We JOIN with markets table to find prices by either id or condition_id
       const priceHistory = await query<{
         time: Date;
         close: number;
         bid: number;
         ask: number;
       }>(
-        `SELECT time, close, bid, ask
-         FROM price_history
-         WHERE market_id = $1
-         ORDER BY time DESC
+        `SELECT ph.time, ph.close, ph.bid, ph.ask
+         FROM price_history ph
+         JOIN markets m ON ph.market_id = m.id
+         WHERE m.id = $1 OR m.condition_id = $1
+         ORDER BY ph.time DESC
          LIMIT 100`,
         [market.id]
       );

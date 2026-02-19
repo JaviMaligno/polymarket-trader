@@ -140,7 +140,7 @@ export class PositionCleanupService extends EventEmitter {
           m.current_price_yes,
           m.current_price_no
         FROM paper_positions pp
-        LEFT JOIN markets m ON pp.market_id = m.id
+        LEFT JOIN markets m ON pp.market_id = m.id OR pp.market_id = m.condition_id
         WHERE pp.closed_at IS NULL
       `);
 
