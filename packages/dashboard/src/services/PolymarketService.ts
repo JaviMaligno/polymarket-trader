@@ -397,83 +397,75 @@ export class PolymarketService extends EventEmitter {
 
   /**
    * Discover active markets with good volume
-   * Fetches more markets than needed and applies diversified selection
+   * Fetches from DATABASE (synced by data-collector) for consistency
+   * This ensures markets exist in DB for signal execution
    */
   async discoverMarkets(): Promise<PolymarketMarket[]> {
-    console.log('[PolymarketService] Discovering markets...');
+    console.log('[PolymarketService] Discovering markets from database...');
 
     try {
-      // Apply any current backoff before making request
-      const backoff = this.calculateBackoff();
-      if (backoff > 0) {
-        console.log(`[PolymarketService] Applying backoff: ${backoff}ms before discovery`);
-        await this.sleep(backoff);
-      }
-
-      // Fetch more markets than we need for diversified selection
-      const response = await fetch(
-        `${this.config.apiUrl}/markets?active=true&closed=false&limit=${this.config.marketsToFetch}`
-      );
-
-      // Handle rate limiting (429)
-      if (response.status === 429) {
-        this.consecutiveErrors++;
-        const waitTime = this.calculateBackoff();
-        console.warn(`[PolymarketService] Rate limited (429) during discovery, will retry in ${waitTime / 1000}s`);
-        await this.sleep(waitTime);
-        // Return empty array, will retry on next interval
-        return [];
-      }
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-
-      // Reset consecutive errors on success
-      this.consecutiveErrors = 0;
-
-      const data = await response.json() as ClobMarketsResponse;
-      const marketsData = Array.isArray(data) ? data : (data.data || []);
-      const candidateMarkets: PolymarketMarket[] = [];
-
-      // First pass: filter and categorize all markets
+      // Fetch markets from database (synced by data-collector from Gamma API)
+      // Use the market's id (Gamma ID) as the primary identifier for consistency
       const MIN_PRICE = 0.05;
       const MAX_PRICE = 0.95;
 
-      for (const m of marketsData) {
-        // Filter by volume and liquidity
-        if (m.volume < this.config.minVolume24h) continue;
-        if (m.liquidity < this.config.minLiquidity) continue;
+      const marketsResult = await query<{
+        id: string;
+        condition_id: string;
+        question: string;
+        category: string;
+        clob_token_id_yes: string;
+        clob_token_id_no: string;
+        current_price_yes: string;
+        current_price_no: string;
+        volume_24h: string;
+        liquidity: string;
+        end_date: Date;
+        is_active: boolean;
+      }>(`
+        SELECT
+          id, condition_id, question, category,
+          clob_token_id_yes, clob_token_id_no,
+          current_price_yes, current_price_no,
+          volume_24h, liquidity, end_date, is_active
+        FROM markets
+        WHERE is_active = true
+          AND is_resolved = false
+          AND clob_token_id_yes IS NOT NULL
+          AND current_price_yes > $1
+          AND current_price_yes < $2
+          AND volume_24h >= $3
+        ORDER BY volume_24h DESC NULLS LAST
+        LIMIT $4
+      `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch]);
 
-        // Filter by price - skip markets with extreme prices (resolved or near-resolved)
-        const prices = m.tokens?.map((t: { price: number }) => t.price) || [];
-        const hasExtremePrice = prices.some((p: number) => p <= MIN_PRICE || p >= MAX_PRICE);
-        if (hasExtremePrice) continue;
+      const candidateMarkets: PolymarketMarket[] = [];
 
-        const tags = m.tags || [];
-        const category = this.extractCategory(tags, m.question);
+      for (const m of marketsResult.rows) {
+        const priceYes = parseFloat(m.current_price_yes || '0.5');
+        const priceNo = m.current_price_no ? parseFloat(m.current_price_no) : 1 - priceYes;
+        const category = this.extractCategory([], m.question);
 
         const market: PolymarketMarket = {
-          id: m.condition_id,
-          conditionId: m.condition_id,
+          id: m.id,  // Use Gamma ID (matches price_history.market_id)
+          conditionId: m.condition_id || m.id,
           question: m.question,
-          outcomes: m.tokens.map((t: { outcome: string }) => t.outcome),
-          outcomePrices: m.tokens.map((t: { price: number }) => t.price),
-          tokenIds: m.tokens.map((t: { token_id: string }) => t.token_id),
-          volume: m.volume,
-          liquidity: m.liquidity,
-          endDate: new Date(m.end_date_iso),
-          isActive: m.active,
+          outcomes: ['Yes', 'No'],
+          outcomePrices: [priceYes, priceNo],
+          tokenIds: [m.clob_token_id_yes, m.clob_token_id_no].filter(Boolean),
+          volume: parseFloat(m.volume_24h || '0'),
+          liquidity: parseFloat(m.liquidity || '0'),
+          endDate: m.end_date ? new Date(m.end_date) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+          isActive: m.is_active,
           lastUpdate: new Date(),
-          tags,
-          category,
+          tags: [],
+          category: m.category || category,
         };
 
         candidateMarkets.push(market);
       }
 
-      const filteredByPrice = marketsData.length - candidateMarkets.length;
-      console.log(`[PolymarketService] Found ${candidateMarkets.length} candidate markets (fetched ${marketsData.length}, filtered ${filteredByPrice} by vol/liq/price)`);
+      console.log(`[PolymarketService] Found ${candidateMarkets.length} candidate markets from database`);
 
       // Apply diversified selection
       const selectedMarkets = this.selectDiversifiedMarkets(candidateMarkets);
