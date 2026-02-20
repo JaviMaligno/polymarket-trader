@@ -228,32 +228,64 @@ export class SignalLearningService extends EventEmitter {
 
   /**
    * Resolve pending signal predictions based on current prices
+   * Uses database JOIN to handle different market_id formats:
+   * - Predictions use condition_id (0x... hash from CLOB API)
+   * - price_history uses id (numeric from Gamma API)
    */
-  async resolvePredictions(priceUpdates: Array<{
+  async resolvePredictions(_priceUpdates?: Array<{
     marketId: string;
     currentPrice: number;
   }>): Promise<number> {
     if (!isDatabaseConfigured()) return 0;
 
-    let resolved = 0;
-
     try {
-      // Get unresolved predictions
-      const unresolvedPredictions = await signalPredictionsRepo.getUnresolved(100);
+      // Resolve predictions directly in database using JOIN through markets table
+      // This handles the market_id mismatch (predictions use condition_id, prices use id)
+      const result = await query<{
+        pred_id: number;
+        pred_time: Date;
+        direction: string;
+        price_at_signal: number;
+        current_price: number;
+      }>(`
+        WITH eligible_predictions AS (
+          SELECT
+            sp.id as pred_id,
+            sp.time as pred_time,
+            sp.market_id,
+            sp.direction,
+            sp.price_at_signal,
+            m.id as gamma_id
+          FROM signal_predictions sp
+          JOIN markets m ON sp.market_id = m.id OR sp.market_id = m.condition_id
+          WHERE sp.resolved_at IS NULL
+            AND sp.time < NOW() - INTERVAL '1 hour'
+          LIMIT 100
+        ),
+        latest_prices AS (
+          SELECT DISTINCT ON (market_id)
+            market_id,
+            close as current_price
+          FROM price_history
+          WHERE time > NOW() - INTERVAL '24 hours'
+          ORDER BY market_id, time DESC
+        )
+        SELECT
+          ep.pred_id,
+          ep.pred_time,
+          ep.direction,
+          ep.price_at_signal,
+          lp.current_price
+        FROM eligible_predictions ep
+        JOIN latest_prices lp ON ep.gamma_id = lp.market_id
+      `);
 
-      for (const prediction of unresolvedPredictions) {
-        // Find price update for this market
-        const priceUpdate = priceUpdates.find(p => p.marketId === prediction.market_id);
-        if (!priceUpdate) continue;
+      let resolved = 0;
 
-        // Check if prediction is old enough to resolve (at least 1 hour old)
-        const predictionAge = Date.now() - new Date(prediction.time).getTime();
-        if (predictionAge < 3600000) continue;  // 1 hour minimum
-
-        // Calculate P&L
-        const entryPrice = Number(prediction.price_at_signal);
-        const currentPrice = priceUpdate.currentPrice;
-        const direction = prediction.direction;
+      for (const row of result.rows) {
+        const entryPrice = Number(row.price_at_signal);
+        const currentPrice = Number(row.current_price);
+        const direction = row.direction;
 
         const pnlPct = direction === 'long'
           ? ((currentPrice - entryPrice) / entryPrice) * 100
@@ -262,7 +294,7 @@ export class SignalLearningService extends EventEmitter {
         const wasCorrect = pnlPct > 0;
 
         try {
-          await signalPredictionsRepo.resolve(prediction.id!, prediction.time, {
+          await signalPredictionsRepo.resolve(row.pred_id, row.pred_time, {
             price_at_resolution: currentPrice,
             was_correct: wasCorrect,
             pnl_pct: pnlPct,
@@ -270,14 +302,14 @@ export class SignalLearningService extends EventEmitter {
           resolved++;
 
           this.emit('prediction:resolved', {
-            prediction,
+            predictionId: row.pred_id,
             currentPrice,
             pnlPct,
             wasCorrect,
           });
 
         } catch (error) {
-          console.error(`[SignalLearning] Failed to resolve prediction ${prediction.id}:`, error);
+          console.error(`[SignalLearning] Failed to resolve prediction ${row.pred_id}:`, error);
         }
       }
 
@@ -285,11 +317,12 @@ export class SignalLearningService extends EventEmitter {
         console.log(`[SignalLearning] Resolved ${resolved} predictions`);
       }
 
+      return resolved;
+
     } catch (error) {
       console.error('[SignalLearning] Failed to resolve predictions:', error);
+      return 0;
     }
-
-    return resolved;
   }
 
   /**
