@@ -22,16 +22,19 @@ export interface StopLossConfig {
   defaultTakeProfitPct: number; // Default take profit % (e.g., 40 = 40%)
   useTrailingStop: boolean;     // Enable trailing stop loss
   trailingStopPct: number;      // Trailing stop distance %
+  maxHoldTimeMs: number;        // Max time to hold position (default: 4 hours)
+  useTimeBasedExit: boolean;    // Enable time-based exit
 }
 
 interface StopLossResult {
   positionsClosed: number;
   stopLosses: number;
   takeProfits: number;
+  timeExits: number;
   totalPnl: number;
   details: Array<{
     marketId: string;
-    reason: 'stop_loss' | 'take_profit';
+    reason: 'stop_loss' | 'take_profit' | 'time_exit';
     entryPrice: number;
     exitPrice: number;
     pnlPct: number;
@@ -46,6 +49,8 @@ const DEFAULT_CONFIG: StopLossConfig = {
   defaultTakeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || '40'), // 40% take profit
   useTrailingStop: false,
   trailingStopPct: 10,
+  maxHoldTimeMs: parseFloat(process.env.MAX_HOLD_TIME_HOURS || '4') * 60 * 60 * 1000,  // 4 hours default
+  useTimeBasedExit: process.env.USE_TIME_EXIT === 'true',
 };
 
 export class StopLossService extends EventEmitter {
@@ -109,13 +114,14 @@ export class StopLossService extends EventEmitter {
    */
   async checkPositions(): Promise<StopLossResult> {
     if (!this.config.enabled) {
-      return { positionsClosed: 0, stopLosses: 0, takeProfits: 0, totalPnl: 0, details: [] };
+      return { positionsClosed: 0, stopLosses: 0, takeProfits: 0, timeExits: 0, totalPnl: 0, details: [] };
     }
 
     const result: StopLossResult = {
       positionsClosed: 0,
       stopLosses: 0,
       takeProfits: 0,
+      timeExits: 0,
       totalPnl: 0,
       details: [],
     };
@@ -134,6 +140,7 @@ export class StopLossService extends EventEmitter {
         current_price_yes: string | null;
         current_price_no: string | null;
         question: string | null;
+        opened_at: Date;
       }>(`
         SELECT
           pp.id,
@@ -144,6 +151,7 @@ export class StopLossService extends EventEmitter {
           pp.avg_entry_price,
           pp.stop_loss,
           pp.take_profit,
+          pp.opened_at,
           m.current_price_yes,
           m.current_price_no,
           m.question
@@ -251,6 +259,42 @@ export class StopLossService extends EventEmitter {
           // Clean up trailing stop tracking
           this.highWaterMarks.delete(pos.market_id);
         }
+        // Check time-based exit (position held too long)
+        else if (this.config.useTimeBasedExit) {
+          const holdTimeMs = Date.now() - new Date(pos.opened_at).getTime();
+          if (holdTimeMs >= this.config.maxHoldTimeMs) {
+            const holdTimeHours = (holdTimeMs / (1000 * 60 * 60)).toFixed(1);
+            console.log(`[StopLoss] TIME EXIT triggered for ${(pos.question || pos.market_id).substring(0, 40)}... | Held ${holdTimeHours}h | PnL: ${pnlPct.toFixed(2)}%`);
+
+            const closeResult = await this.closePosition(
+              pos.id,
+              pos.market_id,
+              pos.token_id,
+              size,
+              entryPrice,
+              currentPrice,
+              'time_exit'
+            );
+
+            result.positionsClosed++;
+            result.timeExits++;
+            result.totalPnl += closeResult.pnl;
+            result.details.push({
+              marketId: pos.market_id,
+              reason: 'time_exit',
+              entryPrice,
+              exitPrice: currentPrice,
+              pnlPct,
+              pnl: closeResult.pnl,
+            });
+
+            // Clean up trailing stop tracking
+            this.highWaterMarks.delete(pos.market_id);
+          } else {
+            // Update position with current price and unrealized PnL
+            await this.updatePositionPrice(pos.id, currentPrice, pnlPct, size, entryPrice);
+          }
+        }
         // Update position with current price and unrealized PnL
         else {
           await this.updatePositionPrice(pos.id, currentPrice, pnlPct, size, entryPrice);
@@ -258,7 +302,7 @@ export class StopLossService extends EventEmitter {
       }
 
       if (result.positionsClosed > 0) {
-        console.log(`[StopLoss] Check complete: ${result.stopLosses} stop losses, ${result.takeProfits} take profits, total PnL: $${result.totalPnl.toFixed(2)}`);
+        console.log(`[StopLoss] Check complete: ${result.stopLosses} SL, ${result.takeProfits} TP, ${result.timeExits} time exits, total PnL: $${result.totalPnl.toFixed(2)}`);
         this.emit('positions:closed', result);
       }
 
@@ -281,7 +325,7 @@ export class StopLossService extends EventEmitter {
     size: number,
     entryPrice: number,
     exitPrice: number,
-    reason: 'stop_loss' | 'take_profit'
+    reason: 'stop_loss' | 'take_profit' | 'time_exit'
   ): Promise<{ pnl: number }> {
     const exitValue = size * exitPrice;
     const entryValue = size * entryPrice;

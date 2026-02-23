@@ -1,106 +1,33 @@
-const { Pool } = require('pg');
+const { Pool } = require("pg");
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-async function debug() {
-  console.log('=== DEBUGGING SHORT SIGNAL EXECUTION ===\n');
+async function check() {
+  console.log("=== DEBUGGING SHORT SIGNAL EXECUTION ===\n");
 
-  // Sample of SHORT signal predictions
-  console.log('=== SAMPLE SHORT PREDICTIONS ===');
-  const shortPreds = await pool.query(`
-    SELECT
-      market_id,
-      signal_type,
-      direction,
-      confidence,
-      strength,
-      created_at
-    FROM signal_predictions
-    WHERE direction = 'short'
-    ORDER BY created_at DESC
-    LIMIT 10
-  `);
-  shortPreds.rows.forEach(r => {
-    const time = new Date(r.created_at).toISOString().substring(11, 19);
-    console.log('  ' + time + ' | ' + r.direction + ' | conf: ' + 
-      parseFloat(r.confidence).toFixed(3) + ' | str: ' + parseFloat(r.strength).toFixed(3) + 
-      ' | ' + r.market_id.substring(0, 15) + '...');
+  const shortSignals = await pool.query("SELECT metadata FROM signal_predictions WHERE direction = 'short' LIMIT 5");
+  console.log("=== SHORT SIGNAL METADATA (sample) ===");
+  shortSignals.rows.forEach(r => console.log(JSON.stringify(r.metadata)));
+
+  const marketTokens = await pool.query("SELECT sp.market_id, m.clob_token_id_no, m.is_active FROM signal_predictions sp JOIN markets m ON sp.market_id = m.id OR sp.market_id = m.condition_id WHERE sp.direction = 'short' LIMIT 10");
+  console.log("\n=== SHORT SIGNAL MARKETS TOKEN INFO ===");
+  marketTokens.rows.forEach(r => {
+    const mid = r.market_id ? r.market_id.substring(0, 20) : "unknown";
+    console.log("Market: " + mid + "... | No Token: " + (r.clob_token_id_no ? "PRESENT" : "MISSING") + " | Active: " + r.is_active);
   });
 
-  // Check if these markets have trades
-  console.log('\n=== CHECKING IF SHORT-SIGNALED MARKETS HAVE TRADES ===');
-  const shortMarketsWithTrades = await pool.query(`
-    SELECT
-      sp.market_id,
-      sp.direction,
-      COUNT(pt.id) as trade_count,
-      STRING_AGG(DISTINCT pt.side, ', ') as trade_sides
-    FROM signal_predictions sp
-    LEFT JOIN paper_trades pt ON sp.market_id = pt.market_id 
-      AND pt.time >= sp.created_at 
-      AND pt.time <= sp.created_at + INTERVAL '5 minutes'
-    WHERE sp.direction = 'short'
-      AND sp.created_at > NOW() - INTERVAL '24 hours'
-    GROUP BY sp.market_id, sp.direction
-    LIMIT 10
-  `);
-  shortMarketsWithTrades.rows.forEach(r => {
-    console.log('  ' + r.market_id.substring(0, 15) + '... | trades: ' + r.trade_count + ' | sides: ' + (r.trade_sides || 'none'));
-  });
+  const shortNoPosition = await pool.query("SELECT COUNT(*) as cnt FROM signal_predictions sp WHERE sp.direction = 'short' AND NOT EXISTS (SELECT 1 FROM paper_positions pp WHERE pp.market_id = sp.market_id AND pp.closed_at IS NULL)");
+  console.log("\n=== SHORT SIGNALS WITHOUT OPEN POSITION ===");
+  console.log("SHORT signals that would need to open No positions:", shortNoPosition.rows[0].cnt);
 
-  // Check the paper_positions for these markets
-  console.log('\n=== POSITIONS FOR SHORT-SIGNALED MARKETS ===');
-  const positionsForShort = await pool.query(`
-    SELECT
-      pp.market_id,
-      pp.side,
-      pp.size,
-      pp.closed_at IS NOT NULL as is_closed
-    FROM paper_positions pp
-    WHERE pp.market_id IN (
-      SELECT DISTINCT market_id 
-      FROM signal_predictions 
-      WHERE direction = 'short' 
-        AND created_at > NOW() - INTERVAL '24 hours'
-    )
-    LIMIT 10
-  `);
-  if (positionsForShort.rows.length === 0) {
-    console.log('  No positions found for SHORT-signaled markets');
-  } else {
-    positionsForShort.rows.forEach(r => {
-      console.log('  ' + r.market_id.substring(0, 15) + '... | side: ' + r.side + ' | size: ' + parseFloat(r.size).toFixed(2) + ' | closed: ' + r.is_closed);
-    });
-  }
-
-  // Check what signal_type is in paper_trades
-  console.log('\n=== SIGNAL TYPES IN TRADES (24h) ===');
-  const tradeSignalTypes = await pool.query(`
-    SELECT signal_type, side, COUNT(*) as count
-    FROM paper_trades
-    WHERE time > NOW() - INTERVAL '24 hours'
-    GROUP BY signal_type, side
-    ORDER BY count DESC
-  `);
-  tradeSignalTypes.rows.forEach(r => {
-    console.log('  ' + (r.signal_type || 'null').padEnd(20) + ' | ' + r.side + ' | ' + r.count);
-  });
-
-  // Critical: Check if SHORT signals have token_id (needed for execution)
-  console.log('\n=== SHORT PREDICTIONS TOKEN CHECK ===');
-  const shortWithToken = await pool.query(`
-    SELECT
-      token_id IS NOT NULL as has_token,
-      COUNT(*) as count
-    FROM signal_predictions
-    WHERE direction = 'short'
-      AND created_at > NOW() - INTERVAL '24 hours'
-    GROUP BY token_id IS NOT NULL
-  `);
-  shortWithToken.rows.forEach(r => {
-    console.log('  Has token_id: ' + r.has_token + ' | count: ' + r.count);
+  const signalFlow = await pool.query("SELECT signal_type, direction, COUNT(*) as predictions, COUNT(*) FILTER (WHERE id IN (SELECT signal_id FROM paper_trades)) as became_trades FROM signal_predictions GROUP BY signal_type, direction ORDER BY signal_type, direction");
+  console.log("\n=== SIGNAL TO TRADE CONVERSION ===");
+  console.log("Signal Type | Direction | Predictions | Became Trades");
+  signalFlow.rows.forEach(r => {
+    const st = (r.signal_type || "unknown").padEnd(15);
+    console.log(st + " | " + r.direction.padEnd(5) + " | " + String(r.predictions).padStart(5) + " | " + String(r.became_trades).padStart(5));
   });
 
   await pool.end();
 }
 
-debug().catch(e => { console.error(e); process.exit(1); });
+check().catch(e => { console.error(e); process.exit(1); });

@@ -127,15 +127,19 @@ services:
       MAX_DAILY_LOSS: "500"
       # Risk Protection System
       ENABLE_RISK_PROTECTION: "true"
-      MAX_EXPOSURE_PER_MARKET: "0.03"
-      MAX_TOTAL_EXPOSURE: "0.60"
+      MAX_EXPOSURE_PER_MARKET: "0.02"
+      MAX_TOTAL_EXPOSURE: "0.40"
       TRAILING_STOP_PCT: "0.15"
       HARD_STOP_PCT: "0.25"
       # Stop Loss Service
       STOP_LOSS_PCT: "20"
       TAKE_PROFIT_PCT: "40"
-      # Executor limits
-      EXECUTOR_MAX_DAILY_TRADES: "10000"
+      USE_TIME_EXIT: "true"
+      MAX_HOLD_TIME_HOURS: "4"
+      # Executor limits - reduced position sizes
+      EXECUTOR_MAX_POSITION_SIZE: "100"
+      EXECUTOR_MAX_OPEN_POSITIONS: "20"
+      EXECUTOR_MAX_DAILY_TRADES: "100"
     ports:
       - "3001:3001"
     healthcheck:
