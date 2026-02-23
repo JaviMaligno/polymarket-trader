@@ -377,11 +377,12 @@ export class AutoSignalExecutor extends EventEmitter {
       );
 
       // Create position - CRITICAL: if this fails, we need to reverse the trade
+      // Set side based on signal direction: 'long' for Yes token, 'short' for No token
       try {
         await paperPositionsRepo.upsert({
           market_id: signal.marketId,
           token_id: signal.tokenId,
-          side: 'long',
+          side: signal.direction === 'long' ? 'long' : 'short',
           size: shares,
           avg_entry_price: signal.price,
           current_price: signal.price,
@@ -446,7 +447,25 @@ export class AutoSignalExecutor extends EventEmitter {
   private async closePosition(position: PaperPosition, signal: SignalResult): Promise<SignalProcessResult> {
     const shares = Number(position.size);
     const entryPrice = Number(position.avg_entry_price);
-    const exitPrice = signal.price;
+
+    // CRITICAL: Get the correct exit price based on the POSITION's side, not the signal's
+    // When a SHORT signal closes a LONG position, we need the Yes price (not the No price from signal)
+    let exitPrice = signal.price;
+    try {
+      const marketResult = await query<{ current_price_yes: string; current_price_no: string }>(
+        `SELECT current_price_yes, current_price_no FROM markets
+         WHERE id = $1 OR condition_id = $1 LIMIT 1`,
+        [signal.marketId]
+      );
+      if (marketResult.rows[0]) {
+        // Use Yes price for long positions (bought Yes token), No price for short positions (bought No token)
+        exitPrice = position.side === 'long'
+          ? parseFloat(marketResult.rows[0].current_price_yes)
+          : parseFloat(marketResult.rows[0].current_price_no);
+      }
+    } catch (error) {
+      console.warn('[AutoExecutor] Failed to get market price for exit, using signal price:', error);
+    }
 
     // Calculate P&L
     const grossPnl = (exitPrice - entryPrice) * shares;
@@ -471,11 +490,12 @@ export class AutoSignalExecutor extends EventEmitter {
     }
 
     // Execute the SELL trade
+    // Use position.token_id to sell the correct token (Yes for long, No for short positions)
     try {
       const trade = await paperTradesRepo.create({
         time: new Date(),
         market_id: signal.marketId,
-        token_id: signal.tokenId,
+        token_id: position.token_id,
         side: 'sell',
         requested_size: shares,
         executed_size: shares,
