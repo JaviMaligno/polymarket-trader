@@ -7,7 +7,7 @@
 
 import { createDashboardServer } from './api/server.js';
 import { createTradingSystem } from '@polymarket-trader/trader';
-import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured } from './database/index.js';
+import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
 import { autoInitialize, createAndStartStrategy } from './services/AutoInitService.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializePaperTradingService } from './services/PaperTradingService.js';
@@ -173,12 +173,38 @@ async function main(): Promise<void> {
     setTimeout(async () => {
       console.log('Starting SignalEngine (database-based signals)...');
 
+      // Load optimized parameters from database
+      let optimizedParams = { minCombinedConfidence: 0.60, minCombinedStrength: 0.45 };
+      try {
+        const result = await query<{ best_params: any }>(`
+          SELECT best_params
+          FROM optimization_runs
+          WHERE status = 'completed' AND best_score IS NOT NULL
+          ORDER BY best_score DESC
+          LIMIT 1
+        `);
+        if (result.rows.length > 0 && result.rows[0].best_params) {
+          const params = result.rows[0].best_params;
+          optimizedParams = {
+            minCombinedConfidence: params['combiner.minCombinedConfidence'] ?? params.minConfidence ?? 0.60,
+            minCombinedStrength: params['combiner.minCombinedStrength'] ?? params.minEdge ?? 0.45,
+          };
+          console.log('Loaded optimized params from database:', optimizedParams);
+        } else {
+          console.log('No optimization results found, using default conservative thresholds');
+        }
+      } catch (error) {
+        console.warn('Failed to load optimized params, using defaults:', error);
+      }
+
       // Initialize SignalEngine with optimized parameters
       const signalEngine = initializeSignalEngine({
         enabled: true,
         computeIntervalMs: 60000,  // Compute signals every 1 minute
         maxMarketsPerCycle: 50,    // Process top 50 markets per cycle
         minPriceBars: 30,          // Require at least 30 price bars
+        minCombinedConfidence: optimizedParams.minCombinedConfidence,
+        minCombinedStrength: optimizedParams.minCombinedStrength,
       });
 
       // Start the Polymarket service to load markets (it will update SignalEngine)

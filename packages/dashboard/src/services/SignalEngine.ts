@@ -42,6 +42,8 @@ export interface SignalEngineConfig {
   maxMarketsPerCycle: number;    // Max markets to process per cycle
   minPriceBars: number;          // Minimum price bars needed
   syncWeightsIntervalMs: number; // How often to sync weights from DB
+  minCombinedConfidence?: number; // Minimum combined signal confidence (0-1)
+  minCombinedStrength?: number;   // Minimum combined signal strength (0-1)
 }
 
 const DEFAULT_CONFIG: SignalEngineConfig = {
@@ -50,6 +52,8 @@ const DEFAULT_CONFIG: SignalEngineConfig = {
   maxMarketsPerCycle: 50,
   minPriceBars: 30,
   syncWeightsIntervalMs: 300000, // 5 minutes
+  minCombinedConfidence: 0.60,   // Default: high confidence only
+  minCombinedStrength: 0.45,     // Default: strong signals only
 };
 
 interface ActiveMarket {
@@ -97,9 +101,9 @@ export class SignalEngine extends EventEmitter {
         rl: 0.15,            // Reinforcement Learning
       },
       {
-        // Optimized params (from optimization runs)
-        minCombinedConfidence: 0.43,
-        minCombinedStrength: 0.27,
+        // Use config values (can be overridden from optimization_runs)
+        minCombinedConfidence: this.config.minCombinedConfidence ?? 0.60,
+        minCombinedStrength: this.config.minCombinedStrength ?? 0.45,
       }
     );
   }
