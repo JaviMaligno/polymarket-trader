@@ -173,8 +173,11 @@ async function main(): Promise<void> {
     setTimeout(async () => {
       console.log('Starting SignalEngine (database-based signals)...');
 
-      // Load optimized parameters from database
-      let optimizedParams = { minCombinedConfidence: 0.60, minCombinedStrength: 0.45 };
+      // Load optimized parameters from database, but enforce minimum thresholds
+      const MIN_CONFIDENCE = 0.60;  // Minimum confidence threshold (conservative)
+      const MIN_STRENGTH = 0.45;    // Minimum strength threshold (conservative)
+
+      let optimizedParams = { minCombinedConfidence: MIN_CONFIDENCE, minCombinedStrength: MIN_STRENGTH };
       try {
         const result = await query<{ best_params: any }>(`
           SELECT best_params
@@ -185,11 +188,16 @@ async function main(): Promise<void> {
         `);
         if (result.rows.length > 0 && result.rows[0].best_params) {
           const params = result.rows[0].best_params;
+          const dbConfidence = params['combiner.minCombinedConfidence'] ?? params.minConfidence;
+          const dbStrength = params['combiner.minCombinedStrength'] ?? params.minEdge;
+
+          // Use MAX of optimized and minimum thresholds (more conservative wins)
           optimizedParams = {
-            minCombinedConfidence: params['combiner.minCombinedConfidence'] ?? params.minConfidence ?? 0.60,
-            minCombinedStrength: params['combiner.minCombinedStrength'] ?? params.minEdge ?? 0.45,
+            minCombinedConfidence: Math.max(dbConfidence ?? MIN_CONFIDENCE, MIN_CONFIDENCE),
+            minCombinedStrength: Math.max(dbStrength ?? MIN_STRENGTH, MIN_STRENGTH),
           };
-          console.log('Loaded optimized params from database:', optimizedParams);
+          console.log('Loaded params from DB:', { dbConfidence, dbStrength });
+          console.log('Applied conservative minimums:', optimizedParams);
         } else {
           console.log('No optimization results found, using default conservative thresholds');
         }
