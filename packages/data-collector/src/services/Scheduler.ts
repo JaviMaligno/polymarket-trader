@@ -25,7 +25,7 @@ export class Scheduler {
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
     this.defineJob('sync-prices', '* * * * *', this.syncPrices.bind(this));
-    this.defineJob('sync-price-history', '*/15 * * * *', this.syncPriceHistory.bind(this));
+    this.defineJob('sync-price-history', '*/1 * * * *', this.syncPriceHistory.bind(this));  // Changed from 15min to 1min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
   }
 
