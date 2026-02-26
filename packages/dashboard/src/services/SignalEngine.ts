@@ -403,11 +403,15 @@ export class SignalEngine extends EventEmitter {
       // We JOIN with markets table to find prices by either id or condition_id
       const priceHistory = await query<{
         time: Date;
+        open: number;
+        high: number;
+        low: number;
         close: number;
+        volume: number | null;
         bid: number;
         ask: number;
       }>(
-        `SELECT ph.time, ph.close, ph.bid, ph.ask
+        `SELECT ph.time, ph.open, ph.high, ph.low, ph.close, ph.volume, ph.bid, ph.ask
          FROM price_history ph
          JOIN markets m ON ph.market_id = m.id
          WHERE m.id = $1 OR m.condition_id = $1
@@ -421,15 +425,16 @@ export class SignalEngine extends EventEmitter {
       }
 
       // Convert to PriceBar format (oldest to newest)
+      // Use actual OHLC data from database (populated by data-collector with volatility estimation)
       const priceBars: PriceBar[] = priceHistory.rows
         .reverse()
         .map(row => ({
           time: new Date(row.time),
-          open: parseFloat(String(row.close)),
-          high: parseFloat(String(row.close)) * 1.01,
-          low: parseFloat(String(row.close)) * 0.99,
+          open: parseFloat(String(row.open)) || parseFloat(String(row.close)),
+          high: parseFloat(String(row.high)) || parseFloat(String(row.close)),
+          low: parseFloat(String(row.low)) || parseFloat(String(row.close)),
           close: parseFloat(String(row.close)),
-          volume: 1000, // Placeholder
+          volume: row.volume ? parseFloat(String(row.volume)) : 1000,
         }));
 
       const marketInfo: MarketInfo = {
