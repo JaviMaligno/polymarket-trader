@@ -237,13 +237,13 @@ export class ClobCollector {
         // Build realistic OHLC bars using estimated volatility
         // This gives signal generators actual variation to work with
         const prevClose = idx > 0 ? parseFloat(batch[idx - 1].p) : close;
-        const open = prevClose;  // Open = previous close for continuity
+        const open = prevClose;
 
         // High/Low simulated with realistic spread based on volatility
-        // Use random walk within volatility bounds
         const halfRange = close * volatility * 0.5;
-        const high = Math.min(0.99, close + halfRange * Math.random());
-        const low = Math.max(0.01, close - halfRange * Math.random());
+        // Ensure high >= max(open, close) and low <= min(open, close)
+        const high = Math.max(open, close) + halfRange * Math.random();
+        const low = Math.min(open, close) - halfRange * Math.random();
 
         values.push(
           new Date(point.t * 1000),  // time
