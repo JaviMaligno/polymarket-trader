@@ -315,6 +315,10 @@ export class ClobCollector {
     }
 
     try {
+      // Parse timestamp safely - CLOB API sometimes returns invalid timestamps
+      const parsedTime = new Date(orderBook.timestamp);
+      const snapshotTime = isNaN(parsedTime.getTime()) ? new Date() : parsedTime;
+
       await query(
         `
         INSERT INTO orderbook_snapshots (
@@ -323,7 +327,7 @@ export class ClobCollector {
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         `,
         [
-          new Date(orderBook.timestamp),
+          snapshotTime,
           marketId,
           tokenId,
           bestBid,
