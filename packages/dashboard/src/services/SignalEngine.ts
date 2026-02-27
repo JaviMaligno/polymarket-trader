@@ -15,26 +15,25 @@ import { signalWeightsRepo } from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
 
-import * as fs from 'fs';
-import * as path from 'path';
-import { fileURLToPath } from 'url';
 
 // Import from signals package
 import {
   MomentumSignal,
   MeanReversionSignal,
-  WalletTrackingSignal,
   OrderFlowImbalanceSignal,
   MultiLevelOFISignal,
   HawkesSignal,
-  RLSignal,
   WeightedAverageCombiner,
   type ISignal,
   type SignalContext,
   type SignalOutput,
   type MarketInfo,
   type PriceBar,
+  type Trade,
 } from '@polymarket-trader/signals';
+
+// Import OrderBookSnapshot directly from signal types to avoid name conflict with RL's OrderBookSnapshot
+import type { OrderBookSnapshot } from '@polymarket-trader/signals/dist/core/types/signal.types.js';
 
 export interface SignalEngineConfig {
   enabled: boolean;
@@ -85,20 +84,17 @@ export class SignalEngine extends EventEmitter {
     // Initialize signal generators
     this.initializeSignals();
 
-    // Initialize combiner with optimized weights and params
-    // Core signals: 50% total, Microstructure: 35%, RL: 15%
+    // Initialize combiner with weights for 5 active generators
+    // Core signals: 40%, Microstructure: 60%
     this.combiner = new WeightedAverageCombiner(
       {
-        // Core signals (50%)
-        momentum: 0.17,
-        mean_reversion: 0.17,
-        wallet_tracking: 0.16,
-        // Microstructure signals (35%)
-        ofi: 0.12,           // Order Flow Imbalance
-        mlofi: 0.12,         // Multi-Level OFI
-        hawkes: 0.11,        // Trade clustering (Hawkes process)
-        // RL signal (15%)
-        rl: 0.15,            // Reinforcement Learning
+        // Core signals (40%)
+        momentum: 0.20,
+        mean_reversion: 0.20,
+        // Microstructure signals (60%)
+        ofi: 0.20,           // Order Flow Imbalance
+        mlofi: 0.20,         // Multi-Level OFI
+        hawkes: 0.20,        // Trade clustering (Hawkes process)
       },
       {
         // Use config values (can be overridden from optimization_runs)
@@ -110,59 +106,20 @@ export class SignalEngine extends EventEmitter {
 
   /**
    * Initialize all signal generators
+   * NOTE: WalletTracking disabled (no wallet data source)
+   * NOTE: RL disabled (no trained model deployed)
    */
   private initializeSignals(): void {
     // Core signals
     this.signals.set('momentum', new MomentumSignal());
     this.signals.set('mean_reversion', new MeanReversionSignal());
-    this.signals.set('wallet_tracking', new WalletTrackingSignal());
 
     // Microstructure signals (order flow analysis)
     this.signals.set('ofi', new OrderFlowImbalanceSignal());
     this.signals.set('mlofi', new MultiLevelOFISignal());
     this.signals.set('hawkes', new HawkesSignal());
 
-    // RL Signal (if model is available)
-    this.initializeRLSignal();
-
     console.log(`[SignalEngine] Initialized ${this.signals.size} signal generators`);
-  }
-
-  /**
-   * Initialize RL signal with trained model
-   */
-  private initializeRLSignal(): void {
-    try {
-      // Try to load the RL model from various locations
-      const modelPaths = [
-        path.join(process.cwd(), 'models', 'rl-model.json'),
-        path.join(process.cwd(), 'rl-model.json'),
-        '/app/models/rl-model.json', // Docker path
-      ];
-
-      let modelData: { weights: number[][][]; biases?: number[][] } | null = null;
-      let loadedPath = '';
-
-      for (const modelPath of modelPaths) {
-        if (fs.existsSync(modelPath)) {
-          const rawData = fs.readFileSync(modelPath, 'utf-8');
-          modelData = JSON.parse(rawData);
-          loadedPath = modelPath;
-          break;
-        }
-      }
-
-      if (modelData) {
-        const rlSignal = new RLSignal({ minConfidence: 0.6 });
-        rlSignal.loadModel(modelData);
-        this.signals.set('rl', rlSignal);
-        console.log(`[SignalEngine] Loaded RL model from ${loadedPath}`);
-      } else {
-        console.log('[SignalEngine] No RL model found, skipping RL signal');
-      }
-    } catch (error) {
-      console.error('[SignalEngine] Failed to load RL model:', error);
-    }
   }
 
   /**
@@ -448,16 +405,124 @@ export class SignalEngine extends EventEmitter {
         volume24h: market.volume24h,
       };
 
+      // Fetch latest order book snapshot from DB
+      const orderBook = await this.fetchOrderBookFromDb(market);
+
+      // Synthesize trades from price bar changes (for OFI and Hawkes)
+      const recentTrades = this.synthesizeTradesFromBars(priceBars, market);
+
       return {
         currentTime: new Date(),
         market: marketInfo,
         priceBars,
-        recentTrades: [],
+        recentTrades,
+        orderBook: orderBook ?? undefined,
       };
     } catch (error) {
       console.error('[SignalEngine] Failed to build context from DB:', error);
       return this.buildMockContext(market);
     }
+  }
+
+  /**
+   * Fetch latest order book snapshot from database
+   */
+  private async fetchOrderBookFromDb(market: ActiveMarket): Promise<OrderBookSnapshot | null> {
+    try {
+      const result = await query<{
+        time: Date;
+        market_id: string;
+        token_id: string;
+        best_bid: number;
+        best_ask: number;
+        spread: number;
+        mid_price: number;
+        bid_depth_10pct: number;
+        ask_depth_10pct: number;
+      }>(
+        `SELECT os.time, os.market_id, os.token_id, os.best_bid, os.best_ask,
+                os.spread, os.mid_price, os.bid_depth_10pct, os.ask_depth_10pct
+         FROM orderbook_snapshots os
+         JOIN markets m ON os.market_id = m.id
+         WHERE (m.id = $1 OR m.condition_id = $1)
+           AND os.time > NOW() - INTERVAL '10 minutes'
+         ORDER BY os.time DESC
+         LIMIT 1`,
+        [market.id]
+      );
+
+      if (result.rows.length === 0) return null;
+
+      const row = result.rows[0];
+      return {
+        time: new Date(row.time),
+        marketId: row.market_id,
+        tokenId: row.token_id,
+        bestBid: parseFloat(String(row.best_bid)) || 0,
+        bestAsk: parseFloat(String(row.best_ask)) || 0,
+        spread: parseFloat(String(row.spread)) || 0,
+        midPrice: parseFloat(String(row.mid_price)) || 0,
+        bidDepth10Pct: parseFloat(String(row.bid_depth_10pct)) || 0,
+        askDepth10Pct: parseFloat(String(row.ask_depth_10pct)) || 0,
+      };
+    } catch (error) {
+      console.error('[SignalEngine] Failed to fetch order book:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Synthesize Trade objects from price bar changes
+   * Since we don't have real trade data, infer trades from OHLC movement
+   */
+  private synthesizeTradesFromBars(priceBars: PriceBar[], market: ActiveMarket): Trade[] {
+    const trades: Trade[] = [];
+    const recentBars = priceBars.slice(-30); // Last 30 bars
+
+    for (let i = 1; i < recentBars.length; i++) {
+      const bar = recentBars[i];
+      const prevBar = recentBars[i - 1];
+      const priceChange = bar.close - prevBar.close;
+
+      // Each bar represents aggregated trading activity
+      // Infer trade direction from price movement
+      const side: 'BUY' | 'SELL' = priceChange >= 0 ? 'BUY' : 'SELL';
+      const size = bar.volume > 0 ? bar.volume : 1000;
+
+      // Create a trade from the bar's close
+      trades.push({
+        time: bar.time,
+        marketId: market.id,
+        tokenId: market.tokenIdYes,
+        side,
+        price: bar.close,
+        size,
+      });
+
+      // If there's significant intra-bar movement (high-low range), add extra trades
+      const range = bar.high - bar.low;
+      if (range > 0.001) {
+        // Add a buy near the low and sell near the high
+        trades.push({
+          time: bar.time,
+          marketId: market.id,
+          tokenId: market.tokenIdYes,
+          side: 'BUY',
+          price: bar.low + range * 0.25,
+          size: size * 0.3,
+        });
+        trades.push({
+          time: bar.time,
+          marketId: market.id,
+          tokenId: market.tokenIdYes,
+          side: 'SELL',
+          price: bar.high - range * 0.25,
+          size: size * 0.3,
+        });
+      }
+    }
+
+    return trades;
   }
 
   /**

@@ -359,6 +359,45 @@ export class ClobCollector {
   }
 
   /**
+   * Sync order book snapshots for all active markets
+   * Respects MAX_TRACKED_MARKETS config to limit API calls
+   */
+  async syncAllOrderBooks(): Promise<{ synced: number; errors: number }> {
+    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
+    const marketsResult = await query(
+      `
+      SELECT id, clob_token_id_yes, clob_token_id_no
+      FROM markets
+      WHERE is_active = true AND clob_token_id_yes IS NOT NULL
+      ORDER BY volume_24h DESC NULLS LAST
+      ${limitClause}
+      `
+    );
+
+    const markets = marketsResult.rows;
+    let synced = 0;
+    let errors = 0;
+
+    for (const market of markets) {
+      try {
+        const yesOk = await this.syncOrderBookToDb(market.id, market.clob_token_id_yes);
+        if (yesOk) synced++;
+
+        if (market.clob_token_id_no) {
+          const noOk = await this.syncOrderBookToDb(market.id, market.clob_token_id_no);
+          if (noOk) synced++;
+        }
+      } catch (error) {
+        logger.error({ error, marketId: market.id }, 'Error syncing order book');
+        errors++;
+      }
+    }
+
+    logger.info({ synced, errors, markets: markets.length }, 'Order books synced');
+    return { synced, errors };
+  }
+
+  /**
    * Sync price history for all active markets
    * Respects MAX_TRACKED_MARKETS config to limit storage usage
    */

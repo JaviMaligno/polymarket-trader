@@ -26,6 +26,7 @@ export class Scheduler {
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
     this.defineJob('sync-prices', '* * * * *', this.syncPrices.bind(this));
     this.defineJob('sync-price-history', '*/1 * * * *', this.syncPriceHistory.bind(this));  // Changed from 15min to 1min
+    this.defineJob('sync-orderbooks', '*/2 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 2 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
   }
 
@@ -143,6 +144,9 @@ export class Scheduler {
         case 'sync-price-history':
           await this.syncPriceHistory();
           break;
+        case 'sync-orderbooks':
+          await this.syncOrderBooks();
+          break;
         case 'log-stats':
           await this.logStats();
           break;
@@ -182,6 +186,9 @@ export class Scheduler {
 
       // Start historical price sync
       await this.syncPriceHistory();
+
+      // Sync order books
+      await this.syncOrderBooks();
 
       logger.info('Initial sync completed');
     } catch (error) {
@@ -228,6 +235,15 @@ export class Scheduler {
       skipped: result.totalSkipped,
       errors: result.errors,
     }, 'Price history synced');
+  }
+
+  /**
+   * Sync order book snapshots for all markets
+   */
+  private async syncOrderBooks(): Promise<void> {
+    const collector = getClobCollector();
+    const result = await collector.syncAllOrderBooks();
+    logger.info({ synced: result.synced, errors: result.errors }, 'Order books synced');
   }
 
   /**
