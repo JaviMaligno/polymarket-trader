@@ -208,8 +208,8 @@ async function main(): Promise<void> {
       // Initialize SignalEngine with optimized parameters
       const signalEngine = initializeSignalEngine({
         enabled: true,
-        computeIntervalMs: 60000,  // Compute signals every 1 minute
-        maxMarketsPerCycle: 50,    // Process top 50 markets per cycle
+        computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),
+        maxMarketsPerCycle: parseInt(process.env.MAX_SIGNAL_MARKETS || '15', 10),
         minPriceBars: 30,          // Require at least 30 price bars
         minCombinedConfidence: optimizedParams.minCombinedConfidence,
         minCombinedStrength: optimizedParams.minCombinedStrength,

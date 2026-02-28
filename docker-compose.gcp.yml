@@ -76,7 +76,7 @@ services:
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
-      MAX_TRACKED_MARKETS: "50"
+      MAX_TRACKED_MARKETS: "15"
       DB_POOL_MAX: "5"
       PORT: 10000
     ports:
@@ -121,6 +121,7 @@ services:
       CONNECT_TRADER: "false"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "120000"
+      MAX_SIGNAL_MARKETS: "15"
       ENABLE_OPTIMIZATION: "false"
       OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
       POLYMARKET_API_URL: https://clob.polymarket.com
