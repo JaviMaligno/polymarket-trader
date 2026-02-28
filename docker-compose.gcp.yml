@@ -118,10 +118,10 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
       DB_POOL_MAX: "5"
-      CONNECT_TRADER: "true"
+      CONNECT_TRADER: "false"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "120000"
-      ENABLE_OPTIMIZATION: "true"
+      ENABLE_OPTIMIZATION: "false"
       OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
       POLYMARKET_API_URL: https://clob.polymarket.com
       INITIAL_CAPITAL: "10000"
