@@ -35,7 +35,7 @@ services:
       - "-c"
       - "maintenance_work_mem=32MB"
       - "-c"
-      - "max_connections=20"
+      - "max_connections=30"
       - "-c"
       - "wal_buffers=4MB"
       - "-c"
@@ -77,6 +77,7 @@ services:
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
       MAX_TRACKED_MARKETS: "50"
+      DB_POOL_MAX: "5"
       PORT: 10000
     ports:
       - "10000:10000"

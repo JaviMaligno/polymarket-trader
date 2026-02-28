@@ -14,11 +14,12 @@ export function getPool(): Pool {
     const isCloudDb = connectionString.includes('tsdb.cloud.timescale.com') ||
                       connectionString.includes('sslmode=require');
 
+    const maxConnections = parseInt(process.env.DB_POOL_MAX || '5', 10);
     pool = new Pool({
       connectionString,
-      max: 20,
+      max: maxConnections,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
+      connectionTimeoutMillis: 10000,
       // Configure SSL for cloud databases
       // rejectUnauthorized: false allows connections to databases with self-signed certs
       ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,
