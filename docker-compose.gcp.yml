@@ -35,7 +35,7 @@ services:
       - "-c"
       - "maintenance_work_mem=32MB"
       - "-c"
-      - "max_connections=30"
+      - "max_connections=50"
       - "-c"
       - "wal_buffers=4MB"
       - "-c"
@@ -117,6 +117,7 @@ services:
       API_KEY: ${API_KEY:-}
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      DB_POOL_MAX: "5"
       CONNECT_TRADER: "true"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "120000"

@@ -67,7 +67,7 @@ export function initializeDatabase(config?: DatabaseConfig): pg.Pool {
   pool = new Pool({
     connectionString,
     ssl: sslConfig,
-    max: config?.max ?? 10,
+    max: config?.max ?? parseInt(process.env.DB_POOL_MAX || '5', 10),
     idleTimeoutMillis: config?.idleTimeoutMillis ?? 30000,
     connectionTimeoutMillis: config?.connectionTimeoutMillis ?? 10000,
   });
