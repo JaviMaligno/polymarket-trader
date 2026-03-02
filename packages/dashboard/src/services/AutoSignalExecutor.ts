@@ -448,23 +448,34 @@ export class AutoSignalExecutor extends EventEmitter {
     const shares = Number(position.size);
     const entryPrice = Number(position.avg_entry_price);
 
-    // CRITICAL: Get the correct exit price based on the POSITION's side, not the signal's
-    // When a SHORT signal closes a LONG position, we need the Yes price (not the No price from signal)
+    // CRITICAL: Get the correct exit price from price_history (fresh data from data-collector)
+    // The markets table current_price_yes/no can be stale and cause catastrophic sells
     let exitPrice = signal.price;
     try {
-      const marketResult = await query<{ current_price_yes: string; current_price_no: string }>(
-        `SELECT current_price_yes, current_price_no FROM markets
-         WHERE id = $1 OR condition_id = $1 LIMIT 1`,
-        [signal.marketId]
+      const priceResult = await query<{ close: string; price_age_seconds: string }>(
+        `SELECT close, EXTRACT(EPOCH FROM (NOW() - time)) as price_age_seconds
+         FROM price_history
+         WHERE token_id = $1
+         ORDER BY time DESC LIMIT 1`,
+        [position.token_id]
       );
-      if (marketResult.rows[0]) {
-        // Use Yes price for long positions (bought Yes token), No price for short positions (bought No token)
-        exitPrice = position.side === 'long'
-          ? parseFloat(marketResult.rows[0].current_price_yes)
-          : parseFloat(marketResult.rows[0].current_price_no);
+      if (priceResult.rows[0]) {
+        const latestPrice = parseFloat(priceResult.rows[0].close);
+        const priceAge = parseFloat(priceResult.rows[0].price_age_seconds);
+        // Use price_history price if fresh (within 1 hour) and valid
+        if (priceAge < 3600 && latestPrice > 0 && !isNaN(latestPrice)) {
+          exitPrice = latestPrice;
+        }
       }
     } catch (error) {
-      console.warn('[AutoExecutor] Failed to get market price for exit, using signal price:', error);
+      console.warn('[AutoExecutor] Failed to get price_history price for exit, using signal price:', error);
+    }
+
+    // Price sanity check: reject if exit price dropped more than 80% from entry
+    // This prevents catastrophic sells due to stale/corrupt price data
+    if (exitPrice < entryPrice * 0.20) {
+      console.warn(`[AutoExecutor] REJECTED exit for ${signal.marketId.substring(0, 20)}... - exit price $${exitPrice.toFixed(4)} is ${((1 - exitPrice / entryPrice) * 100).toFixed(0)}% below entry $${entryPrice.toFixed(4)} (likely stale data)`);
+      return { executed: false, reason: 'Exit price too far below entry - likely stale data' };
     }
 
     // Calculate P&L

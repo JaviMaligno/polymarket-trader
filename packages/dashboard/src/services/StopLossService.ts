@@ -127,7 +127,9 @@ export class StopLossService extends EventEmitter {
     };
 
     try {
-      // Get all open positions with current market prices
+      // Get all open positions with latest prices from price_history
+      // NOTE: We use price_history (written by data-collector every cycle) instead of
+      // markets.current_price_yes/no which can be stale and cause catastrophic stop-loss sells
       const positionsResult = await query<{
         id: number;
         market_id: string;
@@ -137,8 +139,8 @@ export class StopLossService extends EventEmitter {
         avg_entry_price: string;
         stop_loss: string | null;
         take_profit: string | null;
-        current_price_yes: string | null;
-        current_price_no: string | null;
+        latest_price: string | null;
+        price_age_seconds: string | null;
         question: string | null;
         opened_at: Date;
       }>(`
@@ -152,11 +154,16 @@ export class StopLossService extends EventEmitter {
           pp.stop_loss,
           pp.take_profit,
           pp.opened_at,
-          m.current_price_yes,
-          m.current_price_no,
-          m.question
+          m.question,
+          ph.close as latest_price,
+          EXTRACT(EPOCH FROM (NOW() - ph.time)) as price_age_seconds
         FROM paper_positions pp
         LEFT JOIN markets m ON pp.market_id = m.id OR pp.market_id = m.condition_id
+        LEFT JOIN LATERAL (
+          SELECT close, time FROM price_history
+          WHERE token_id = pp.token_id
+          ORDER BY time DESC LIMIT 1
+        ) ph ON true
         WHERE pp.closed_at IS NULL
       `);
 
@@ -164,17 +171,30 @@ export class StopLossService extends EventEmitter {
         const size = parseFloat(pos.size);
         const entryPrice = parseFloat(pos.avg_entry_price);
 
-        // Determine current price based on position side
-        // Long positions use Yes price, Short (No) positions use No price
+        // Use latest price from price_history (fresh data from data-collector)
         let currentPrice: number;
-        if (pos.side === 'long') {
-          currentPrice = pos.current_price_yes ? parseFloat(pos.current_price_yes) : entryPrice;
+        if (pos.latest_price) {
+          currentPrice = parseFloat(pos.latest_price);
         } else {
-          currentPrice = pos.current_price_no ? parseFloat(pos.current_price_no) : entryPrice;
+          // No price_history data for this token - use entry price to avoid false triggers
+          currentPrice = entryPrice;
         }
 
         // Skip if no valid price
         if (currentPrice <= 0 || isNaN(currentPrice)) {
+          continue;
+        }
+
+        // Price staleness check: skip if price data is older than 1 hour
+        const priceAgeSeconds = pos.price_age_seconds ? parseFloat(pos.price_age_seconds) : null;
+        if (priceAgeSeconds !== null && priceAgeSeconds > 3600) {
+          continue;
+        }
+
+        // Price sanity check: reject if price dropped more than 80% from entry
+        // This prevents catastrophic sells due to stale/corrupt data in markets table
+        if (currentPrice < entryPrice * 0.20) {
+          console.warn(`[StopLoss] SKIPPED ${(pos.question || pos.market_id).substring(0, 40)}... - price $${currentPrice.toFixed(4)} is ${((1 - currentPrice / entryPrice) * 100).toFixed(0)}% below entry $${entryPrice.toFixed(4)} (likely stale data)`);
           continue;
         }
 
