@@ -68,14 +68,6 @@ export async function startSystem(): Promise<void> {
     // Start the system
     await system.start();
 
-    // Register any existing strategies
-    for (const [id, { config: stratConfig, signals, combiner }] of ctx.strategies) {
-      system.orchestrator.registerStrategy(stratConfig, signals, combiner);
-      if (stratConfig.enabled) {
-        system.orchestrator.startStrategy(id);
-      }
-    }
-
     // Subscribe to watched markets
     for (const marketId of ctx.watchedMarkets) {
       system.feed.subscribe(marketId);
@@ -145,11 +137,6 @@ export function showSystemStatus(): void {
 
   // Risk Monitor
   console.log(`  ${bold('Risk Monitor:')} ${ctx.system.riskMonitor.isTradingHalted() ? red('HALTED') : green('Active')}`);
-
-  // Strategies
-  const strategies = ctx.system.orchestrator.getAllStrategyStates();
-  const runningCount = Array.from(strategies.values()).filter(s => s.isRunning).length;
-  console.log(`  ${bold('Strategies:')} ${runningCount}/${strategies.size} running`);
 
   // Portfolio summary
   const portfolio = ctx.system.engine.getPortfolioState();
@@ -408,16 +395,9 @@ export function haltTrading(): void {
     return;
   }
 
-  // Close all and halt
   ctx.system.engine.closeAllPositions();
   ctx.system.engine.cancelAllOrders();
 
-  // The risk monitor will emit halt, but we can't directly halt it
-  // as it's based on risk limits. For manual halt, we stop strategies.
-  for (const strategyId of ctx.strategies.keys()) {
-    ctx.system.orchestrator.stopStrategy(strategyId);
-  }
-
-  console.log(yellow('Trading halted - all strategies stopped'));
+  console.log(yellow('Trading halted - all positions and orders closed'));
   console.log();
 }

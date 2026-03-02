@@ -13,7 +13,6 @@ export * from './TradingAutomation.js';
 export * from './SignalEngine.js';
 export * from './PolymarketService.js';
 export * from './BacktestService.js';
-export * from './AutoInitService.js';
 export * from './OptimizationScheduler.js';
 export * from './ValidationService.js';
 export * from './PositionCleanupService.js';

@@ -36,19 +36,6 @@ import {
 } from './commands/trading.js';
 
 import {
-  listStrategies,
-  showStrategyDetails,
-  createStrategy,
-  deleteStrategy,
-  startStrategy,
-  stopStrategy,
-  listAvailableSignals,
-  createMomentumStrategy,
-  createMeanReversionStrategy,
-  createComboStrategy,
-} from './commands/strategy.js';
-
-import {
   startSystem,
   stopSystem,
   showSystemStatus,
@@ -113,18 +100,6 @@ function showHelp(): void {
   console.log('    unwatch <marketId>        Unsubscribe from market');
   console.log('    markets                   Show watched markets');
   console.log('    price <marketId>          Show market price');
-  console.log();
-
-  console.log(bold('  Strategies:'));
-  console.log('    strategies, strats        List strategies');
-  console.log('    strategy <id>             Show strategy details');
-  console.log('    signals                   List available signals');
-  console.log('    create-momentum           Create momentum strategy');
-  console.log('    create-meanrev            Create mean reversion strategy');
-  console.log('    create-combo              Create combined strategy');
-  console.log('    start-strat <id>          Start a strategy');
-  console.log('    stop-strat <id>           Stop a strategy');
-  console.log('    delete-strat <id>         Delete a strategy');
   console.log();
 
   console.log(bold('  Alerts:'));
@@ -261,53 +236,6 @@ async function executeCommand(input: string): Promise<boolean> {
           showMarketPrice(args[0]);
         } else {
           console.log(red('Usage: price <marketId>'));
-        }
-        break;
-
-      // Strategies
-      case 'strategies':
-      case 'strats':
-        listStrategies();
-        break;
-      case 'strategy':
-      case 'strat':
-        if (args.length >= 1) {
-          showStrategyDetails(args[0]);
-        } else {
-          console.log(red('Usage: strategy <strategyId>'));
-        }
-        break;
-      case 'signals':
-        listAvailableSignals();
-        break;
-      case 'create-momentum':
-        createMomentumStrategy();
-        break;
-      case 'create-meanrev':
-        createMeanReversionStrategy();
-        break;
-      case 'create-combo':
-        createComboStrategy();
-        break;
-      case 'start-strat':
-        if (args.length >= 1) {
-          startStrategy(args[0]);
-        } else {
-          console.log(red('Usage: start-strat <strategyId>'));
-        }
-        break;
-      case 'stop-strat':
-        if (args.length >= 1) {
-          stopStrategy(args[0]);
-        } else {
-          console.log(red('Usage: stop-strat <strategyId>'));
-        }
-        break;
-      case 'delete-strat':
-        if (args.length >= 1) {
-          deleteStrategy(args[0]);
-        } else {
-          console.log(red('Usage: delete-strat <strategyId>'));
         }
         break;
 

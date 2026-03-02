@@ -29,14 +29,6 @@ export {
   type PaperTradingEvents,
 } from './engine/PaperTradingEngine.js';
 
-// Strategy Orchestrator
-export {
-  StrategyOrchestrator,
-  createStrategyOrchestrator,
-  type OrchestratorConfig,
-  type OrchestratorEvents,
-} from './orchestrator/StrategyOrchestrator.js';
-
 // Risk Monitoring
 export {
   RiskMonitor,
@@ -60,7 +52,6 @@ export {
 
 import { LiveDataFeed, createLiveDataFeed } from './feeds/LiveDataFeed.js';
 import { PaperTradingEngine, createPaperTradingEngine, type PaperTradingConfig } from './engine/PaperTradingEngine.js';
-import { StrategyOrchestrator, createStrategyOrchestrator, type OrchestratorConfig } from './orchestrator/StrategyOrchestrator.js';
 import { RiskMonitor, createRiskMonitor, type RiskMonitorConfig } from './monitoring/RiskMonitor.js';
 import { AlertSystem, createAlertSystem } from './alerts/AlertSystem.js';
 import type { FeedConfig, AlertConfig } from './types/index.js';
@@ -71,7 +62,6 @@ import type { FeedConfig, AlertConfig } from './types/index.js';
 export interface TradingSystemConfig {
   feed?: Partial<FeedConfig>;
   trading?: Partial<PaperTradingConfig>;
-  orchestrator?: Partial<OrchestratorConfig>;
   riskMonitor?: Partial<RiskMonitorConfig>;
   alerts?: Partial<AlertConfig>;
 }
@@ -82,7 +72,6 @@ export interface TradingSystemConfig {
 export interface TradingSystem {
   feed: LiveDataFeed;
   engine: PaperTradingEngine;
-  orchestrator: StrategyOrchestrator;
   riskMonitor: RiskMonitor;
   alertSystem: AlertSystem;
   start: () => Promise<void>;
@@ -96,7 +85,6 @@ export function createTradingSystem(config?: TradingSystemConfig): TradingSystem
   // Create components
   const feed = createLiveDataFeed(config?.feed);
   const engine = createPaperTradingEngine(feed, config?.trading);
-  const orchestrator = createStrategyOrchestrator(feed, engine, config?.orchestrator);
   const riskMonitor = createRiskMonitor(engine, config?.riskMonitor);
   const alertSystem = createAlertSystem(config?.alerts);
 
@@ -111,27 +99,16 @@ export function createTradingSystem(config?: TradingSystemConfig): TradingSystem
   return {
     feed,
     engine,
-    orchestrator,
     riskMonitor,
     alertSystem,
 
     async start() {
-      // Connect feed first
       await feed.connect();
-
-      // Start engine
       engine.start();
-
-      // Start monitoring
       riskMonitor.start();
-
-      // Start orchestrator last
-      orchestrator.start();
     },
 
     stop() {
-      // Stop in reverse order
-      orchestrator.stop();
       riskMonitor.stop();
       engine.stop();
       feed.disconnect();
@@ -148,10 +125,6 @@ export const DEFAULT_TRADING_CONFIG: TradingSystemConfig = {
     feeRate: 0.002,
     slippageModel: 'proportional',
     proportionalSlippage: 0.001,
-  },
-  orchestrator: {
-    evaluationIntervalMs: 5000,
-    kellyFraction: 0.25,
   },
   riskMonitor: {
     maxExposure: 0.8,

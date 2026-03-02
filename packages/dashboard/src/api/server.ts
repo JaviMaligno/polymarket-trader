@@ -51,7 +51,6 @@ import { createWebSocketHandler, type WebSocketHandler } from '../websocket/WebS
 import { createPerformanceAnalytics, type PerformanceAnalytics } from '../analytics/PerformanceAnalytics.js';
 import { createTradeJournal, type TradeJournal } from '../analytics/TradeJournal.js';
 
-// Re-export types needed by routes
 import type { TradingSystem } from '@polymarket-trader/trader';
 
 export interface DashboardContext {
@@ -104,13 +103,6 @@ export class DashboardServer {
 
     // Initialize WebSocket handler
     this.wsHandler = createWebSocketHandler(this.context);
-  }
-
-  /**
-   * Set the trading system reference
-   */
-  setTradingSystem(system: TradingSystem): void {
-    this.context.tradingSystem = system;
   }
 
   /**

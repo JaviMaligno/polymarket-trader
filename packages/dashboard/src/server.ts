@@ -6,11 +6,8 @@
  */
 
 import { createDashboardServer } from './api/server.js';
-import { createTradingSystem } from '@polymarket-trader/trader';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
-import { autoInitialize, createAndStartStrategy } from './services/AutoInitService.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
-import { initializePaperTradingService } from './services/PaperTradingService.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
@@ -48,111 +45,8 @@ async function main(): Promise<void> {
     },
   });
 
-  // Optionally create and connect trading system
-  const connectTrader = process.env.CONNECT_TRADER === 'true';
-
-  if (connectTrader) {
-    console.log('Initializing trading system...');
-
-    const tradingSystem = createTradingSystem({
-      feed: {
-        apiUrl: process.env.POLYMARKET_API_URL ?? 'https://clob.polymarket.com',
-      },
-      trading: {
-        initialCapital: parseFloat(process.env.INITIAL_CAPITAL ?? '10000'),
-        feeRate: parseFloat(process.env.FEE_RATE ?? '0.001'),
-      },
-      riskMonitor: {
-        maxDrawdown: parseFloat(process.env.MAX_DRAWDOWN ?? '0.15'),
-        maxDailyLoss: parseFloat(process.env.MAX_DAILY_LOSS ?? '500'),
-      },
-      alerts: {
-        channels: ['CONSOLE'],
-        minSeverity: 'INFO',
-      },
-    });
-
-    server.setTradingSystem(tradingSystem);
-
-    // Connect paper trading persistence
-    if (isDatabaseConfigured()) {
-      const paperTradingService = initializePaperTradingService(
-        parseFloat(process.env.INITIAL_CAPITAL ?? '10000')
-      );
-
-      // Listen to order fills and persist trades
-      tradingSystem.engine.on('order:filled', (order: any, fill: any) => {
-        // Extract signalInfo from order metadata (set by StrategyOrchestrator)
-        const signalInfo = order.metadata?.signalInfo as {
-          signalId?: number;
-          signalType?: string;
-          direction?: string;
-          strength?: number;
-          confidence?: number;
-        } | undefined;
-
-        paperTradingService.recordTrade(order, fill, signalInfo).catch((err: Error) => {
-          console.error('Failed to record trade:', err);
-        });
-      });
-
-      // Listen to position changes and persist
-      tradingSystem.engine.on('position:opened', (position: any) => {
-        paperTradingService.updatePosition(position).catch((err: Error) => {
-          console.error('Failed to update position:', err);
-        });
-      });
-
-      tradingSystem.engine.on('position:updated', (position: any) => {
-        paperTradingService.updatePosition(position).catch((err: Error) => {
-          console.error('Failed to update position:', err);
-        });
-      });
-
-      tradingSystem.engine.on('position:closed', (position: any) => {
-        paperTradingService.closePosition(position.marketId).catch((err: Error) => {
-          console.error('Failed to close position:', err);
-        });
-      });
-
-      // Start periodic equity snapshots (every 5 minutes)
-      paperTradingService.startSnapshotRecording(
-        () => tradingSystem.engine.getPortfolioState(),
-        () => {
-          const stats = tradingSystem.engine.getStatistics();
-          return {
-            totalTrades: stats.totalTrades,
-          };
-        },
-        300000 // 5 minutes
-      );
-
-      console.log('Paper trading persistence connected');
-    }
-
-    // Start trading system
-    await tradingSystem.start();
-    console.log('Trading system connected');
-
-    // Auto-initialize markets and strategy
-    if (isDatabaseConfigured()) {
-      console.log('Running auto-initialization...');
-      await autoInitialize(tradingSystem as any);
-    }
-  }
-
   // Start server
   await server.start();
-
-  // After server is up, create and start strategy via API
-  if (connectTrader && isDatabaseConfigured()) {
-    const baseUrl = `http://localhost:${port}`;
-    // Delay to ensure server is fully ready
-    setTimeout(async () => {
-      console.log('Creating and starting auto-optimized strategy...');
-      await createAndStartStrategy(baseUrl);
-    }, 5000);
-  }
 
   // Start optimization scheduler (runs every 6 hours)
   const enableOptimization = process.env.ENABLE_OPTIMIZATION !== 'false';

@@ -39,7 +39,6 @@ services:
       PORT: 3001
       HOST: 0.0.0.0
       CORS_ORIGIN: ${CORS_ORIGIN:-*}
-      CONNECT_TRADER: ${CONNECT_TRADER:-true}
       POLYMARKET_API_URL: ${POLYMARKET_API_URL:-https://clob.polymarket.com}
       DATABASE_URL: postgresql://${DB_USER:-polymarket}:${DB_PASSWORD:-polymarket_dev}@timescaledb:5432/${DB_NAME:-polymarket_trading}
       INITIAL_CAPITAL: ${INITIAL_CAPITAL:-10000}
