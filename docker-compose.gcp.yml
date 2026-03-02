@@ -63,9 +63,7 @@ services:
   # Data Collector (Node.js)
   # ============================================
   data-collector:
-    build:
-      context: .
-      dockerfile: packages/data-collector/Dockerfile.gcp
+    image: ghcr.io/javimaligno/polymarket-trader/data-collector:latest
     container_name: polymarket-data-collector
     restart: unless-stopped
     environment:
@@ -103,9 +101,7 @@ services:
   # Dashboard API (Node.js - Signals + Trading)
   # ============================================
   dashboard-api:
-    build:
-      context: .
-      dockerfile: packages/dashboard/Dockerfile
+    image: ghcr.io/javimaligno/polymarket-trader/dashboard-api:latest
     container_name: polymarket-dashboard-api
     restart: unless-stopped
     environment:
@@ -118,7 +114,6 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
       DB_POOL_MAX: "5"
-      CONNECT_TRADER: "false"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "120000"
       MAX_SIGNAL_MARKETS: "15"

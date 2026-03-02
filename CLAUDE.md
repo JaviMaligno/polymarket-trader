@@ -22,13 +22,14 @@ polymarket-trader/
 
 - **GCP VM**: e2-micro (1GB RAM) running TimescaleDB + data-collector + dashboard-api
 - **Database**: Timescale Cloud (external)
-- **CI/CD**: GitHub Actions deploys to GCP on push to main
+- **CI/CD**: GitHub Actions builds Docker images, pushes to GHCR, deploys to GCP
+- **Images**: ghcr.io/javimaligno/polymarket-trader/{dashboard-api,data-collector}
 
 ### Docker Commands (on GCP VM)
 
 ```bash
 # SSH into VM
-gcloud compute ssh polymarket-trader --zone=us-central1-a
+gcloud compute ssh polymarket-vm --zone=us-east1-b
 
 # View logs
 docker compose -f docker-compose.gcp.yml logs -f dashboard-api
@@ -37,9 +38,9 @@ docker compose -f docker-compose.gcp.yml logs -f data-collector
 # Restart services
 docker compose -f docker-compose.gcp.yml restart dashboard-api
 
-# Full rebuild (needed for code changes)
-docker compose -f docker-compose.gcp.yml build --no-cache dashboard-api
-docker compose -f docker-compose.gcp.yml up -d dashboard-api
+# Pull latest images (built by CI/CD) and restart
+docker compose -f docker-compose.gcp.yml pull
+docker compose -f docker-compose.gcp.yml up -d --remove-orphans
 ```
 
 ## Recurring Analysis Scripts
@@ -73,7 +74,7 @@ Analyzes recent trades to identify patterns in losing trades.
 ## Signal Generation Pipeline
 
 1. **Data Collection**: data-collector fetches market prices every 5 seconds
-2. **Signal Generation**: SignalEngine runs 6 generators (momentum, mean_reversion, OFI, MLOFI, Hawkes, RL)
+2. **Signal Generation**: SignalEngine runs 5 generators (momentum, mean_reversion, OFI, MLOFI, Hawkes)
 3. **Signal Combination**: WeightedAverageCombiner combines signals with optimized weights
 4. **Execution**: AutoSignalExecutor opens/closes positions based on combined signals
 
@@ -117,7 +118,7 @@ EXECUTOR_MAX_OPEN_POSITIONS=50
 ### Check if system is generating signals
 ```bash
 # View dashboard logs on GCP
-gcloud compute ssh polymarket-trader --zone=us-central1-a -- \
+gcloud compute ssh polymarket-vm --zone=us-east1-b -- \
   'docker compose -f docker-compose.gcp.yml logs --tail=100 dashboard-api | grep -E "(signals generated|executed|Signal)"'
 ```
 
