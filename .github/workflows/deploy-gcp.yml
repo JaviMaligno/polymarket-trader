@@ -16,12 +16,43 @@ env:
   DATA_COLLECTOR_IMAGE: ghcr.io/javimaligno/polymarket-trader/data-collector
 
 jobs:
-  build-and-push:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+      data-collector: ${{ steps.filter.outputs.data-collector }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            dashboard:
+              - 'packages/dashboard/**'
+              - 'packages/signals/**'
+              - 'packages/backtest/**'
+              - 'packages/trader/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.json'
+            data-collector:
+              - 'packages/data-collector/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - 'tsconfig.json'
+
+  build-dashboard:
+    needs: changes
+    if: needs.changes.outputs.dashboard == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -45,8 +76,29 @@ jobs:
           tags: |
             ${{ env.DASHBOARD_IMAGE }}:latest
             ${{ env.DASHBOARD_IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard
+
+  build-data-collector:
+    needs: changes
+    if: needs.changes.outputs.data-collector == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push data-collector
         uses: docker/build-push-action@v5
@@ -57,11 +109,12 @@ jobs:
           tags: |
             ${{ env.DATA_COLLECTOR_IMAGE }}:latest
             ${{ env.DATA_COLLECTOR_IMAGE }}:${{ github.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=data-collector
+          cache-to: type=gha,mode=max,scope=data-collector
 
   deploy:
-    needs: build-and-push
+    needs: [changes, build-dashboard, build-data-collector]
+    if: ${{ !failure() && !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -87,6 +140,27 @@ jobs:
 
       - name: Health check
         run: |
-          sleep 60
-          curl -sf http://34.148.24.147:3001/health || echo "Dashboard API health check failed (may still be starting)"
-          curl -sf http://34.148.24.147:10000/health || echo "Data collector health check failed (may still be starting)"
+          echo "Waiting for services to become healthy..."
+          dashboard_ok=false
+          collector_ok=false
+          for i in $(seq 1 24); do
+            if [ "$dashboard_ok" = false ] && curl -sf http://34.148.24.147:3001/health > /dev/null 2>&1; then
+              echo "Dashboard API healthy after $((i * 5))s"
+              dashboard_ok=true
+            fi
+            if [ "$collector_ok" = false ] && curl -sf http://34.148.24.147:10000/health > /dev/null 2>&1; then
+              echo "Data collector healthy after $((i * 5))s"
+              collector_ok=true
+            fi
+            if [ "$dashboard_ok" = true ] && [ "$collector_ok" = true ]; then
+              echo "All services healthy!"
+              exit 0
+            fi
+            sleep 5
+          done
+          if [ "$dashboard_ok" = false ]; then
+            echo "Dashboard API health check failed after 120s (may still be starting)"
+          fi
+          if [ "$collector_ok" = false ]; then
+            echo "Data collector health check failed after 120s (may still be starting)"
+          fi

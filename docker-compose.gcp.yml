@@ -116,7 +116,7 @@ services:
       DB_POOL_MAX: "5"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "120000"
-      MAX_SIGNAL_MARKETS: "15"
+      MAX_SIGNAL_MARKETS: "20"
       ENABLE_OPTIMIZATION: "false"
       OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
       POLYMARKET_API_URL: https://clob.polymarket.com
