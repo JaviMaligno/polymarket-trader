@@ -26,7 +26,7 @@ export class Scheduler {
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
     this.defineJob('sync-prices', '* * * * *', this.syncPrices.bind(this));
     this.defineJob('sync-price-history', '*/1 * * * *', this.syncPriceHistory.bind(this));  // Changed from 15min to 1min
-    this.defineJob('sync-orderbooks', '*/2 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 2 min
+    this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min (reduced from 2min to lower DB I/O)
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
   }
 

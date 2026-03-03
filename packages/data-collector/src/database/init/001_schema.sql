@@ -117,83 +117,12 @@ CREATE INDEX IF NOT EXISTS idx_price_market_time ON price_history (market_id, ti
 CREATE INDEX IF NOT EXISTS idx_price_token_time ON price_history (token_id, time DESC);
 
 -- ============================================
--- CONTINUOUS AGGREGATES
+-- CONTINUOUS AGGREGATES (DISABLED)
 -- ============================================
-
--- 5-minute bars
-CREATE MATERIALIZED VIEW IF NOT EXISTS price_5m
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket('5 minutes', time) AS bucket,
-    market_id,
-    token_id,
-    first(open, time) AS open,
-    max(high) AS high,
-    min(low) AS low,
-    last(close, time) AS close,
-    sum(volume) AS volume,
-    avg(vwap) AS vwap,
-    sum(trade_count) AS trade_count
-FROM price_history
-GROUP BY bucket, market_id, token_id
-WITH NO DATA;
-
-SELECT add_continuous_aggregate_policy('price_5m',
-    start_offset => INTERVAL '1 hour',
-    end_offset => INTERVAL '5 minutes',
-    schedule_interval => INTERVAL '5 minutes',
-    if_not_exists => TRUE
-);
-
--- Hourly bars
-CREATE MATERIALIZED VIEW IF NOT EXISTS price_1h
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket('1 hour', time) AS bucket,
-    market_id,
-    token_id,
-    first(open, time) AS open,
-    max(high) AS high,
-    min(low) AS low,
-    last(close, time) AS close,
-    sum(volume) AS volume,
-    avg(vwap) AS vwap,
-    sum(trade_count) AS trade_count
-FROM price_history
-GROUP BY bucket, market_id, token_id
-WITH NO DATA;
-
-SELECT add_continuous_aggregate_policy('price_1h',
-    start_offset => INTERVAL '1 day',
-    end_offset => INTERVAL '1 hour',
-    schedule_interval => INTERVAL '1 hour',
-    if_not_exists => TRUE
-);
-
--- Daily bars
-CREATE MATERIALIZED VIEW IF NOT EXISTS price_1d
-WITH (timescaledb.continuous) AS
-SELECT
-    time_bucket('1 day', time) AS bucket,
-    market_id,
-    token_id,
-    first(open, time) AS open,
-    max(high) AS high,
-    min(low) AS low,
-    last(close, time) AS close,
-    sum(volume) AS volume,
-    avg(vwap) AS vwap,
-    sum(trade_count) AS trade_count
-FROM price_history
-GROUP BY bucket, market_id, token_id
-WITH NO DATA;
-
-SELECT add_continuous_aggregate_policy('price_1d',
-    start_offset => INTERVAL '7 days',
-    end_offset => INTERVAL '1 day',
-    schedule_interval => INTERVAL '1 day',
-    if_not_exists => TRUE
-);
+-- price_5m, price_1h, price_1d were defined here but are NOT used by any
+-- component (SignalEngine queries price_history directly). They consumed
+-- significant I/O on background refresh jobs. Removed to reduce DB load
+-- on e2-micro VM. Can be re-enabled if needed for analytics.
 
 -- ============================================
 -- TRADES
