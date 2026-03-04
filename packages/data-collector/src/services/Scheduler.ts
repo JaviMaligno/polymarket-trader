@@ -24,7 +24,7 @@ export class Scheduler {
     // Define all scheduled jobs
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
-    // sync-prices REMOVED: all consumers now use price_history instead of markets.current_price_yes/no
+    this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
     this.defineJob('sync-price-history', '*/3 * * * *', this.syncPriceHistory.bind(this));  // Every 3min (signals compute every 2min, plenty fresh)
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
@@ -138,6 +138,9 @@ export class Scheduler {
         case 'sync-events':
           await this.syncEvents();
           break;
+        case 'sync-prices':
+          await this.syncPrices();
+          break;
         case 'sync-price-history':
           await this.syncPriceHistory();
           break;
@@ -178,6 +181,9 @@ export class Scheduler {
       // Then sync markets directly
       await this.syncMarkets();
 
+      // Update current prices
+      await this.syncPrices();
+
       // Start historical price sync
       await this.syncPriceHistory();
 
@@ -206,6 +212,15 @@ export class Scheduler {
     const collector = getGammaCollector();
     const result = await collector.syncEventsToDb();
     logger.info({ inserted: result.inserted, updated: result.updated }, 'Events synced');
+  }
+
+  /**
+   * Update current prices for all markets (used for market selection only)
+   */
+  private async syncPrices(): Promise<void> {
+    const collector = getClobCollector();
+    const result = await collector.updateAllMarketPrices();
+    logger.debug({ updated: result.updated, errors: result.errors }, 'Prices updated');
   }
 
   /**
