@@ -123,8 +123,7 @@ export class PositionCleanupService extends EventEmitter {
         is_resolved: boolean;
         resolution_outcome: string | null;
         question: string | null;
-        current_price_yes: string | null;
-        current_price_no: string | null;
+        latest_price: string | null;
       }>(`
         SELECT
           pp.id,
@@ -137,10 +136,14 @@ export class PositionCleanupService extends EventEmitter {
           m.is_resolved,
           m.resolution_outcome,
           m.question,
-          m.current_price_yes,
-          m.current_price_no
+          ph.close as latest_price
         FROM paper_positions pp
         LEFT JOIN markets m ON pp.market_id = m.id OR pp.market_id = m.condition_id
+        LEFT JOIN LATERAL (
+          SELECT close FROM price_history
+          WHERE token_id = pp.token_id
+          ORDER BY time DESC LIMIT 1
+        ) ph ON true
         WHERE pp.closed_at IS NULL
       `);
 
@@ -176,14 +179,14 @@ export class PositionCleanupService extends EventEmitter {
             // NO won: Yes tokens = $0, No tokens = $1
             exitPrice = pos.side === 'long' ? 0.0 : 1.0;
           }
-          // If outcome is null/unknown, use current price or entry price
-          else if (pos.current_price_yes) {
-            exitPrice = parseFloat(pos.current_price_yes);
+          // If outcome is null/unknown, use latest price from price_history
+          else if (pos.latest_price) {
+            exitPrice = parseFloat(pos.latest_price);
           }
         } else if (isInactive) {
-          // Not resolved but inactive - use current market price if available
-          if (pos.current_price_yes) {
-            exitPrice = parseFloat(pos.current_price_yes);
+          // Not resolved but inactive - use latest price from price_history
+          if (pos.latest_price) {
+            exitPrice = parseFloat(pos.latest_price);
           }
         }
 

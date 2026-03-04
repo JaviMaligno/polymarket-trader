@@ -409,6 +409,8 @@ export class PolymarketService extends EventEmitter {
       const MIN_PRICE = 0.05;
       const MAX_PRICE = 0.95;
 
+      // Use latest price from price_history instead of stale markets.current_price_yes/no
+      // This eliminates the need for the sync-prices job entirely
       const marketsResult = await query<{
         id: string;
         condition_id: string;
@@ -416,34 +418,38 @@ export class PolymarketService extends EventEmitter {
         category: string;
         clob_token_id_yes: string;
         clob_token_id_no: string;
-        current_price_yes: string;
-        current_price_no: string;
+        latest_price_yes: string;
         volume_24h: string;
         liquidity: string;
         end_date: Date;
         is_active: boolean;
       }>(`
         SELECT
-          id, condition_id, question, category,
-          clob_token_id_yes, clob_token_id_no,
-          current_price_yes, current_price_no,
-          volume_24h, liquidity, end_date, is_active
-        FROM markets
-        WHERE is_active = true
-          AND is_resolved = false
-          AND clob_token_id_yes IS NOT NULL
-          AND current_price_yes > $1
-          AND current_price_yes < $2
-          AND volume_24h >= $3
-        ORDER BY volume_24h DESC NULLS LAST
+          m.id, m.condition_id, m.question, m.category,
+          m.clob_token_id_yes, m.clob_token_id_no,
+          m.volume_24h, m.liquidity, m.end_date, m.is_active,
+          ph.close as latest_price_yes
+        FROM markets m
+        LEFT JOIN LATERAL (
+          SELECT close FROM price_history
+          WHERE token_id = m.clob_token_id_yes
+          ORDER BY time DESC LIMIT 1
+        ) ph ON true
+        WHERE m.is_active = true
+          AND m.is_resolved = false
+          AND m.clob_token_id_yes IS NOT NULL
+          AND ph.close > $1
+          AND ph.close < $2
+          AND m.volume_24h >= $3
+        ORDER BY m.volume_24h DESC NULLS LAST
         LIMIT $4
       `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch]);
 
       const candidateMarkets: PolymarketMarket[] = [];
 
       for (const m of marketsResult.rows) {
-        const priceYes = parseFloat(m.current_price_yes || '0.5');
-        const priceNo = m.current_price_no ? parseFloat(m.current_price_no) : 1 - priceYes;
+        const priceYes = parseFloat(m.latest_price_yes || '0.5');
+        const priceNo = 1 - priceYes;
         const category = this.extractCategory([], m.question);
 
         const market: PolymarketMarket = {

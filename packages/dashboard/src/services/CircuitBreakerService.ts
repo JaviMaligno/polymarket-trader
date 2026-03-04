@@ -178,15 +178,14 @@ export class CircuitBreakerService extends EventEmitter {
    * Creates actual sell trades and calculates real P&L
    */
   private async closeAllPositions(): Promise<number> {
-    // Get all open positions with current market prices
+    // Get all open positions with latest prices from price_history (not stale markets table)
     const openPositions = await query<{
       market_id: string;
       token_id: string;
       side: string;
       size: string;
       avg_entry_price: string;
-      current_price_yes: string;
-      current_price_no: string;
+      latest_price: string | null;
     }>(`
       SELECT
         pp.market_id,
@@ -194,10 +193,13 @@ export class CircuitBreakerService extends EventEmitter {
         pp.side,
         pp.size,
         pp.avg_entry_price,
-        m.current_price_yes,
-        m.current_price_no
+        ph.close as latest_price
       FROM paper_positions pp
-      JOIN markets m ON pp.market_id = m.id OR pp.market_id = m.condition_id
+      LEFT JOIN LATERAL (
+        SELECT close FROM price_history
+        WHERE token_id = pp.token_id
+        ORDER BY time DESC LIMIT 1
+      ) ph ON true
       WHERE pp.closed_at IS NULL
     `);
 
@@ -209,10 +211,9 @@ export class CircuitBreakerService extends EventEmitter {
       if (size <= 0) continue;
 
       const entryPrice = parseFloat(pos.avg_entry_price);
-      // Use correct price based on position side: long = Yes price, short = No price
-      const exitPrice = pos.side === 'long'
-        ? (parseFloat(pos.current_price_yes) || entryPrice)
-        : (parseFloat(pos.current_price_no) || entryPrice);
+      const exitPrice = pos.latest_price
+        ? parseFloat(pos.latest_price)
+        : entryPrice;
       const feeRate = 0.001;
       const fee = size * exitPrice * feeRate;
 
