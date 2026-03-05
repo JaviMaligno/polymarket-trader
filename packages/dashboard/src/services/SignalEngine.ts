@@ -355,9 +355,8 @@ export class SignalEngine extends EventEmitter {
 
     try {
       // Get price history from database
-      // NOTE: market.id from PolymarketService is the condition_id from CLOB API,
-      // but price_history.market_id uses Gamma's market.id
-      // We JOIN with markets table to find prices by either id or condition_id
+      // market.id is always the Gamma market ID (set in PolymarketService.ts)
+      // which matches price_history.market_id directly — no JOIN needed
       const priceHistory = await query<{
         time: Date;
         open: number;
@@ -368,11 +367,10 @@ export class SignalEngine extends EventEmitter {
         bid: number;
         ask: number;
       }>(
-        `SELECT ph.time, ph.open, ph.high, ph.low, ph.close, ph.volume, ph.bid, ph.ask
-         FROM price_history ph
-         JOIN markets m ON ph.market_id = m.id
-         WHERE m.id = $1 OR m.condition_id = $1
-         ORDER BY ph.time DESC
+        `SELECT time, open, high, low, close, volume, bid, ask
+         FROM price_history
+         WHERE market_id = $1
+         ORDER BY time DESC
          LIMIT 100`,
         [market.id]
       );
@@ -440,13 +438,12 @@ export class SignalEngine extends EventEmitter {
         bid_depth_10pct: number;
         ask_depth_10pct: number;
       }>(
-        `SELECT os.time, os.market_id, os.token_id, os.best_bid, os.best_ask,
-                os.spread, os.mid_price, os.bid_depth_10pct, os.ask_depth_10pct
-         FROM orderbook_snapshots os
-         JOIN markets m ON os.market_id = m.id
-         WHERE (m.id = $1 OR m.condition_id = $1)
-           AND os.time > NOW() - INTERVAL '10 minutes'
-         ORDER BY os.time DESC
+        `SELECT time, market_id, token_id, best_bid, best_ask,
+                spread, mid_price, bid_depth_10pct, ask_depth_10pct
+         FROM orderbook_snapshots
+         WHERE market_id = $1
+           AND time > NOW() - INTERVAL '10 minutes'
+         ORDER BY time DESC
          LIMIT 1`,
         [market.id]
       );

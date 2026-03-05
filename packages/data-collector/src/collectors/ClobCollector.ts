@@ -30,6 +30,9 @@ type FidelityLevel = 1 | 60 | 3600 | 86400;  // 1min, 1hour, 1day
 export class ClobCollector {
   private client: AxiosInstance;
   private rateLimiter = getRateLimiter();
+  // In-memory cache of last sync time per token_id
+  // Eliminates expensive SELECT MAX(time) queries on compressed chunks
+  private lastSyncTimeCache: Map<string, Date> = new Map();
 
   constructor() {
     this.client = axios.create({
@@ -192,13 +195,18 @@ export class ClobCollector {
     tokenId: string,
     fidelity: FidelityLevel = 60
   ): Promise<{ inserted: number; skipped: number }> {
-    // Get last recorded timestamp for this token
-    const lastRecord = await query(
-      'SELECT MAX(time) as last_time FROM price_history WHERE token_id = $1',
-      [tokenId]
-    );
+    // Use in-memory cache for last sync time (avoids slow SELECT MAX(time) on compressed chunks)
+    // Falls back to DB query only on cold start (cache miss)
+    let lastTime: Date | null = this.lastSyncTimeCache.get(tokenId) || null;
 
-    const lastTime = lastRecord.rows[0]?.last_time;
+    if (!lastTime) {
+      const lastRecord = await query(
+        'SELECT MAX(time) as last_time FROM price_history WHERE token_id = $1',
+        [tokenId]
+      );
+      lastTime = lastRecord.rows[0]?.last_time || null;
+    }
+
     const startTs = lastTime
       ? Math.floor(new Date(lastTime).getTime() / 1000)
       : Math.floor(Date.now() / 1000) - 30 * 24 * 60 * 60; // 30 days ago
@@ -271,6 +279,12 @@ export class ClobCollector {
       } catch (error) {
         logger.error({ error, tokenId, batchStart: i }, 'Error inserting price history batch');
       }
+    }
+
+    // Update cache with the latest timestamp from this sync
+    if (history.length > 0) {
+      const latestTs = Math.max(...history.map(p => p.t));
+      this.lastSyncTimeCache.set(tokenId, new Date(latestTs * 1000));
     }
 
     logger.debug({ tokenId, inserted, skipped, total: history.length, volatility }, 'Synced price history with realistic OHLC');
