@@ -74,7 +74,7 @@ services:
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
-      MAX_TRACKED_MARKETS: "25"
+      MAX_TRACKED_MARKETS: "30"
       DB_POOL_MAX: "5"
       PORT: 10000
     ports:
