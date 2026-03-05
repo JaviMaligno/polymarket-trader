@@ -36,6 +36,12 @@ import {
 // Import OrderBookSnapshot directly from signal types to avoid name conflict with RL's OrderBookSnapshot
 import type { OrderBookSnapshot } from '@polymarket-trader/signals/dist/core/types/signal.types.js';
 
+/** Extended snapshot that includes raw JSONB bids/asks from the DB */
+interface OrderBookSnapshotWithRaw extends OrderBookSnapshot {
+  rawBids: string | null;
+  rawAsks: string | null;
+}
+
 export interface SignalEngineConfig {
   enabled: boolean;
   computeIntervalMs: number;     // How often to compute signals (60000 = 1 min)
@@ -417,17 +423,45 @@ export class SignalEngine extends EventEmitter {
       };
 
       // Fetch latest order book snapshot from DB
-      const orderBook = await this.fetchOrderBookFromDb(market);
+      const orderBookRaw = await this.fetchOrderBookFromDb(market);
 
-      // Synthesize trades from price bar changes (for OFI and Hawkes)
-      const recentTrades = this.synthesizeTradesFromBars(priceBars, market);
+      // Build order book snapshot (without raw bids/asks for the base type)
+      let orderBook: OrderBookSnapshot | undefined;
+      let custom: Record<string, unknown> | undefined;
+
+      if (orderBookRaw) {
+        orderBook = {
+          time: orderBookRaw.time,
+          marketId: orderBookRaw.marketId,
+          tokenId: orderBookRaw.tokenId,
+          bestBid: orderBookRaw.bestBid,
+          bestAsk: orderBookRaw.bestAsk,
+          spread: orderBookRaw.spread,
+          midPrice: orderBookRaw.midPrice,
+          bidDepth10Pct: orderBookRaw.bidDepth10Pct,
+          askDepth10Pct: orderBookRaw.askDepth10Pct,
+        };
+
+        // Parse multi-level order book from JSONB for MLOFI
+        const multiLevelBook = this.parseMultiLevelOrderBook(orderBookRaw, market);
+        if (multiLevelBook) {
+          custom = { multiLevelOrderBook: multiLevelBook };
+        }
+      }
+
+      // Try real trades first, fall back to synthesized if <5 available
+      let recentTrades = await this.fetchRecentTradesFromDb(market);
+      if (recentTrades.length < 5) {
+        recentTrades = this.synthesizeTradesFromBars(priceBars, market);
+      }
 
       return {
         currentTime: new Date(),
         market: marketInfo,
         priceBars,
         recentTrades,
-        orderBook: orderBook ?? undefined,
+        orderBook,
+        custom,
       };
     } catch (error) {
       console.error('[SignalEngine] Failed to build context from DB:', error);
@@ -438,7 +472,7 @@ export class SignalEngine extends EventEmitter {
   /**
    * Fetch latest order book snapshot from database
    */
-  private async fetchOrderBookFromDb(market: ActiveMarket): Promise<OrderBookSnapshot | null> {
+  private async fetchOrderBookFromDb(market: ActiveMarket): Promise<OrderBookSnapshotWithRaw | null> {
     try {
       const result = await query<{
         time: Date;
@@ -450,9 +484,12 @@ export class SignalEngine extends EventEmitter {
         mid_price: number;
         bid_depth_10pct: number;
         ask_depth_10pct: number;
+        bids: string | null;
+        asks: string | null;
       }>(
         `SELECT time, market_id, token_id, best_bid, best_ask,
-                spread, mid_price, bid_depth_10pct, ask_depth_10pct
+                spread, mid_price, bid_depth_10pct, ask_depth_10pct,
+                bids, asks
          FROM orderbook_snapshots
          WHERE market_id = $1
            AND time > NOW() - INTERVAL '10 minutes'
@@ -474,9 +511,98 @@ export class SignalEngine extends EventEmitter {
         midPrice: parseFloat(String(row.mid_price)) || 0,
         bidDepth10Pct: parseFloat(String(row.bid_depth_10pct)) || 0,
         askDepth10Pct: parseFloat(String(row.ask_depth_10pct)) || 0,
+        rawBids: row.bids,
+        rawAsks: row.asks,
       };
     } catch (error) {
       console.error('[SignalEngine] Failed to fetch order book:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch recent real trades from database
+   * Returns up to 200 trades from the last 30 minutes
+   */
+  private async fetchRecentTradesFromDb(market: ActiveMarket): Promise<Trade[]> {
+    try {
+      const result = await query<{
+        time: Date;
+        market_id: string;
+        token_id: string;
+        side: string;
+        price: number;
+        size: number;
+      }>(
+        `SELECT time, market_id, token_id, side, price, size
+         FROM trades
+         WHERE market_id = $1
+           AND time > NOW() - INTERVAL '30 minutes'
+         ORDER BY time DESC
+         LIMIT 200`,
+        [market.id]
+      );
+
+      return result.rows.reverse().map(row => ({
+        time: new Date(row.time),
+        marketId: row.market_id,
+        tokenId: row.token_id,
+        side: row.side.toUpperCase() === 'BUY' ? 'BUY' as const : 'SELL' as const,
+        price: parseFloat(String(row.price)),
+        size: parseFloat(String(row.size)),
+      }));
+    } catch (error) {
+      // Silently fall back to synthesized trades
+      return [];
+    }
+  }
+
+  /**
+   * Parse multi-level order book from raw JSONB bids/asks
+   * Returns null if data is missing or has fewer than 3 levels (MLOFI falls back to basic mode)
+   */
+  private parseMultiLevelOrderBook(
+    orderBookRaw: { time: Date; marketId: string; tokenId: string; rawBids: string | null; rawAsks: string | null },
+    market: ActiveMarket
+  ): { time: Date; marketId: string; tokenId: string; bids: { price: number; size: number }[]; asks: { price: number; size: number }[] } | null {
+    try {
+      if (!orderBookRaw.rawBids || !orderBookRaw.rawAsks) return null;
+
+      const rawBids = typeof orderBookRaw.rawBids === 'string'
+        ? JSON.parse(orderBookRaw.rawBids) : orderBookRaw.rawBids;
+      const rawAsks = typeof orderBookRaw.rawAsks === 'string'
+        ? JSON.parse(orderBookRaw.rawAsks) : orderBookRaw.rawAsks;
+
+      if (!Array.isArray(rawBids) || !Array.isArray(rawAsks)) return null;
+
+      const bids = rawBids
+        .map((l: { price: string; size: string }) => ({
+          price: parseFloat(l.price),
+          size: parseFloat(l.size),
+        }))
+        .filter((l: { price: number; size: number }) => !isNaN(l.price) && !isNaN(l.size))
+        .sort((a: { price: number }, b: { price: number }) => b.price - a.price); // desc by price
+
+      const asks = rawAsks
+        .map((l: { price: string; size: string }) => ({
+          price: parseFloat(l.price),
+          size: parseFloat(l.size),
+        }))
+        .filter((l: { price: number; size: number }) => !isNaN(l.price) && !isNaN(l.size))
+        .sort((a: { price: number }, b: { price: number }) => a.price - b.price); // asc by price
+
+      // Need at least 3 levels on each side for meaningful multi-level analysis
+      if (bids.length < 3 || asks.length < 3) return null;
+
+      return {
+        time: orderBookRaw.time,
+        marketId: orderBookRaw.marketId,
+        tokenId: orderBookRaw.tokenId,
+        bids,
+        asks,
+      };
+    } catch {
+      // JSON parse failed or unexpected format - MLOFI falls back to basic mode
       return null;
     }
   }

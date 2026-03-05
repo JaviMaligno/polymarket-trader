@@ -1,6 +1,6 @@
 # Docker Compose for Google Cloud e2-micro VM
 # Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
-# Memory budget: TimescaleDB 350M + Data Collector 120M + Dashboard 80M = 550M
+# Memory budget: TimescaleDB 350M + Data Collector 120M + Dashboard 120M = 590M
 # NOTE: Optimizer runs on Render (polymarket-optimizer-server.onrender.com)
 #
 # Usage:
@@ -74,7 +74,7 @@ services:
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
-      MAX_TRACKED_MARKETS: "30"
+      MAX_TRACKED_MARKETS: "40"
       DB_POOL_MAX: "5"
       PORT: 10000
     ports:
@@ -116,8 +116,8 @@ services:
       DB_POOL_MAX: "5"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "300000"
-      MAX_SIGNAL_MARKETS: "25"
-      ENABLE_OPTIMIZATION: "false"
+      MAX_SIGNAL_MARKETS: "35"
+      ENABLE_OPTIMIZATION: "true"
       OPTIMIZER_URL: https://polymarket-optimizer-server.onrender.com
       POLYMARKET_API_URL: https://clob.polymarket.com
       INITIAL_CAPITAL: "10000"
@@ -150,9 +150,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 80M
+          memory: 120M
         reservations:
-          memory: 40M
+          memory: 50M
     logging:
       driver: "json-file"
       options:

@@ -164,6 +164,147 @@ export class ClobCollector {
   }
 
   /**
+   * Fetch recent trades for a token from CLOB API
+   */
+  async fetchTrades(tokenId: string, cursor?: string): Promise<{ trades: any[]; next_cursor?: string }> {
+    await this.rateLimiter.acquire('data_trades');
+
+    try {
+      const params: Record<string, string> = { asset_id: tokenId };
+      if (cursor) params.cursor = cursor;
+
+      const response = await this.client.get('/trades', { params });
+      return {
+        trades: response.data || [],
+        next_cursor: response.data?.next_cursor,
+      };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return { trades: [] };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Sync trades for a single token to database
+   * Uses in-memory cache to avoid re-fetching old trades
+   */
+  async syncTradesToDb(
+    marketId: string,
+    tokenId: string
+  ): Promise<{ inserted: number }> {
+    // Use cache to determine how far back to fetch
+    const lastSync = this.lastSyncTimeCache.get(`trades:${tokenId}`);
+
+    const result = await this.fetchTrades(tokenId);
+    const trades = Array.isArray(result.trades) ? result.trades : [];
+
+    if (trades.length === 0) {
+      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
+      return { inserted: 0 };
+    }
+
+    // Filter trades newer than last sync
+    const newTrades = lastSync
+      ? trades.filter((t: any) => {
+          const matchTime = new Date(t.match_time || t.timestamp);
+          return matchTime > lastSync;
+        })
+      : trades;
+
+    if (newTrades.length === 0) {
+      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
+      return { inserted: 0 };
+    }
+
+    // Batch insert
+    const values: any[] = [];
+    const placeholders: string[] = [];
+
+    newTrades.forEach((trade: any, idx: number) => {
+      const baseIdx = idx * 8;
+      placeholders.push(
+        `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6}, $${baseIdx + 7}, $${baseIdx + 8})`
+      );
+
+      const matchTime = new Date(trade.match_time || trade.timestamp || Date.now());
+      const side = (trade.side || 'BUY').toUpperCase() === 'BUY' ? 'buy' : 'sell';
+
+      values.push(
+        matchTime,                               // time
+        marketId,                                 // market_id
+        tokenId,                                  // token_id
+        side,                                     // side
+        parseFloat(trade.price) || 0,             // price
+        parseFloat(trade.size) || 0,              // size
+        trade.maker_address || null,              // maker_address
+        trade.transaction_hash || null,           // tx_hash
+      );
+    });
+
+    try {
+      const insertResult = await query(
+        `INSERT INTO trades (time, market_id, token_id, side, price, size, maker_address, tx_hash)
+         VALUES ${placeholders.join(', ')}
+         ON CONFLICT DO NOTHING`,
+        values
+      );
+
+      const inserted = insertResult.rowCount || 0;
+
+      // Update cache
+      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
+
+      if (inserted > 0) {
+        logger.debug({ tokenId, inserted, total: newTrades.length }, 'Synced trades');
+      }
+
+      return { inserted };
+    } catch (error) {
+      logger.error({ error, tokenId }, 'Error inserting trades');
+      return { inserted: 0 };
+    }
+  }
+
+  /**
+   * Sync trades for all active markets
+   * Respects MAX_TRACKED_MARKETS config
+   */
+  async syncAllTrades(): Promise<{ markets: number; totalInserted: number; errors: number }> {
+    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
+    const marketsResult = await query(
+      `SELECT id, clob_token_id_yes, clob_token_id_no
+       FROM markets
+       WHERE is_active = true AND clob_token_id_yes IS NOT NULL
+       ORDER BY volume_24h DESC NULLS LAST
+       ${limitClause}`
+    );
+
+    const markets = marketsResult.rows;
+    let totalInserted = 0;
+    let errors = 0;
+
+    for (const market of markets) {
+      try {
+        const yesResult = await this.syncTradesToDb(market.id, market.clob_token_id_yes);
+        totalInserted += yesResult.inserted;
+
+        if (market.clob_token_id_no) {
+          const noResult = await this.syncTradesToDb(market.id, market.clob_token_id_no);
+          totalInserted += noResult.inserted;
+        }
+      } catch (error) {
+        logger.error({ error, marketId: market.id }, 'Error syncing trades');
+        errors++;
+      }
+    }
+
+    logger.info({ markets: markets.length, totalInserted, errors }, 'Trades synced');
+    return { markets: markets.length, totalInserted, errors };
+  }
+
+  /**
    * Estimate volatility from recent price changes
    */
   private estimateVolatility(prices: number[]): number {

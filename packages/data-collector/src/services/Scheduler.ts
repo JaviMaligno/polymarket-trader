@@ -28,6 +28,7 @@ export class Scheduler {
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
     this.defineJob('sync-price-history', '*/15 * * * *', this.syncPriceHistory.bind(this));  // Every 15min (consumers react via pg_notify, fallback 5min)
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
+    this.defineJob('sync-trades', '*/5 * * * *', this.syncTrades.bind(this));  // Real trades every 5 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
   }
 
@@ -148,6 +149,9 @@ export class Scheduler {
         case 'sync-orderbooks':
           await this.syncOrderBooks();
           break;
+        case 'sync-trades':
+          await this.syncTrades();
+          break;
         case 'log-stats':
           await this.logStats();
           break;
@@ -190,6 +194,9 @@ export class Scheduler {
 
       // Sync order books
       await this.syncOrderBooks();
+
+      // Sync trades
+      await this.syncTrades();
 
       logger.info('Initial sync completed');
     } catch (error) {
@@ -261,6 +268,15 @@ export class Scheduler {
     const collector = getClobCollector();
     const result = await collector.syncAllOrderBooks();
     logger.info({ synced: result.synced, errors: result.errors }, 'Order books synced');
+  }
+
+  /**
+   * Sync real trades from CLOB API
+   */
+  private async syncTrades(): Promise<void> {
+    const collector = getClobCollector();
+    const result = await collector.syncAllTrades();
+    logger.info({ markets: result.markets, inserted: result.totalInserted, errors: result.errors }, 'Trades synced');
   }
 
   /**
