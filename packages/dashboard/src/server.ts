@@ -14,6 +14,7 @@ import { getTradingAutomation } from './services/TradingAutomation.js';
 import { initializePositionCleanupService } from './services/PositionCleanupService.js';
 import { initializeStopLossService } from './services/StopLossService.js';
 import { initializeCircuitBreakerService } from './services/CircuitBreakerService.js';
+import { getDbEventListener } from './services/DbEventListener.js';
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -64,6 +65,14 @@ async function main(): Promise<void> {
   // Start SignalEngine (uses database price history for proper signal generation)
   const enableSignalEngine = process.env.ENABLE_SIGNAL_ENGINE !== 'false';
   if (enableSignalEngine && isDatabaseConfigured()) {
+    // Start DbEventListener BEFORE consumers so they can subscribe
+    try {
+      await getDbEventListener().start();
+      console.log('DbEventListener started');
+    } catch (err) {
+      console.error('DbEventListener failed to start (consumers will use fallback timers):', err);
+    }
+
     setTimeout(async () => {
       console.log('Starting SignalEngine (database-based signals)...');
 
@@ -135,7 +144,7 @@ async function main(): Promise<void> {
       // Start StopLossService to auto-close positions on stop-loss/take-profit
       const stopLossService = initializeStopLossService({
         enabled: true,
-        checkIntervalMs: 30 * 1000,        // Check every 30 seconds
+        checkIntervalMs: 5 * 60 * 1000,    // Fallback: 5min (primary trigger: event-driven via DbEventListener)
         defaultStopLossPct: parseFloat(process.env.STOP_LOSS_PCT || '20'),   // 20% stop loss
         defaultTakeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || '40'), // 40% take profit
         useTrailingStop: false,
@@ -146,7 +155,7 @@ async function main(): Promise<void> {
       // Start CircuitBreakerService to auto-reset account on excessive drawdown
       const circuitBreakerService = initializeCircuitBreakerService({
         enabled: true,
-        checkIntervalMs: 60 * 1000,        // Check every 60 seconds
+        checkIntervalMs: 5 * 60 * 1000,    // Fallback: 5min (primary trigger: event-driven via trade/stopLoss events)
         maxDrawdownPct: 30,                // Reset if drawdown exceeds 30%
         initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
       });
@@ -158,6 +167,7 @@ async function main(): Promise<void> {
   // Graceful shutdown
   const shutdown = async (signal: string) => {
     console.log(`\nReceived ${signal}, shutting down...`);
+    await getDbEventListener().stop();
     await server.stop();
     await closeDatabase();
     process.exit(0);

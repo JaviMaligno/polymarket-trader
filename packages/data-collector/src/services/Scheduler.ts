@@ -3,6 +3,7 @@ import { pino } from 'pino';
 import { getGammaCollector } from '../collectors/GammaCollector.js';
 import { getClobCollector } from '../collectors/ClobCollector.js';
 import { getRateLimiter } from './RateLimiter.js';
+import { getPool } from '../database/connection.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -25,7 +26,7 @@ export class Scheduler {
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
-    this.defineJob('sync-price-history', '*/3 * * * *', this.syncPriceHistory.bind(this));  // Every 3min (signals compute every 2min, plenty fresh)
+    this.defineJob('sync-price-history', '*/15 * * * *', this.syncPriceHistory.bind(this));  // Every 15min (consumers react via pg_notify, fallback 5min)
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
   }
@@ -235,6 +236,22 @@ export class Scheduler {
       skipped: result.totalSkipped,
       errors: result.errors,
     }, 'Price history synced');
+
+    // Notify consumers (dashboard) that fresh price data is available
+    if (result.totalInserted > 0) {
+      try {
+        const pool = getPool();
+        const payload = JSON.stringify({
+          inserted: result.totalInserted,
+          markets: result.markets,
+          time: new Date().toISOString(),
+        });
+        await pool.query(`SELECT pg_notify('price_sync_complete', $1)`, [payload]);
+        logger.debug({ inserted: result.totalInserted }, 'Sent price_sync_complete notification');
+      } catch (notifyErr) {
+        logger.warn({ error: notifyErr }, 'Failed to send pg_notify');
+      }
+    }
   }
 
   /**

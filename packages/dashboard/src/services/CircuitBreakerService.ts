@@ -16,6 +16,8 @@
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
 import { paperTradesRepo, paperPositionsRepo } from '../database/repositories.js';
+import { getTradingAutomation } from './TradingAutomation.js';
+import { getStopLossService } from './StopLossService.js';
 
 export interface CircuitBreakerConfig {
   enabled: boolean;
@@ -36,7 +38,7 @@ interface CircuitBreakerEvent {
 
 const DEFAULT_CONFIG: CircuitBreakerConfig = {
   enabled: true,
-  checkIntervalMs: 60 * 1000,              // 60 seconds
+  checkIntervalMs: 5 * 60 * 1000,           // Fallback: 5 minutes (primary trigger is event-driven)
   maxDrawdownPct: 30,                       // 30% drawdown triggers halt
   initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
   cooldownMs: 30 * 60 * 1000,              // 30 minutes cooldown
@@ -47,6 +49,8 @@ export class CircuitBreakerService extends EventEmitter {
   private config: CircuitBreakerConfig;
   private checkInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private onTradeExecuted: (() => void) | null = null;
+  private onPositionsClosed: (() => void) | null = null;
   private resetCount = 0;
   private lastResetTime: Date | null = null;
 
@@ -70,12 +74,29 @@ export class CircuitBreakerService extends EventEmitter {
     }
 
     this.isRunning = true;
-    console.log(`[CircuitBreaker] Started (check interval: ${this.config.checkIntervalMs / 1000}s, max drawdown: ${this.config.maxDrawdownPct}%)`);
+    console.log(`[CircuitBreaker] Started (fallback interval: ${this.config.checkIntervalMs / 1000}s, max drawdown: ${this.config.maxDrawdownPct}%)`);
 
-    // Schedule periodic checks
+    // Primary triggers: check after capital changes (trades executed or positions closed)
+    const automation = getTradingAutomation();
+    this.onTradeExecuted = () => {
+      this.checkDrawdown().catch(err => {
+        console.error('[CircuitBreaker] Post-trade check failed:', err);
+      });
+    };
+    automation.on('trade:executed', this.onTradeExecuted);
+
+    const stopLoss = getStopLossService();
+    this.onPositionsClosed = () => {
+      this.checkDrawdown().catch(err => {
+        console.error('[CircuitBreaker] Post-stopLoss check failed:', err);
+      });
+    };
+    stopLoss.on('positions:closed', this.onPositionsClosed);
+
+    // Fallback timer: safety net
     this.checkInterval = setInterval(() => {
       this.checkDrawdown().catch(err => {
-        console.error('[CircuitBreaker] Check failed:', err);
+        console.error('[CircuitBreaker] Fallback check failed:', err);
       });
     }, this.config.checkIntervalMs);
 
@@ -89,6 +110,14 @@ export class CircuitBreakerService extends EventEmitter {
    * Stop the service
    */
   stop(): void {
+    if (this.onTradeExecuted) {
+      getTradingAutomation().off('trade:executed', this.onTradeExecuted);
+      this.onTradeExecuted = null;
+    }
+    if (this.onPositionsClosed) {
+      getStopLossService().off('positions:closed', this.onPositionsClosed);
+      this.onPositionsClosed = null;
+    }
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;

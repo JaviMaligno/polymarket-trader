@@ -13,6 +13,7 @@ import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
 import { signalWeightsRepo } from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
+import { getDbEventListener } from './DbEventListener.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
 
 
@@ -73,6 +74,7 @@ export class SignalEngine extends EventEmitter {
   private computeInterval: NodeJS.Timeout | null = null;
   private syncInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private onPriceRefreshed: (() => void) | null = null;
   private activeMarkets: ActiveMarket[] = [];
   private lastComputeTime: Date | null = null;
   private signalsGenerated = 0;
@@ -137,17 +139,24 @@ export class SignalEngine extends EventEmitter {
     }
 
     this.isRunning = true;
-    console.log(`[SignalEngine] Starting (interval: ${this.config.computeIntervalMs / 1000}s)`);
+    console.log(`[SignalEngine] Starting (fallback interval: ${this.config.computeIntervalMs / 1000}s)`);
 
     // Sync weights from database
     await this.syncWeightsFromDatabase();
 
-    // Schedule periodic signal computation
+    // Primary trigger: react to fresh price data from data-collector
+    const dbListener = getDbEventListener();
+    this.onPriceRefreshed = () => {
+      this.computeSignals();
+    };
+    dbListener.on('price:refreshed', this.onPriceRefreshed);
+
+    // Fallback timer: safety net if LISTEN connection drops
     this.computeInterval = setInterval(() => {
       this.computeSignals();
     }, this.config.computeIntervalMs);
 
-    // Schedule periodic weight sync
+    // Schedule periodic weight sync (unchanged)
     this.syncInterval = setInterval(() => {
       this.syncWeightsFromDatabase();
     }, this.config.syncWeightsIntervalMs);
@@ -162,6 +171,10 @@ export class SignalEngine extends EventEmitter {
    * Stop the signal engine
    */
   stop(): void {
+    if (this.onPriceRefreshed) {
+      getDbEventListener().off('price:refreshed', this.onPriceRefreshed);
+      this.onPriceRefreshed = null;
+    }
     if (this.computeInterval) {
       clearInterval(this.computeInterval);
       this.computeInterval = null;

@@ -14,6 +14,7 @@
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
 import { paperTradesRepo, paperPositionsRepo } from '../database/repositories.js';
+import { getDbEventListener } from './DbEventListener.js';
 
 export interface StopLossConfig {
   enabled: boolean;
@@ -44,7 +45,7 @@ interface StopLossResult {
 
 const DEFAULT_CONFIG: StopLossConfig = {
   enabled: true,
-  checkIntervalMs: 30 * 1000,     // Check every 30 seconds
+  checkIntervalMs: 5 * 60 * 1000,  // Fallback: check every 5 minutes (primary trigger is event-driven)
   defaultStopLossPct: parseFloat(process.env.STOP_LOSS_PCT || '15'),    // 15% stop loss
   defaultTakeProfitPct: parseFloat(process.env.TAKE_PROFIT_PCT || '40'), // 40% take profit
   useTrailingStop: false,
@@ -57,6 +58,7 @@ export class StopLossService extends EventEmitter {
   private config: StopLossConfig;
   private checkInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
+  private onPriceRefreshed: (() => void) | null = null;
   // Track highest prices for trailing stops (marketId -> highest price seen)
   private highWaterMarks: Map<string, number> = new Map();
 
@@ -80,12 +82,21 @@ export class StopLossService extends EventEmitter {
     }
 
     this.isRunning = true;
-    console.log(`[StopLoss] Started (check interval: ${this.config.checkIntervalMs / 1000}s, SL: ${this.config.defaultStopLossPct}%, TP: ${this.config.defaultTakeProfitPct}%)`);
+    console.log(`[StopLoss] Started (fallback interval: ${this.config.checkIntervalMs / 1000}s, SL: ${this.config.defaultStopLossPct}%, TP: ${this.config.defaultTakeProfitPct}%)`);
 
-    // Schedule periodic checks
+    // Primary trigger: react to fresh price data from data-collector
+    const dbListener = getDbEventListener();
+    this.onPriceRefreshed = () => {
+      this.checkPositions().catch(err => {
+        console.error('[StopLoss] Event-driven check failed:', err);
+      });
+    };
+    dbListener.on('price:refreshed', this.onPriceRefreshed);
+
+    // Fallback timer: safety net if LISTEN connection drops
     this.checkInterval = setInterval(() => {
       this.checkPositions().catch(err => {
-        console.error('[StopLoss] Check failed:', err);
+        console.error('[StopLoss] Fallback check failed:', err);
       });
     }, this.config.checkIntervalMs);
 
@@ -99,6 +110,10 @@ export class StopLossService extends EventEmitter {
    * Stop the service
    */
   stop(): void {
+    if (this.onPriceRefreshed) {
+      getDbEventListener().off('price:refreshed', this.onPriceRefreshed);
+      this.onPriceRefreshed = null;
+    }
     if (this.checkInterval) {
       clearInterval(this.checkInterval);
       this.checkInterval = null;
