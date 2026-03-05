@@ -216,6 +216,12 @@ export class ClobCollector {
     const history = await this.fetchPriceHistory(tokenId, fidelity, startTs);
 
     if (history.length === 0) {
+      // Cache the current time so we don't re-query MAX(time) next cycle
+      if (lastTime) {
+        this.lastSyncTimeCache.set(tokenId, lastTime);
+      } else {
+        this.lastSyncTimeCache.set(tokenId, new Date());
+      }
       return { inserted: 0, skipped: 0 };
     }
 
