@@ -164,23 +164,20 @@ export class ClobCollector {
   }
 
   /**
-   * Fetch recent trades for a token from CLOB API
+   * Fetch recent trades for a token from Data API (public, no auth required)
    */
-  async fetchTrades(tokenId: string, cursor?: string): Promise<{ trades: any[]; next_cursor?: string }> {
+  async fetchTrades(tokenId: string): Promise<any[]> {
     await this.rateLimiter.acquire('data_trades');
 
     try {
-      const params: Record<string, string> = { asset_id: tokenId };
-      if (cursor) params.cursor = cursor;
-
-      const response = await this.client.get('/trades', { params });
-      return {
-        trades: response.data || [],
-        next_cursor: response.data?.next_cursor,
-      };
+      const response = await axios.get('https://data-api.polymarket.com/trades', {
+        params: { asset_id: tokenId, limit: '100' },
+        timeout: 15000,
+      });
+      return Array.isArray(response.data) ? response.data : [];
     } catch (error: any) {
       if (error.response?.status === 404) {
-        return { trades: [] };
+        return [];
       }
       throw error;
     }
@@ -197,8 +194,7 @@ export class ClobCollector {
     // Use cache to determine how far back to fetch
     const lastSync = this.lastSyncTimeCache.get(`trades:${tokenId}`);
 
-    const result = await this.fetchTrades(tokenId);
-    const trades = Array.isArray(result.trades) ? result.trades : [];
+    const trades = await this.fetchTrades(tokenId);
 
     if (trades.length === 0) {
       this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
@@ -206,10 +202,11 @@ export class ClobCollector {
     }
 
     // Filter trades newer than last sync
+    // data-api returns timestamp as unix seconds
     const newTrades = lastSync
       ? trades.filter((t: any) => {
-          const matchTime = new Date(t.match_time || t.timestamp);
-          return matchTime > lastSync;
+          const tradeTime = new Date(t.timestamp * 1000);
+          return tradeTime > lastSync;
         })
       : trades;
 
@@ -228,18 +225,19 @@ export class ClobCollector {
         `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6}, $${baseIdx + 7}, $${baseIdx + 8})`
       );
 
-      const matchTime = new Date(trade.match_time || trade.timestamp || Date.now());
+      // data-api fields: timestamp (unix s), side, price, size, proxyWallet, transactionHash
+      const tradeTime = new Date((trade.timestamp || 0) * 1000);
       const side = (trade.side || 'BUY').toUpperCase() === 'BUY' ? 'buy' : 'sell';
 
       values.push(
-        matchTime,                               // time
+        tradeTime,                                // time
         marketId,                                 // market_id
         tokenId,                                  // token_id
         side,                                     // side
         parseFloat(trade.price) || 0,             // price
         parseFloat(trade.size) || 0,              // size
-        trade.maker_address || null,              // maker_address
-        trade.transaction_hash || null,           // tx_hash
+        trade.proxyWallet || null,                // maker_address
+        trade.transactionHash || null,            // tx_hash
       );
     });
 
