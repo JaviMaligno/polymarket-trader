@@ -373,8 +373,31 @@ export const paperPositionsRepo = {
     return result.rows[0] ?? null;
   },
 
-  async close(marketId: string): Promise<void> {
-    await query('DELETE FROM paper_positions WHERE market_id = $1', [marketId]);
+  async close(marketId: string, exitPrice?: number): Promise<void> {
+    if (exitPrice !== undefined) {
+      // Properly close with PnL calculation
+      await query(
+        `UPDATE paper_positions SET
+          closed_at = NOW(),
+          current_price = $2,
+          realized_pnl = ($2 - avg_entry_price) * size,
+          size = 0,
+          updated_at = NOW()
+        WHERE market_id = $1 AND closed_at IS NULL`,
+        [marketId, exitPrice]
+      );
+    } else {
+      // Fallback: close at current_price (better than DELETE with no PnL)
+      await query(
+        `UPDATE paper_positions SET
+          closed_at = NOW(),
+          realized_pnl = (current_price - avg_entry_price) * size,
+          size = 0,
+          updated_at = NOW()
+        WHERE market_id = $1 AND closed_at IS NULL`,
+        [marketId]
+      );
+    }
   },
 };
 

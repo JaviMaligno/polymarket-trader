@@ -1191,7 +1191,7 @@ export async function registerRoutes(
 
         if (size >= currentSize) {
           // Close position
-          await paperPositionsRepo.close(market_id);
+          await paperPositionsRepo.close(market_id, price);
         } else {
           // Reduce position
           await paperPositionsRepo.upsert({

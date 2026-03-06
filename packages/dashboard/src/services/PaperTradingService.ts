@@ -161,11 +161,11 @@ export class PaperTradingService {
   /**
    * Close position in database
    */
-  async closePosition(marketId: string): Promise<void> {
+  async closePosition(marketId: string, exitPrice?: number): Promise<void> {
     if (!isDatabaseConfigured()) return;
 
     try {
-      await paperPositionsRepo.close(marketId);
+      await paperPositionsRepo.close(marketId, exitPrice);
       console.log(`Position closed: ${marketId}`);
     } catch (error) {
       console.error('Failed to close position:', error);
