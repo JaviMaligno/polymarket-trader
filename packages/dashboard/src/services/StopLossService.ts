@@ -205,12 +205,9 @@ export class StopLossService extends EventEmitter {
         const priceAgeSeconds = pos.price_age_seconds ? parseFloat(pos.price_age_seconds) : null;
         const isPriceStale = priceAgeSeconds !== null && priceAgeSeconds > 3600;
 
-        // Price sanity check: reject if price dropped more than 80% from entry
-        // This prevents catastrophic sells due to stale/corrupt data in markets table
-        if (currentPrice < entryPrice * 0.20) {
-          console.warn(`[StopLoss] SKIPPED ${(pos.question || pos.market_id).substring(0, 40)}... - price $${currentPrice.toFixed(4)} is ${((1 - currentPrice / entryPrice) * 100).toFixed(0)}% below entry $${entryPrice.toFixed(4)} (likely stale data)`);
-          continue;
-        }
+        // Note: No price drop sanity check — in prediction markets, a token can
+        // legitimately drop 99% (e.g. $0.50 → $0.005) when an event becomes unlikely.
+        // The stop-loss system handles these via normal SL triggers.
 
         // Calculate PnL percentage
         const pnlPct = ((currentPrice - entryPrice) / entryPrice) * 100;

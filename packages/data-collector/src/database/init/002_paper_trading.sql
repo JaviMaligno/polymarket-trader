@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS paper_orders (
     token_id VARCHAR(128) NOT NULL,
 
     -- Order details
-    side VARCHAR(4) NOT NULL,  -- 'buy' or 'sell'
+    side VARCHAR(5) NOT NULL,  -- 'buy', 'sell', 'long', 'short'
     order_type VARCHAR(10) DEFAULT 'market',  -- 'market' or 'limit'
     requested_size DECIMAL(20,6) NOT NULL,
     requested_price DECIMAL(10,6),
@@ -51,7 +51,7 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     token_id VARCHAR(128) NOT NULL,
 
     -- Position state
-    side VARCHAR(4) NOT NULL,  -- 'yes' or 'no'
+    side VARCHAR(5) NOT NULL,  -- 'long' or 'short'
     size DECIMAL(20,6) NOT NULL DEFAULT 0,
     avg_entry_price DECIMAL(10,6) NOT NULL,
 
