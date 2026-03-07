@@ -200,11 +200,10 @@ export class StopLossService extends EventEmitter {
           continue;
         }
 
-        // Price staleness check: skip if price data is older than 1 hour
+        // Price staleness check: if price data is older than 1 hour,
+        // still update position price and allow time exits, but skip stop/TP triggers
         const priceAgeSeconds = pos.price_age_seconds ? parseFloat(pos.price_age_seconds) : null;
-        if (priceAgeSeconds !== null && priceAgeSeconds > 3600) {
-          continue;
-        }
+        const isPriceStale = priceAgeSeconds !== null && priceAgeSeconds > 3600;
 
         // Price sanity check: reject if price dropped more than 80% from entry
         // This prevents catastrophic sells due to stale/corrupt data in markets table
@@ -236,8 +235,8 @@ export class StopLossService extends EventEmitter {
           }
         }
 
-        // Check stop loss (loss exceeds threshold)
-        if (pnlPct <= -effectiveStopLossPct) {
+        // Check stop loss (loss exceeds threshold) - skip if price is stale
+        if (!isPriceStale && pnlPct <= -effectiveStopLossPct) {
           console.log(`[StopLoss] STOP LOSS triggered for ${(pos.question || pos.market_id).substring(0, 40)}... | PnL: ${pnlPct.toFixed(2)}% <= -${effectiveStopLossPct.toFixed(2)}%`);
 
           const closeResult = await this.closePosition(
@@ -265,8 +264,8 @@ export class StopLossService extends EventEmitter {
           // Clean up trailing stop tracking
           this.highWaterMarks.delete(pos.market_id);
         }
-        // Check take profit (gain exceeds threshold)
-        else if (pnlPct >= takeProfitPct) {
+        // Check take profit (gain exceeds threshold) - skip if price is stale
+        else if (!isPriceStale && pnlPct >= takeProfitPct) {
           console.log(`[StopLoss] TAKE PROFIT triggered for ${(pos.question || pos.market_id).substring(0, 40)}... | PnL: ${pnlPct.toFixed(2)}% >= ${takeProfitPct.toFixed(2)}%`);
 
           const closeResult = await this.closePosition(
