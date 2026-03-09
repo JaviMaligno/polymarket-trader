@@ -74,11 +74,6 @@ function fmtDateShort(d) {
   }
 }
 
-function safe(obj, key, fallback) {
-  if (!obj || obj[key] === null || obj[key] === undefined) return fallback;
-  return obj[key];
-}
-
 function truncate(s, len) {
   if (!s) return 'N/A';
   s = String(s);
@@ -93,7 +88,6 @@ function escapeHtml(s) {
 // ── Extract data with safe defaults ─────────────────────────────────────────
 
 const account = data.account || null;
-const trades24h = Array.isArray(data.trades_24h) ? data.trades_24h : [];
 const tradesSummary = data.trades_summary || null;
 const signalDistribution = Array.isArray(data.signal_distribution) ? data.signal_distribution : [];
 const hourlyTrades = Array.isArray(data.hourly_trades) ? data.hourly_trades : [];
@@ -116,9 +110,9 @@ const generatedAt = data.generated_at || new Date().toISOString();
 
 const alerts = []; // { level: 'critical'|'warning', message: string }
 
-// Drawdown > 10%
-if (account && account.max_drawdown != null && account.max_drawdown > 0.10) {
-  alerts.push({ level: 'critical', message: `Drawdown at ${fmtPct(account.max_drawdown)} (threshold: 10%)` });
+// Drawdown > 10% (max_drawdown stored as percentage, e.g. 10.0 = 10%)
+if (account && account.max_drawdown != null && account.max_drawdown > 10) {
+  alerts.push({ level: 'critical', message: `Drawdown at ${fmtPctRaw(account.max_drawdown)} (threshold: 10%)` });
 }
 
 // 5+ consecutive losses
@@ -227,7 +221,7 @@ function buildMarkdown() {
     ln(`| Realized PnL | ${fmtUsd(account.total_realized_pnl)} |`);
     ln(`| Unrealized PnL | ${fmtUsd(account.total_unrealized_pnl)} |`);
     ln(`| Total Fees | ${fmtUsd(account.total_fees_paid)} |`);
-    ln(`| Max Drawdown | ${fmtPct(account.max_drawdown)} |`);
+    ln(`| Max Drawdown | ${fmtPctRaw(account.max_drawdown)} |`);
     ln(`| Peak Equity | ${fmtUsd(account.peak_equity)} |`);
     ln(`| Win Rate | ${winRate !== null ? fmtPct(winRate) : 'N/A'} (${fmt(account.winning_trades, 0)}W / ${fmt(account.losing_trades, 0)}L / ${fmt(account.total_trades, 0)} total) |`);
     ln(`| Last Updated | ${fmtDate(account.updated_at)} |`);
@@ -494,7 +488,7 @@ function buildEmailHtml() {
     p(`<tr><td>Return</td><td class="${retClass}">${returnPct !== null ? escapeHtml(fmtPct(returnPct)) : 'N/A'}</td></tr>`);
     p(`<tr><td>Realized PnL</td><td>${escapeHtml(fmtUsd(account.total_realized_pnl))}</td></tr>`);
     p(`<tr><td>Unrealized PnL</td><td>${escapeHtml(fmtUsd(account.total_unrealized_pnl))}</td></tr>`);
-    p(`<tr><td>Max Drawdown</td><td>${escapeHtml(fmtPct(account.max_drawdown))}</td></tr>`);
+    p(`<tr><td>Max Drawdown</td><td>${escapeHtml(fmtPctRaw(account.max_drawdown))}</td></tr>`);
     p(`<tr><td>Win Rate</td><td>${winRate !== null ? escapeHtml(fmtPct(winRate)) : 'N/A'}</td></tr>`);
     p('</table>');
   } else {
@@ -570,7 +564,7 @@ function buildSlackPayload() {
       fields: [
         { type: 'mrkdwn', text: `*Capital:* ${fmtUsd(account.current_capital)}` },
         { type: 'mrkdwn', text: `*Return:* ${returnPct !== null ? fmtPct(returnPct) : 'N/A'}` },
-        { type: 'mrkdwn', text: `*Drawdown:* ${fmtPct(account.max_drawdown)}` },
+        { type: 'mrkdwn', text: `*Drawdown:* ${fmtPctRaw(account.max_drawdown)}` },
         { type: 'mrkdwn', text: `*Open Positions:* ${openPositions.length}` }
       ]
     });
@@ -586,7 +580,8 @@ function buildSlackPayload() {
     ]
   });
 
-  return { blocks };
+  const textFallback = criticalAlerts.map(a => a.message).join(' | ');
+  return { text: `Polymarket Alert: ${textFallback}`, blocks };
 }
 
 // ── Write output files ──────────────────────────────────────────────────────
