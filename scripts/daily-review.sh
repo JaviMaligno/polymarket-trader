@@ -7,6 +7,18 @@
 
 set -euo pipefail
 
+# ── early checks ─────────────────────────────────────────────────────────────
+
+if ! command -v docker &>/dev/null; then
+  echo '{"error":"docker not found"}' >&2
+  exit 1
+fi
+
+if ! docker exec polymarket-timescaledb pg_isready -U polymarket -d polymarket_trading &>/dev/null; then
+  echo '{"error":"database not reachable"}' >&2
+  exit 1
+fi
+
 PSQL="docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading -t -A"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -16,7 +28,7 @@ PSQL="docker exec polymarket-timescaledb psql -U polymarket -d polymarket_tradin
 query_json() {
   local sql="$1"
   local result
-  result=$($PSQL -c "$sql" 2>/dev/null || echo "")
+  result=$($PSQL -c "$sql" 2>&2 || echo "")
   if [ -z "$result" ] || [ "$result" = "" ] || [ "$result" = "null" ]; then
     echo "[]"
   else
@@ -29,7 +41,7 @@ query_json() {
 query_one() {
   local sql="$1"
   local result
-  result=$($PSQL -c "$sql" 2>/dev/null || echo "")
+  result=$($PSQL -c "$sql" 2>&2 || echo "")
   if [ -z "$result" ] || [ "$result" = "" ] || [ "$result" = "null" ]; then
     echo "null"
   else
