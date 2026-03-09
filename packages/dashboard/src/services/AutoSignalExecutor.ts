@@ -461,9 +461,8 @@ export class AutoSignalExecutor extends EventEmitter {
       );
       if (priceResult.rows[0]) {
         const latestPrice = parseFloat(priceResult.rows[0].close);
-        const priceAge = parseFloat(priceResult.rows[0].price_age_seconds);
-        // Use price_history price if fresh (within 1 hour) and valid
-        if (priceAge < 3600 && latestPrice > 0 && !isNaN(latestPrice)) {
+        // Use price_history price if valid (even if stale — better than signal.price)
+        if (latestPrice > 0 && !isNaN(latestPrice)) {
           exitPrice = latestPrice;
         }
       }
@@ -471,12 +470,9 @@ export class AutoSignalExecutor extends EventEmitter {
       console.warn('[AutoExecutor] Failed to get price_history price for exit, using signal price:', error);
     }
 
-    // Price sanity check: reject if exit price dropped more than 80% from entry
-    // This prevents catastrophic sells due to stale/corrupt price data
-    if (exitPrice < entryPrice * 0.20) {
-      console.warn(`[AutoExecutor] REJECTED exit for ${signal.marketId.substring(0, 20)}... - exit price $${exitPrice.toFixed(4)} is ${((1 - exitPrice / entryPrice) * 100).toFixed(0)}% below entry $${entryPrice.toFixed(4)} (likely stale data)`);
-      return { executed: false, reason: 'Exit price too far below entry - likely stale data' };
-    }
+    // Note: No price drop sanity check — in prediction markets, a token can
+    // legitimately drop 99% (e.g. $0.50 → $0.005) when an event becomes unlikely.
+    // Rejecting the exit would trap capital permanently (bought but never sold).
 
     // Calculate P&L
     const grossPnl = (exitPrice - entryPrice) * shares;
