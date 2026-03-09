@@ -411,6 +411,8 @@ export class PolymarketService extends EventEmitter {
 
       // Use markets.current_price_yes for market SELECTION (updated by sync-prices every 5min)
       // Trading decisions (StopLoss, Executor) use price_history for fresh data
+      // Only select markets that have recent price_history data (last 6 hours)
+      // This ensures signals are never generated for markets without real price data
       const marketsResult = await query<{
         id: string;
         condition_id: string;
@@ -426,20 +428,28 @@ export class PolymarketService extends EventEmitter {
         is_active: boolean;
       }>(`
         SELECT
-          id, condition_id, question, category,
-          clob_token_id_yes, clob_token_id_no,
-          current_price_yes, current_price_no,
-          volume_24h, liquidity, end_date, is_active
-        FROM markets
-        WHERE is_active = true
-          AND is_resolved = false
-          AND clob_token_id_yes IS NOT NULL
-          AND current_price_yes > $1
-          AND current_price_yes < $2
-          AND volume_24h >= $3
-        ORDER BY volume_24h DESC NULLS LAST
+          m.id, m.condition_id, m.question, m.category,
+          m.clob_token_id_yes, m.clob_token_id_no,
+          m.current_price_yes, m.current_price_no,
+          m.volume_24h, m.liquidity, m.end_date, m.is_active
+        FROM markets m
+        WHERE m.is_active = true
+          AND m.is_resolved = false
+          AND m.clob_token_id_yes IS NOT NULL
+          AND m.current_price_yes > $1
+          AND m.current_price_yes < $2
+          AND m.volume_24h >= $3
+          AND EXISTS (
+            SELECT 1 FROM price_history ph
+            WHERE ph.token_id = m.clob_token_id_yes
+              AND ph.time > NOW() - INTERVAL '6 hours'
+            LIMIT 1
+          )
+        ORDER BY m.volume_24h DESC NULLS LAST
         LIMIT $4
       `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch]);
+
+      console.log(`[PolymarketService] Found ${marketsResult.rows.length} markets with recent price data (filtered by price_history)`);
 
       const candidateMarkets: PolymarketMarket[] = [];
 

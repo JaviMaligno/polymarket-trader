@@ -26,7 +26,7 @@ export class Scheduler {
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
-    this.defineJob('sync-price-history', '*/15 * * * *', this.syncPriceHistory.bind(this));  // Every 15min (consumers react via pg_notify, fallback 5min)
+    this.defineJob('sync-price-history', '*/5 * * * *', this.syncPriceHistory.bind(this));  // Every 5min (aligned with signal interval)
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
     this.defineJob('sync-trades', '*/5 * * * *', this.syncTrades.bind(this));  // Real trades every 5 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
