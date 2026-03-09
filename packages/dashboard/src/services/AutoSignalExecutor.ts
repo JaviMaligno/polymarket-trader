@@ -449,18 +449,26 @@ export class AutoSignalExecutor extends EventEmitter {
     const entryPrice = Number(position.avg_entry_price);
 
     // CRITICAL: Get the correct exit price from price_history (fresh data from data-collector)
-    // The markets table current_price_yes/no can be stale and cause catastrophic sells
+    // price_history only stores Yes token prices, so for SHORT positions (No token),
+    // we look up the Yes token via the markets table and compute No price = 1 - Yes price
     let exitPrice = signal.price;
     try {
+      const isShort = position.side === 'short';
       const priceResult = await query<{ close: string; price_age_seconds: string }>(
-        `SELECT close, EXTRACT(EPOCH FROM (NOW() - time)) as price_age_seconds
-         FROM price_history
-         WHERE token_id = $1
-         ORDER BY time DESC LIMIT 1`,
-        [position.token_id]
+        `SELECT ph.close, EXTRACT(EPOCH FROM (NOW() - ph.time)) as price_age_seconds
+         FROM markets m
+         JOIN LATERAL (
+           SELECT close, time FROM price_history
+           WHERE token_id = m.clob_token_id_yes
+           ORDER BY time DESC LIMIT 1
+         ) ph ON true
+         WHERE m.id = $1 OR m.condition_id = $1
+         LIMIT 1`,
+        [position.market_id]
       );
       if (priceResult.rows[0]) {
-        const latestPrice = parseFloat(priceResult.rows[0].close);
+        const yesPrice = parseFloat(priceResult.rows[0].close);
+        const latestPrice = isShort ? 1 - yesPrice : yesPrice;
         // Use price_history price if valid (even if stale — better than signal.price)
         if (latestPrice > 0 && !isNaN(latestPrice)) {
           exitPrice = latestPrice;
