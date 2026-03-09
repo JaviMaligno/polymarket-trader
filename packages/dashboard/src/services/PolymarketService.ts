@@ -61,6 +61,7 @@ export interface PolymarketMarket {
   lastUpdate: Date;
   tags: string[];
   category: string;  // Primary category for diversification
+  marketType?: string;  // crypto_intraday, crypto_daily, event_short, event_long
 }
 
 export interface PolymarketPrice {
@@ -406,11 +407,10 @@ export class PolymarketService extends EventEmitter {
     try {
       // Fetch markets from database (synced by data-collector from Gamma API)
       // Use the market's id (Gamma ID) as the primary identifier for consistency
-      const MIN_PRICE = 0.05;
-      const MAX_PRICE = 0.95;
+      // Use widest price filter here (0.02-0.98) — per-type filtering happens in SignalEngine
+      const MIN_PRICE = 0.02;
+      const MAX_PRICE = 0.98;
 
-      // Use markets.current_price_yes for market SELECTION (updated by sync-prices every 5min)
-      // Trading decisions (StopLoss, Executor) use price_history for fresh data
       // Only select markets that have recent price_history data (last 6 hours)
       // This ensures signals are never generated for markets without real price data
       const marketsResult = await query<{
@@ -426,12 +426,14 @@ export class PolymarketService extends EventEmitter {
         liquidity: string;
         end_date: Date;
         is_active: boolean;
+        market_type: string | null;
       }>(`
         SELECT
           m.id, m.condition_id, m.question, m.category,
           m.clob_token_id_yes, m.clob_token_id_no,
           m.current_price_yes, m.current_price_no,
-          m.volume_24h, m.liquidity, m.end_date, m.is_active
+          m.volume_24h, m.liquidity, m.end_date, m.is_active,
+          m.market_type
         FROM markets m
         WHERE m.is_active = true
           AND m.is_resolved = false
@@ -472,6 +474,7 @@ export class PolymarketService extends EventEmitter {
           lastUpdate: new Date(),
           tags: [],
           category: m.category || category,
+          marketType: m.market_type || undefined,
         };
 
         candidateMarkets.push(market);
@@ -679,6 +682,7 @@ export class PolymarketService extends EventEmitter {
           volume24h: m.volume,
           isActive: m.isActive,
           isResolved: false, // If we're fetching it, it's not resolved yet
+          marketType: m.marketType,
         }));
 
       engine.setActiveMarkets(activeMarkets);

@@ -1,0 +1,171 @@
+import Anthropic from '@anthropic-ai/sdk';
+import { query, isDatabaseConfigured } from '../database/index.js';
+
+export type MarketType = 'crypto_intraday' | 'crypto_daily' | 'event_short' | 'event_long';
+
+const VALID_TYPES: MarketType[] = ['crypto_intraday', 'crypto_daily', 'event_short', 'event_long'];
+
+const CLASSIFICATION_PROMPT = `Classify this prediction market into exactly one category.
+Categories: crypto_intraday, crypto_daily, event_short, event_long
+
+Market: "{question}"
+End date: {end_date}
+
+Rules:
+- crypto_intraday: cryptocurrency price markets resolving within 4 hours
+- crypto_daily: cryptocurrency markets resolving in 4 hours to 7 days
+- event_short: non-crypto events resolving within 30 days
+- event_long: non-crypto events resolving in 30+ days
+
+Respond with ONLY the category name, nothing else.`;
+
+export class MarketClassifier {
+  private client: Anthropic | null = null;
+  private intervalId: NodeJS.Timeout | null = null;
+
+  constructor() {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (apiKey) {
+      this.client = new Anthropic({ apiKey });
+    } else {
+      console.warn('[MarketClassifier] No ANTHROPIC_API_KEY set - using regex fallback only');
+    }
+  }
+
+  /**
+   * Start periodic classification of unclassified markets
+   */
+  start(intervalMs: number = 30 * 60 * 1000): void {
+    if (this.intervalId) return;
+
+    console.log(`[MarketClassifier] Started (interval: ${intervalMs / 60000}min)`);
+
+    // Run immediately, then on interval
+    this.classifyPendingMarkets().catch(err =>
+      console.error('[MarketClassifier] Initial classification failed:', err)
+    );
+
+    this.intervalId = setInterval(() => {
+      this.classifyPendingMarkets().catch(err =>
+        console.error('[MarketClassifier] Classification cycle failed:', err)
+      );
+    }, intervalMs);
+  }
+
+  stop(): void {
+    if (this.intervalId) {
+      clearInterval(this.intervalId);
+      this.intervalId = null;
+      console.log('[MarketClassifier] Stopped');
+    }
+  }
+
+  /**
+   * Classify all markets that don't have a market_type yet
+   */
+  async classifyPendingMarkets(): Promise<number> {
+    if (!isDatabaseConfigured()) return 0;
+
+    const result = await query<{
+      id: string;
+      question: string;
+      end_date: Date | null;
+    }>(`
+      SELECT id, question, end_date
+      FROM markets
+      WHERE market_type IS NULL
+        AND is_active = true
+        AND is_resolved = false
+      LIMIT 50
+    `);
+
+    if (result.rows.length === 0) return 0;
+
+    let classified = 0;
+    for (const market of result.rows) {
+      try {
+        const marketType = await this.classifyMarket(market.question, market.end_date);
+        await query(
+          'UPDATE markets SET market_type = $1, updated_at = NOW() WHERE id = $2',
+          [marketType, market.id]
+        );
+        classified++;
+      } catch (error) {
+        console.error(`[MarketClassifier] Failed to classify ${market.id}:`, error);
+      }
+    }
+
+    if (classified > 0) {
+      console.log(`[MarketClassifier] Classified ${classified}/${result.rows.length} markets`);
+    }
+
+    return classified;
+  }
+
+  /**
+   * Classify a single market using Haiku, with regex fallback
+   */
+  async classifyMarket(question: string, endDate: Date | null): Promise<MarketType> {
+    // Try Haiku first
+    if (this.client) {
+      try {
+        return await this.classifyWithHaiku(question, endDate);
+      } catch (error) {
+        console.warn('[MarketClassifier] Haiku failed, using regex fallback:', error);
+      }
+    }
+
+    // Regex fallback
+    return this.classifyWithRegex(question, endDate);
+  }
+
+  private async classifyWithHaiku(question: string, endDate: Date | null): Promise<MarketType> {
+    const endDateStr = endDate ? endDate.toISOString().split('T')[0] : 'unknown';
+    const prompt = CLASSIFICATION_PROMPT
+      .replace('{question}', question)
+      .replace('{end_date}', endDateStr);
+
+    const response = await this.client!.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 20,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const text = response.content[0].type === 'text'
+      ? response.content[0].text.trim().toLowerCase()
+      : '';
+
+    if (VALID_TYPES.includes(text as MarketType)) {
+      return text as MarketType;
+    }
+
+    // If Haiku returned something unexpected, fallback to regex
+    console.warn(`[MarketClassifier] Haiku returned unexpected: "${text}", using regex`);
+    return this.classifyWithRegex(question, endDate);
+  }
+
+  /**
+   * Simple regex-based classification as fallback
+   */
+  classifyWithRegex(question: string, endDate: Date | null): MarketType {
+    const q = question.toLowerCase();
+    const isCrypto = /bitcoin|btc|ethereum|eth|solana|sol|xrp|crypto|doge|bnb|cardano|ada/i.test(q);
+    const isUpDown = /up or down|price.*above|reach.*\$|dip to|hit.*\$/i.test(q);
+
+    if (isCrypto) {
+      if (endDate) {
+        const hoursUntilEnd = (endDate.getTime() - Date.now()) / (1000 * 60 * 60);
+        if (hoursUntilEnd <= 4 || isUpDown) return 'crypto_intraday';
+        if (hoursUntilEnd <= 7 * 24) return 'crypto_daily';
+      }
+      return isUpDown ? 'crypto_intraday' : 'crypto_daily';
+    }
+
+    if (endDate) {
+      const daysUntilEnd = (endDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24);
+      if (daysUntilEnd >= 30) return 'event_long';
+    }
+
+    return 'event_short';
+  }
+}

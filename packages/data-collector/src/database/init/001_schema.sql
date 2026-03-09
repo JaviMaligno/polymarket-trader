@@ -60,7 +60,8 @@ CREATE TABLE IF NOT EXISTS markets (
     last_trade_at TIMESTAMPTZ,
 
     -- Metadata
-    metadata JSONB DEFAULT '{}'
+    metadata JSONB DEFAULT '{}',
+    market_type VARCHAR(20)
 );
 
 CREATE INDEX IF NOT EXISTS idx_markets_event ON markets(event_id);

@@ -34,9 +34,18 @@ interface WeightedAverageParams {
  * - Conflict resolution strategies
  * - Adaptive weight adjustments
  */
+/** Default signal weights per market type */
+const DEFAULT_TYPE_WEIGHTS: Record<string, Record<string, number>> = {
+  crypto_intraday: { momentum: 0.3, mean_reversion: 0.1, ofi: 0.5, mlofi: 0.5, hawkes: 0.4 },
+  crypto_daily:    { momentum: 0.4, mean_reversion: 0.3, ofi: 0.4, mlofi: 0.4, hawkes: 0.3 },
+  event_short:     { momentum: 0.5, mean_reversion: 0.5, ofi: 0.2, mlofi: 0.2, hawkes: 0.2 },
+  event_long:      { momentum: 0.5, mean_reversion: 0.5, ofi: 0.1, mlofi: 0.1, hawkes: 0.1 },
+};
+
 export class WeightedAverageCombiner implements ISignalCombiner {
   private logger: Logger;
   private weights: Record<string, number> = {};
+  private typeWeights: Record<string, Record<string, number>>;
   private parameters: WeightedAverageParams;
 
   constructor(
@@ -45,6 +54,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   ) {
     this.logger = pino({ name: 'weighted-average-combiner' });
     this.weights = { ...initialWeights };
+    this.typeWeights = { ...DEFAULT_TYPE_WEIGHTS };
     this.parameters = {
       minConfidence: 0.2,
       normalizeWeights: true,
@@ -58,11 +68,20 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   }
 
   /**
+   * Set per-type weights (from optimizer)
+   */
+  setTypeWeights(typeWeights: Record<string, Record<string, number>>): void {
+    this.typeWeights = { ...this.typeWeights, ...typeWeights };
+    this.logger.info({ types: Object.keys(typeWeights) }, 'Type weights updated');
+  }
+
+  /**
    * Combine multiple signals into one
    * @param signals Array of signals to combine
    * @param currentTime Optional current time for backtesting (defaults to wall-clock time)
+   * @param marketType Optional market type for per-type weight selection
    */
-  combine(signals: SignalOutput[], currentTime?: Date): CombinedSignalOutput | null {
+  combine(signals: SignalOutput[], currentTime?: Date, marketType?: string): CombinedSignalOutput | null {
     if (signals.length === 0) {
       return null;
     }
@@ -87,7 +106,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       })
       .map(s => ({
         signal: s,
-        weight: this.getSignalWeight(s, now),
+        weight: this.getSignalWeight(s, now, marketType),
         timeDecay: this.calculateTimeDecay(s, now),
       }))
       .filter(s => s.weight > 0 && s.timeDecay > 0);
@@ -288,14 +307,19 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   }
 
   /**
-   * Get weight for a specific signal
+   * Get weight for a specific signal, using market-type-specific weights if available
    */
-  private getSignalWeight(signal: SignalOutput, now: Date): number {
-    let weight = this.weights[signal.signalId] ?? 1;
+  private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
+    // Use type-specific weights if market type is known
+    const weightSource = (marketType && this.typeWeights[marketType])
+      ? this.typeWeights[marketType]
+      : this.weights;
+
+    let weight = weightSource[signal.signalId] ?? 1;
 
     // Normalize if configured
     if (this.parameters.normalizeWeights) {
-      const totalWeight = Object.values(this.weights).reduce((a, b) => a + b, 0);
+      const totalWeight = Object.values(weightSource).reduce((a, b) => a + b, 0);
       if (totalWeight > 0) {
         weight = weight / totalWeight;
       }

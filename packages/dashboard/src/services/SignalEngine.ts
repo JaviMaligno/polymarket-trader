@@ -56,7 +56,7 @@ const DEFAULT_CONFIG: SignalEngineConfig = {
   enabled: true,
   computeIntervalMs: 60000,      // 1 minute
   maxMarketsPerCycle: 50,
-  minPriceBars: 30,
+  minPriceBars: 3,              // Reduced from 30: Bayesian confidence cap handles data scarcity
   syncWeightsIntervalMs: 300000, // 5 minutes
   minCombinedConfidence: 0.60,   // Default: high confidence only
   minCombinedStrength: 0.45,     // Default: strong signals only
@@ -71,6 +71,7 @@ interface ActiveMarket {
   volume24h?: number;
   isActive?: boolean;    // Market is still active for trading
   isResolved?: boolean;  // Market has been resolved
+  marketType?: string;   // crypto_intraday, crypto_daily, event_short, event_long
 }
 
 export class SignalEngine extends EventEmitter {
@@ -353,10 +354,19 @@ export class SignalEngine extends EventEmitter {
       return null;
     }
 
-    // Combine signals
-    const combined = this.combiner.combine(signalOutputs);
+    // Combine signals with market-type-specific weights
+    const combined = this.combiner.combine(signalOutputs, undefined, market.marketType);
 
     if (!combined || combined.direction === 'NEUTRAL') {
+      return null;
+    }
+
+    // Apply Bayesian confidence cap based on data availability
+    const confidenceCap = this.computeBayesianConfidenceCap(context.priceBars);
+    combined.confidence *= confidenceCap;
+
+    // Re-check confidence after cap
+    if (combined.confidence < (this.config.minCombinedConfidence ?? 0.60)) {
       return null;
     }
 
@@ -704,6 +714,46 @@ export class SignalEngine extends EventEmitter {
   }
 
   /**
+   * Compute Bayesian confidence cap using Beta-Binomial model.
+   * Models signal reliability as unknown probability with Beta(1,1) prior.
+   * Each informative bar (price changed) is evidence that reduces uncertainty.
+   */
+  private computeBayesianConfidenceCap(priceBars: { close: number }[]): number {
+    const totalBars = priceBars.length;
+    if (totalBars === 0) return 0;
+
+    // Count informative bars (where price changed vs previous)
+    let informativeBars = 0;
+    for (let i = 1; i < priceBars.length; i++) {
+      if (Math.abs(priceBars[i].close - priceBars[i - 1].close) > 1e-8) {
+        informativeBars++;
+      }
+    }
+
+    // Beta-Binomial: prior Beta(alpha0, beta0) = Beta(1, 1) = uniform
+    const alpha0 = 1;
+    const beta0 = 1;
+    const alpha = alpha0 + informativeBars;
+    const beta = beta0 + (totalBars - informativeBars);
+
+    // Variance of Beta distribution: ab / ((a+b)^2 * (a+b+1))
+    const priorVar = (alpha0 * beta0) / ((alpha0 + beta0) ** 2 * (alpha0 + beta0 + 1));
+    const posteriorVar = (alpha * beta) / ((alpha + beta) ** 2 * (alpha + beta + 1));
+
+    // Confidence = reduction in uncertainty
+    const cap = 1 - (posteriorVar / priorVar);
+    return Math.max(0, Math.min(1, cap));
+  }
+
+  /** Price filter ranges per market type (optimizable) */
+  private static PRICE_FILTERS: Record<string, { min: number; max: number }> = {
+    crypto_intraday: { min: 0.02, max: 0.98 },
+    crypto_daily:    { min: 0.03, max: 0.97 },
+    event_short:     { min: 0.05, max: 0.95 },
+    event_long:      { min: 0.08, max: 0.92 },
+  };
+
+  /**
    * Convert SignalOutput to SignalResult format
    * Returns null if market price is extreme (no profitable trade possible)
    */
@@ -711,10 +761,10 @@ export class SignalEngine extends EventEmitter {
     output: SignalOutput,
     market: ActiveMarket
   ): SignalResult | null {
-    // Reject signals for markets with extreme prices
-    const MIN_PRICE = 0.05;
-    const MAX_PRICE = 0.95;
-    if (market.currentPrice < MIN_PRICE || market.currentPrice > MAX_PRICE) {
+    // Dynamic price filter based on market type
+    const filter = SignalEngine.PRICE_FILTERS[market.marketType || ''] ||
+                   SignalEngine.PRICE_FILTERS['event_short'];  // Conservative default
+    if (market.currentPrice < filter.min || market.currentPrice > filter.max) {
       return null;
     }
 

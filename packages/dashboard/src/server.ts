@@ -29,6 +29,8 @@ async function main(): Promise<void> {
     const dbHealth = await healthCheck();
     if (dbHealth.connected) {
       console.log(`Database connected (latency: ${dbHealth.latency}ms)`);
+      // Ensure market_type column exists (added for adaptive market expansion)
+      await query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type VARCHAR(20)').catch(() => {});
     } else {
       console.error('Database connection failed:', dbHealth.error);
       console.log('Continuing without database - some features will be disabled');
@@ -113,10 +115,15 @@ async function main(): Promise<void> {
         enabled: true,
         computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),
         maxMarketsPerCycle: parseInt(process.env.MAX_SIGNAL_MARKETS || '15', 10),
-        minPriceBars: 30,          // Require at least 30 price bars
+        minPriceBars: 3,           // Bayesian confidence cap handles data scarcity
         minCombinedConfidence: optimizedParams.minCombinedConfidence,
         minCombinedStrength: optimizedParams.minCombinedStrength,
       });
+
+      // Start market classifier (classifies new markets via Haiku every 30min)
+      const { MarketClassifier } = await import('./services/MarketClassifier.js');
+      const classifier = new MarketClassifier();
+      classifier.start();
 
       // Start the Polymarket service to load markets (it will update SignalEngine)
       const polymarketService = getPolymarketService();
