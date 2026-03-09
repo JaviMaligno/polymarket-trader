@@ -1,0 +1,146 @@
+name: Daily Trade Review
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 8:00 UTC daily
+  workflow_dispatch:        # Manual trigger for testing
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  daily-review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/992492426638/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-deploy@project-94e9f6f2-aba7-4cb6-afc.iam.gserviceaccount.com'
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Gather data from VM
+        id: gather
+        run: |
+          gcloud compute ssh Usuario@polymarket-vm \
+            --zone=us-east1-b \
+            --ssh-flag="-o ServerAliveInterval=30" \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
+            --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main && bash scripts/daily-review.sh" \
+            > review-data.json 2>ssh-stderr.log
+
+          # Validate JSON
+          if ! jq . review-data.json > /dev/null 2>&1; then
+            echo "::error::Invalid JSON from daily-review.sh"
+            cat ssh-stderr.log
+            cat review-data.json
+            exit 1
+          fi
+          echo "data_collected=true" >> $GITHUB_OUTPUT
+
+      - name: Query Render API
+        id: render
+        continue-on-error: true
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "No Render API key configured, skipping"
+            echo "RENDER_OPTIMIZATION_STATUS=skipped" >> $GITHUB_ENV
+            exit 0
+          fi
+
+          RESPONSE=$(curl -sf -H "Authorization: Bearer $RENDER_API_KEY" \
+            "https://api.render.com/v1/services?type=cron_job&limit=5" 2>/dev/null || echo "")
+
+          if [ -n "$RESPONSE" ]; then
+            echo "RENDER_OPTIMIZATION_DATA<<EOF" >> $GITHUB_ENV
+            echo "$RESPONSE" >> $GITHUB_ENV
+            echo "EOF" >> $GITHUB_ENV
+            echo "RENDER_OPTIMIZATION_STATUS=ok" >> $GITHUB_ENV
+          else
+            echo "RENDER_OPTIMIZATION_STATUS=error" >> $GITHUB_ENV
+          fi
+
+      - name: Format report
+        id: format
+        if: steps.gather.outputs.data_collected == 'true'
+        run: |
+          OUTPUT=$(cat review-data.json | node scripts/format-review.js)
+
+          HAS_CRITICAL=$(echo "$OUTPUT" | jq -r '.has_critical_alerts')
+          ALERT_COUNT=$(echo "$OUTPUT" | jq -r '.alert_count')
+          REVIEW_DATE=$(date -u +%Y-%m-%d)
+
+          echo "has_critical_alerts=$HAS_CRITICAL" >> $GITHUB_OUTPUT
+          echo "alert_count=$ALERT_COUNT" >> $GITHUB_OUTPUT
+          echo "review_date=$REVIEW_DATE" >> $GITHUB_OUTPUT
+
+      - name: Ensure daily-review label exists
+        if: steps.gather.outputs.data_collected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create daily-review --description "Automated daily trade review" --color "0075ca" || true
+
+      - name: Create GitHub Issue
+        if: steps.gather.outputs.data_collected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          DATE="${{ steps.format.outputs.review_date }}"
+          ALERT_COUNT="${{ steps.format.outputs.alert_count }}"
+
+          if [ -n "$ALERT_COUNT" ] && [ "$ALERT_COUNT" != "0" ]; then
+            TITLE="Daily Trade Review $DATE — $ALERT_COUNT alert(s)"
+          else
+            TITLE="Daily Trade Review $DATE"
+          fi
+
+          gh issue create \
+            --title "$TITLE" \
+            --body-file report.md \
+            --label "daily-review"
+
+      - name: Send email
+        if: steps.gather.outputs.data_collected == 'true'
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 587
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          to: ${{ secrets.GMAIL_TO_ADDRESS }}
+          from: ${{ secrets.GMAIL_USERNAME }}
+          subject: "Polymarket Daily Review ${{ steps.format.outputs.review_date }}${{ steps.format.outputs.alert_count != '0' && format(' — {0} alert(s)', steps.format.outputs.alert_count) || '' }}"
+          html_body: file://email.html
+
+      - name: Send Slack alert
+        if: >-
+          steps.gather.outputs.data_collected == 'true' &&
+          steps.format.outputs.has_critical_alerts == 'true' &&
+          secrets.SLACK_WEBHOOK_URL != ''
+        continue-on-error: true
+        run: |
+          if [ -f slack.json ]; then
+            curl -sf -X POST \
+              -H "Content-Type: application/json" \
+              -d @slack.json \
+              "${{ secrets.SLACK_WEBHOOK_URL }}"
+          else
+            echo "slack.json not found, skipping Slack notification"
+          fi
