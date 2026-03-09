@@ -391,7 +391,6 @@ function buildMarkdown() {
   }
 
   // Resource Usage
-  const resourceUsage = data.resource_usage || [];
   if (resourceUsage.length > 0) {
     ln(`### Resource Usage`);
     ln();
