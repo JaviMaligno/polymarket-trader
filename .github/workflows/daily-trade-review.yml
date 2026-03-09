@@ -5,6 +5,10 @@ on:
     - cron: '0 8 * * *'   # 8:00 UTC daily
   workflow_dispatch:        # Manual trigger for testing
 
+concurrency:
+  group: daily-review
+  cancel-in-progress: true
+
 permissions:
   contents: read
   id-token: write
@@ -39,6 +43,7 @@ jobs:
             --zone=us-east1-b \
             --ssh-flag="-o ServerAliveInterval=30" \
             --ssh-flag="-o StrictHostKeyChecking=no" \
+            --ssh-flag="-o ConnectTimeout=30" \
             --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main && bash scripts/daily-review.sh" \
             > review-data.json 2>ssh-stderr.log
 
@@ -129,18 +134,30 @@ jobs:
           subject: "Polymarket Daily Review ${{ steps.format.outputs.review_date }}${{ steps.format.outputs.alert_count != '0' && format(' — {0} alert(s)', steps.format.outputs.alert_count) || '' }}"
           html_body: file://email.html
 
+      - name: Check Slack config
+        id: slack_check
+        if: steps.gather.outputs.data_collected == 'true'
+        run: |
+          if [ -n "$SLACK_URL" ]; then
+            echo "configured=true" >> $GITHUB_OUTPUT
+          fi
+        env:
+          SLACK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
       - name: Send Slack alert
         if: >-
           steps.gather.outputs.data_collected == 'true' &&
           steps.format.outputs.has_critical_alerts == 'true' &&
-          secrets.SLACK_WEBHOOK_URL != ''
+          steps.slack_check.outputs.configured == 'true'
         continue-on-error: true
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           if [ -f slack.json ]; then
             curl -sf -X POST \
               -H "Content-Type: application/json" \
               -d @slack.json \
-              "${{ secrets.SLACK_WEBHOOK_URL }}"
+              "$SLACK_WEBHOOK_URL"
           else
             echo "slack.json not found, skipping Slack notification"
           fi
