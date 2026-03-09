@@ -326,7 +326,16 @@ if command -v docker &>/dev/null; then
   fi
 fi
 
-# 18. Error logs from containers
+# 18. Resource usage (CPU%, MEM usage/limit per container)
+resource_usage="[]"
+if command -v docker &>/dev/null; then
+  raw_stats=$(docker stats --no-stream --format '{"name":"{{.Name}}","cpu_pct":"{{.CPUPerc}}","mem_usage":"{{.MemUsage}}","mem_pct":"{{.MemPerc}}","net_io":"{{.NetIO}}","pids":"{{.PIDs}}"}' 2>/dev/null || echo "")
+  if [ -n "$raw_stats" ]; then
+    resource_usage=$(echo "$raw_stats" | jq -s '.' 2>/dev/null || echo "[]")
+  fi
+fi
+
+# 19. Error logs from containers
 get_container_errors() {
   local pattern="$1"
   local container_name
@@ -374,6 +383,7 @@ jq -n \
   --argjson signal_weights "$signal_weights" \
   --argjson consecutive_losses "$consecutive_losses" \
   --argjson containers "$containers" \
+  --argjson resource_usage "$resource_usage" \
   --argjson error_logs "$error_logs" \
   '{
     generated_at: $ts,
@@ -394,5 +404,6 @@ jq -n \
     signal_weights: $signal_weights,
     consecutive_losses: $consecutive_losses,
     containers: $containers,
+    resource_usage: $resource_usage,
     error_logs: $error_logs
   }'
