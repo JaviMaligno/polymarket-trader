@@ -411,7 +411,7 @@ export class PolymarketService extends EventEmitter {
       const MIN_PRICE = 0.02;
       const MAX_PRICE = 0.98;
 
-      // Only select markets that have recent price_history data (last 6 hours)
+      // Only select markets that have recent price_history data (last 24 hours)
       // This ensures signals are never generated for markets without real price data
       const marketsResult = await query<{
         id: string;
@@ -444,7 +444,7 @@ export class PolymarketService extends EventEmitter {
           AND EXISTS (
             SELECT 1 FROM price_history ph
             WHERE ph.token_id = m.clob_token_id_yes
-              AND ph.time > NOW() - INTERVAL '6 hours'
+              AND ph.time > NOW() - INTERVAL '24 hours'
             LIMIT 1
           )
         ORDER BY m.volume_24h DESC NULLS LAST

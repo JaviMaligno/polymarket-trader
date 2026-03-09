@@ -696,6 +696,66 @@ export class ClobCollector {
     logger.info({ updated, errors, totalTokens: allTokenIds.length }, 'Updated market prices');
     return { updated, errors };
   }
+
+  /**
+   * Snapshot current_price_yes into price_history for all tracked markets.
+   * This ensures markets have continuous price bars even when CLOB /prices-history
+   * returns nothing (no trades). The Bayesian confidence cap in SignalEngine
+   * handles flat bars (same price) by counting them as non-informative.
+   */
+  async snapshotCurrentPricesToHistory(): Promise<{ inserted: number }> {
+    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
+    const marketsResult = await query(
+      `SELECT id, clob_token_id_yes, current_price_yes
+       FROM markets
+       WHERE is_active = true
+         AND clob_token_id_yes IS NOT NULL
+         AND current_price_yes IS NOT NULL
+         AND current_price_yes > 0
+       ORDER BY volume_24h DESC NULLS LAST
+       ${limitClause}`
+    );
+
+    if (marketsResult.rows.length === 0) return { inserted: 0 };
+
+    const now = new Date();
+    // Round to nearest 5 minutes to align with sync interval
+    now.setSeconds(0, 0);
+    now.setMinutes(Math.floor(now.getMinutes() / 5) * 5);
+
+    const batchSize = 500;
+    let inserted = 0;
+
+    for (let i = 0; i < marketsResult.rows.length; i += batchSize) {
+      const batch = marketsResult.rows.slice(i, i + batchSize);
+      const values: unknown[] = [];
+      const placeholders: string[] = [];
+
+      for (const row of batch) {
+        const price = parseFloat(row.current_price_yes);
+        if (isNaN(price) || price <= 0) continue;
+
+        const idx = values.length;
+        placeholders.push(`($${idx + 1}, $${idx + 2}, $${idx + 3}, $${idx + 4}, $${idx + 5}, $${idx + 6}, $${idx + 7}, $${idx + 8})`);
+        values.push(now, row.id, row.clob_token_id_yes, price, price, price, price, 'snapshot');
+      }
+
+      if (placeholders.length === 0) continue;
+
+      const result = await query(
+        `INSERT INTO price_history (time, market_id, token_id, open, high, low, close, source)
+         VALUES ${placeholders.join(', ')}
+         ON CONFLICT (time, market_id, token_id) DO NOTHING`,
+        values
+      );
+      inserted += result.rowCount ?? 0;
+    }
+
+    if (inserted > 0) {
+      logger.info({ inserted, markets: marketsResult.rows.length }, 'Price snapshots inserted');
+    }
+    return { inserted };
+  }
 }
 
 // Singleton instance

@@ -30,6 +30,7 @@ export class Scheduler {
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
     this.defineJob('sync-trades', '*/5 * * * *', this.syncTrades.bind(this));  // Real trades every 5 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
+    this.defineJob('prune-zombies', '0 */6 * * *', this.pruneZombieMarkets.bind(this));  // Every 6 hours
   }
 
   /**
@@ -229,6 +230,24 @@ export class Scheduler {
     const collector = getClobCollector();
     const result = await collector.updateAllMarketPrices();
     logger.debug({ updated: result.updated, errors: result.errors }, 'Prices updated');
+
+    // Snapshot current prices into price_history so all tracked markets have continuous bars
+    try {
+      const snapResult = await collector.snapshotCurrentPricesToHistory();
+      if (snapResult.inserted > 0) {
+        // Notify dashboard of new price data
+        const pool = getPool();
+        const payload = JSON.stringify({
+          inserted: snapResult.inserted,
+          markets: snapResult.inserted,
+          time: new Date().toISOString(),
+          source: 'snapshot',
+        });
+        await pool.query(`SELECT pg_notify('price_sync_complete', $1)`, [payload]);
+      }
+    } catch (err) {
+      logger.warn({ error: err }, 'Price snapshot failed');
+    }
   }
 
   /**
@@ -294,6 +313,26 @@ export class Scheduler {
       rateLimits: rateLimitStats,
       jobs: this.getJobStats(),
     }, 'System statistics');
+  }
+
+  /**
+   * Prune zombie markets: mark as inactive if no volume and no price updates for 7+ days.
+   * Reduces DB bloat and speeds up queries/classification.
+   */
+  private async pruneZombieMarkets(): Promise<void> {
+    const pool = getPool();
+    const result = await pool.query(`
+      UPDATE markets
+      SET is_active = false, updated_at = NOW()
+      WHERE is_active = true
+        AND is_resolved = false
+        AND (volume_24h IS NULL OR volume_24h = 0)
+        AND updated_at < NOW() - INTERVAL '7 days'
+    `);
+    const pruned = result.rowCount ?? 0;
+    if (pruned > 0) {
+      logger.info({ pruned }, 'Pruned zombie markets (no volume, stale >7d)');
+    }
   }
 
   /**
