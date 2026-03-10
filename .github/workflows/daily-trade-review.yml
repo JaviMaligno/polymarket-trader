@@ -46,14 +46,22 @@ jobs:
             --ssh-flag="-o ServerAliveInterval=30" \
             --ssh-flag="-o StrictHostKeyChecking=no" \
             --ssh-flag="-o ConnectTimeout=30" \
-            --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main && bash scripts/daily-review.sh" \
+            --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh" \
             > review-data.json 2>ssh-stderr.log || true
 
           # Validate JSON — this is the real success gate
+          echo "::group::Debug: review-data.json"
+          echo "File size: $(wc -c < review-data.json) bytes"
+          echo "First 200 chars: $(head -c 200 review-data.json)"
+          echo "Last 100 chars: $(tail -c 100 review-data.json)"
+          jq . review-data.json > /dev/null 2>&1 && echo "jq: VALID" || echo "jq: INVALID — $(jq . review-data.json 2>&1 | head -3)"
+          echo "::endgroup::"
+
           if ! jq . review-data.json > /dev/null 2>&1; then
             echo "::error::Invalid JSON from daily-review.sh"
+            echo "::group::ssh-stderr.log"
             cat ssh-stderr.log
-            cat review-data.json
+            echo "::endgroup::"
             exit 1
           fi
           echo "data_collected=true" >> $GITHUB_OUTPUT
