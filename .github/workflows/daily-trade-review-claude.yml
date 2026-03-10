@@ -83,4 +83,4 @@ jobs:
           } | claude --model claude-sonnet-4-6 \
             --print \
             --max-turns 50 \
-            --allowedTools "Bash(readonly=false),Read,Write,Glob,Grep,Edit"
+            --dangerously-skip-permissions
