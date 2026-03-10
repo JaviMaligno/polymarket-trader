@@ -58,8 +58,8 @@ const DEFAULT_CONFIG: SignalEngineConfig = {
   maxMarketsPerCycle: 50,
   minPriceBars: 3,              // Reduced from 30: Bayesian confidence cap handles data scarcity
   syncWeightsIntervalMs: 300000, // 5 minutes
-  minCombinedConfidence: 0.60,   // Default: high confidence only
-  minCombinedStrength: 0.45,     // Default: strong signals only
+  minCombinedConfidence: 0.43,   // Default: moderate confidence
+  minCombinedStrength: 0.27,     // Default: moderate strength
 };
 
 interface ActiveMarket {
@@ -107,8 +107,8 @@ export class SignalEngine extends EventEmitter {
       },
       {
         // Use config values (can be overridden from optimization_runs)
-        minCombinedConfidence: this.config.minCombinedConfidence ?? 0.60,
-        minCombinedStrength: this.config.minCombinedStrength ?? 0.45,
+        minCombinedConfidence: this.config.minCombinedConfidence ?? 0.43,
+        minCombinedStrength: this.config.minCombinedStrength ?? 0.27,
       }
     );
   }
@@ -366,7 +366,7 @@ export class SignalEngine extends EventEmitter {
     combined.confidence *= confidenceCap;
 
     // Re-check confidence after cap
-    if (combined.confidence < (this.config.minCombinedConfidence ?? 0.60)) {
+    if (combined.confidence < (this.config.minCombinedConfidence ?? 0.43)) {
       return null;
     }
 
@@ -395,8 +395,9 @@ export class SignalEngine extends EventEmitter {
         volume: number | null;
         bid: number;
         ask: number;
+        source: string | null;
       }>(
-        `SELECT time, open, high, low, close, volume, bid, ask
+        `SELECT time, open, high, low, close, volume, bid, ask, source
          FROM price_history
          WHERE market_id = $1
          ORDER BY time DESC
@@ -410,6 +411,7 @@ export class SignalEngine extends EventEmitter {
 
       // Convert to PriceBar format (oldest to newest)
       // Use actual OHLC data from database (populated by data-collector with volatility estimation)
+      // Attach `source` as extra property for Bayesian confidence cap (not part of PriceBar type)
       const priceBars: PriceBar[] = priceHistory.rows
         .reverse()
         .map(row => ({
@@ -419,7 +421,8 @@ export class SignalEngine extends EventEmitter {
           low: parseFloat(String(row.low)) || parseFloat(String(row.close)),
           close: parseFloat(String(row.close)),
           volume: row.volume ? parseFloat(String(row.volume)) : 1000,
-        }));
+          source: row.source ?? undefined,
+        } as PriceBar));
 
       const marketInfo: MarketInfo = {
         id: market.id,
@@ -716,16 +719,22 @@ export class SignalEngine extends EventEmitter {
   /**
    * Compute Bayesian confidence cap using Beta-Binomial model.
    * Models signal reliability as unknown probability with Beta(1,1) prior.
-   * Each informative bar (price changed) is evidence that reduces uncertainty.
+   * Each informative bar (price changed OR from real trade) is evidence that reduces uncertainty.
+   * MIN_CAP floor ensures even snapshot-only markets can generate signals.
    */
-  private computeBayesianConfidenceCap(priceBars: { close: number }[]): number {
+  private computeBayesianConfidenceCap(priceBars: { close: number; source?: string }[]): number {
     const totalBars = priceBars.length;
     if (totalBars === 0) return 0;
 
-    // Count informative bars (where price changed vs previous)
+    const MIN_CAP = 0.15; // Floor: even with no informative bars, allow strong signals through
+
+    // Count informative bars (price changed OR sourced from real trades)
     let informativeBars = 0;
     for (let i = 1; i < priceBars.length; i++) {
-      if (Math.abs(priceBars[i].close - priceBars[i - 1].close) > 1e-8) {
+      const priceChanged = Math.abs(priceBars[i].close - priceBars[i - 1].close) > 1e-8;
+      const isRealTrade = (priceBars[i] as any).source === 'trade';
+
+      if (priceChanged || isRealTrade) {
         informativeBars++;
       }
     }
@@ -742,7 +751,7 @@ export class SignalEngine extends EventEmitter {
 
     // Confidence = reduction in uncertainty
     const cap = 1 - (posteriorVar / priorVar);
-    return Math.max(0, Math.min(1, cap));
+    return Math.max(MIN_CAP, Math.min(1, cap));
   }
 
   /** Price filter ranges per market type (optimizable) */

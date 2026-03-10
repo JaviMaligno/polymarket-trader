@@ -79,8 +79,8 @@ async function main(): Promise<void> {
       console.log('Starting SignalEngine (database-based signals)...');
 
       // Load optimized parameters from database, but enforce minimum thresholds
-      const MIN_CONFIDENCE = 0.60;  // Minimum confidence threshold (conservative)
-      const MIN_STRENGTH = 0.45;    // Minimum strength threshold (conservative)
+      const MIN_CONFIDENCE = 0.43;  // Minimum confidence threshold
+      const MIN_STRENGTH = 0.27;    // Minimum strength threshold
 
       let optimizedParams = { minCombinedConfidence: MIN_CONFIDENCE, minCombinedStrength: MIN_STRENGTH };
       try {
