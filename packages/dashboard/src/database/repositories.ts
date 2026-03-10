@@ -186,7 +186,7 @@ export const signalWeightsRepo = {
       // Record history
       await client.query(
         `INSERT INTO signal_weights_history
-         (time, signal_type, weight, previous_weight, reason)
+         (time, signal_type, weight, previous_weight, change_reason)
          VALUES (NOW(), $1, $2, $3, $4)`,
         [signalType, weight, previousWeight, reason]
       );
