@@ -39,29 +39,36 @@ jobs:
       - name: Gather data from VM
         id: gather
         run: |
-          # Allow non-zero exit from SSH (remote grep/docker may return 1)
-          # We validate the JSON output separately below
-          gcloud compute ssh Usuario@polymarket-vm \
-            --zone=us-east1-b \
-            --ssh-flag="-o ServerAliveInterval=30" \
-            --ssh-flag="-o StrictHostKeyChecking=no" \
-            --ssh-flag="-o ConnectTimeout=30" \
-            --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh" \
-            > review-data.json 2>ssh-stderr.log || true
+          SSH_OPTS="--zone=us-east1-b --ssh-flag=-o --ssh-flag=ServerAliveInterval=30 --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=30"
 
-          # Validate JSON — this is the real success gate
+          # Run script on VM, write output to temp file there (avoids gcloud stdout pollution)
+          gcloud compute ssh Usuario@polymarket-vm $SSH_OPTS \
+            --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh > /tmp/daily-review-output.json 2>/tmp/daily-review-stderr.log" \
+            2>ssh-stderr.log || true
+
+          # Copy the JSON file back
+          gcloud compute scp Usuario@polymarket-vm:/tmp/daily-review-output.json review-data.json \
+            --zone=us-east1-b \
+            --ssh-flag="-o StrictHostKeyChecking=no" \
+            2>>ssh-stderr.log || true
+
+          # Debug output
           echo "::group::Debug: review-data.json"
-          echo "File size: $(wc -c < review-data.json) bytes"
-          echo "First 200 chars: $(head -c 200 review-data.json)"
-          echo "Last 100 chars: $(tail -c 100 review-data.json)"
+          echo "File size: $(wc -c < review-data.json 2>/dev/null || echo '0') bytes"
+          head -c 200 review-data.json 2>/dev/null || echo "(empty)"
+          echo ""
+          tail -c 100 review-data.json 2>/dev/null || echo "(empty)"
           jq . review-data.json > /dev/null 2>&1 && echo "jq: VALID" || echo "jq: INVALID — $(jq . review-data.json 2>&1 | head -3)"
           echo "::endgroup::"
 
           if ! jq . review-data.json > /dev/null 2>&1; then
             echo "::error::Invalid JSON from daily-review.sh"
             echo "::group::ssh-stderr.log"
-            cat ssh-stderr.log
+            cat ssh-stderr.log 2>/dev/null || true
             echo "::endgroup::"
+            # Also fetch the remote stderr for debugging
+            gcloud compute ssh Usuario@polymarket-vm $SSH_OPTS \
+              --command="cat /tmp/daily-review-stderr.log 2>/dev/null" || true
             exit 1
           fi
           echo "data_collected=true" >> $GITHUB_OUTPUT
