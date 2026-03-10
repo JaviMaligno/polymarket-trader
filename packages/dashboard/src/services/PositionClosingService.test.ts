@@ -235,6 +235,18 @@ describe('PositionClosingService', () => {
     expect(result.reason).toContain('invalid exit price');
   });
 
+  it('handles transaction failure gracefully', async () => {
+    vi.mocked(transaction).mockRejectedValue(new Error('connection refused'));
+
+    const result = await service.close({
+      positionId: 1, marketId: 'm1', tokenId: 't1', side: 'long',
+      size: 100, entryPrice: 0.50, exitPrice: 0.60, reason: 'signal',
+    });
+
+    expect(result.executed).toBe(false);
+    expect(result.reason).toContain('transaction failed');
+  });
+
   describe('singleton', () => {
     it('should return the same instance from getPositionClosingService', () => {
       const instance1 = getPositionClosingService();

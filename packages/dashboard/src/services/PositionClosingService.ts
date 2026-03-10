@@ -44,14 +44,26 @@ export interface ClosePositionResult {
 }
 
 // ============================================
+// Config
+// ============================================
+
+export interface PositionClosingConfig {
+  feeRate: number;
+}
+
+const DEFAULT_CONFIG: PositionClosingConfig = {
+  feeRate: 0.001,
+};
+
+// ============================================
 // Service
 // ============================================
 
 export class PositionClosingService {
-  private readonly feeRate: number;
+  private readonly config: PositionClosingConfig;
 
-  constructor(feeRate = 0.001) {
-    this.feeRate = feeRate;
+  constructor(config?: Partial<PositionClosingConfig>) {
+    this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
   /**
@@ -85,46 +97,51 @@ export class PositionClosingService {
 
     // 2. Compute financials
     const exitValue = size * exitPrice;
-    const fee = exitValue * this.feeRate;
+    const fee = exitValue * this.config.feeRate;
     const grossPnl = (exitPrice - entryPrice) * size;
     const netPnl = grossPnl - fee;
     const proceeds = exitValue - fee;
 
     // 3. Database transaction for atomicity
-    const txResult = await transaction(async (client: PoolClient) => {
-      // UPDATE paper_positions: mark closed
-      const posResult = await client.query(
-        `UPDATE paper_positions SET
-          closed_at = NOW(),
-          realized_pnl = $1,
-          current_price = $2,
-          size = 0
-        WHERE id = $3 AND closed_at IS NULL`,
-        [netPnl, exitPrice, positionId]
-      );
+    let txResult: { alreadyClosed: boolean };
+    try {
+      txResult = await transaction(async (client: PoolClient) => {
+        // UPDATE paper_positions: mark closed
+        const posResult = await client.query(
+          `UPDATE paper_positions SET
+            closed_at = NOW(),
+            realized_pnl = $1,
+            current_price = $2,
+            size = 0
+          WHERE id = $3 AND closed_at IS NULL`,
+          [netPnl, exitPrice, positionId]
+        );
 
-      // Idempotency: if no rows updated, position is already closed or not found
-      if (posResult.rowCount === 0) {
-        return { alreadyClosed: true };
-      }
+        // Idempotency: if no rows updated, position is already closed or not found
+        if (posResult.rowCount === 0) {
+          return { alreadyClosed: true };
+        }
 
-      // UPDATE paper_account: return proceeds, track fees and stats
-      await client.query(
-        `UPDATE paper_account SET
-          current_capital = current_capital + $1,
-          available_capital = available_capital + $1,
-          total_fees_paid = total_fees_paid + $2,
-          total_trades = total_trades + 1,
-          total_realized_pnl = total_realized_pnl + $3,
-          winning_trades = winning_trades + CASE WHEN $3 > 0 THEN 1 ELSE 0 END,
-          losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
-          updated_at = NOW()
-        WHERE id = 1`,
-        [proceeds, fee, netPnl]
-      );
+        // UPDATE paper_account: return proceeds, track fees and stats
+        await client.query(
+          `UPDATE paper_account SET
+            current_capital = current_capital + $1,
+            available_capital = available_capital + $1,
+            total_fees_paid = total_fees_paid + $2,
+            total_trades = total_trades + 1,
+            total_realized_pnl = total_realized_pnl + $3,
+            winning_trades = winning_trades + CASE WHEN $3 > 0 THEN 1 ELSE 0 END,
+            losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
+            updated_at = NOW()
+          WHERE id = 1`,
+          [proceeds, fee, netPnl]
+        );
 
-      return { alreadyClosed: false };
-    });
+        return { alreadyClosed: false };
+      });
+    } catch (error) {
+      return { executed: false, netPnl: 0, fee: 0, reason: `transaction failed: ${error}` };
+    }
 
     if (txResult.alreadyClosed) {
       return { executed: false, netPnl: 0, fee: 0, reason: 'already closed or not found' };
@@ -169,7 +186,8 @@ let instance: PositionClosingService | null = null;
 
 export function getPositionClosingService(): PositionClosingService {
   if (!instance) {
-    instance = new PositionClosingService();
+    const feeRate = parseFloat(process.env.TRADING_FEE_RATE || '0.001');
+    instance = new PositionClosingService({ feeRate });
   }
   return instance;
 }
