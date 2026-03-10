@@ -6,16 +6,30 @@ You are analyzing the daily trading data for a Polymarket prediction market pape
 
 Analyze the trading system's health, performance, and identify actionable improvements. Your analysis should help the system make more money and avoid losses.
 
+## IMPORTANT: Be efficient with tool calls
+
+You have a limited number of turns. Prioritize creating outputs over exploring the codebase.
+
+1. Read `review-data.json` FIRST (it has all the data you need)
+2. Read `CLAUDE.md` for system context (optional, only if needed)
+3. Analyze the data
+4. Write `report.md` and create the GitHub Issue
+5. Write `email.html` and send the email
+6. Send Slack alert only if critical
+
+Do NOT explore the codebase extensively. The data file contains everything you need.
+
 ## Context
 
 - This is an automated paper trading system on Polymarket prediction markets
 - VM: GCP e2-micro (0.25 vCPU, 1GB RAM) — resource constrained
 - DB: TimescaleDB in Docker on the VM
-- Read CLAUDE.md and the memory files for full system context
+- Initial capital: $10,000, max drawdown threshold: 15%
+- Signal types: momentum, mean_reversion, OFI, MLOFI, Hawkes
 
-## Step 1: Gather Data
+## Step 1: Read the Data
 
-The data has already been gathered. Read the file `review-data.json` in the current directory.
+Read the file `review-data.json` in the current directory. It contains all gathered trading data.
 
 ## Step 2: Analyze
 

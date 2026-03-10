@@ -82,5 +82,5 @@ jobs:
             echo "When done, output a single line: REVIEW_COMPLETE"
           } | claude --model claude-sonnet-4-6 \
             --print \
-            --max-turns 25 \
+            --max-turns 50 \
             --allowedTools "Bash(readonly=false),Read,Write,Glob,Grep,Edit"
