@@ -339,13 +339,13 @@ fi
 get_container_errors() {
   local pattern="$1"
   local container_name
-  container_name=$(docker ps --format '{{.Names}}' 2>/dev/null | grep -i "$pattern" | head -1 || echo "")
+  container_name=$(docker ps --format '{{.Names}}' 2>/dev/null | { grep -i "$pattern" || true; } | head -1)
   if [ -z "$container_name" ]; then
     echo "[]"
     return
   fi
   local logs
-  logs=$(docker logs --since 24h "$container_name" 2>&1 | grep -i -E "(error|fatal|exception|crash|ECONNREFUSED|ENOMEM)" | tail -20 || echo "")
+  logs=$(docker logs --since 24h "$container_name" 2>&1 | { grep -i -E "(error|fatal|exception|crash|ECONNREFUSED|ENOMEM)" || true; } | tail -20)
   if [ -z "$logs" ]; then
     echo "[]"
     return

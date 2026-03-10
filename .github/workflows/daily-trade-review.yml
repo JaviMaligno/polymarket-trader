@@ -39,15 +39,17 @@ jobs:
       - name: Gather data from VM
         id: gather
         run: |
+          # Allow non-zero exit from SSH (remote grep/docker may return 1)
+          # We validate the JSON output separately below
           gcloud compute ssh Usuario@polymarket-vm \
             --zone=us-east1-b \
             --ssh-flag="-o ServerAliveInterval=30" \
             --ssh-flag="-o StrictHostKeyChecking=no" \
             --ssh-flag="-o ConnectTimeout=30" \
             --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main && bash scripts/daily-review.sh" \
-            > review-data.json 2>ssh-stderr.log
+            > review-data.json 2>ssh-stderr.log || true
 
-          # Validate JSON
+          # Validate JSON — this is the real success gate
           if ! jq . review-data.json > /dev/null 2>&1; then
             echo "::error::Invalid JSON from daily-review.sh"
             cat ssh-stderr.log
