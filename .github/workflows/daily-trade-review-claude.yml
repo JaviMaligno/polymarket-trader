@@ -71,15 +71,16 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
-          claude --model claude-sonnet-4-6 \
+          {
+            cat scripts/daily-review-prompt.md
+            echo ""
+            echo "The data file is at: $(pwd)/review-data.json"
+            echo "The repo is checked out at: $(pwd)"
+            echo "You have access to gh CLI (authenticated), gcloud CLI, and node."
+            echo ""
+            echo "IMPORTANT: Create the GitHub Issue, send the email (using node scripts/send-review-email.js), and send Slack alert if needed."
+            echo "When done, output a single line: REVIEW_COMPLETE"
+          } | claude --model claude-sonnet-4-6 \
             --print \
             --max-turns 25 \
-            --allowedTools "Bash(readonly=false),Read,Write,Glob,Grep,Edit" \
-            "$(cat scripts/daily-review-prompt.md)
-
-          The data file is at: $(pwd)/review-data.json
-          The repo is checked out at: $(pwd)
-          You have access to gh CLI (authenticated), gcloud CLI, and node.
-
-          IMPORTANT: Create the GitHub Issue, send the email (using node scripts/send-review-email.js), and send Slack alert if needed.
-          When done, output a single line: REVIEW_COMPLETE"
+            --allowedTools "Bash(readonly=false),Read,Write,Glob,Grep,Edit"
