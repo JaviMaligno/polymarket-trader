@@ -10,14 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 import uuid
+import logging
 from datetime import datetime
 
 from .optuna_optimizer import OptunaOptimizer, ParameterDefinition
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(
     title="Polymarket Strategy Optimizer",
     description="Bayesian optimization service for trading strategy parameters",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # CORS for TypeScript client
@@ -29,8 +32,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage of optimizers (for simplicity, use Redis in production)
-optimizers: Dict[str, OptunaOptimizer] = {}
+# Cache of loaded optimizer instances (reloaded from PostgreSQL on miss)
+_active_optimizers: Dict[str, OptunaOptimizer] = {}
+
+
+def _get_optimizer(optimizer_id: str) -> OptunaOptimizer:
+    """
+    Retrieve an optimizer by ID, first checking the in-memory cache,
+    then attempting to reload from PostgreSQL storage.
+    """
+    if optimizer_id in _active_optimizers:
+        return _active_optimizers[optimizer_id]
+
+    # Try to reload from PostgreSQL
+    try:
+        optimizer = OptunaOptimizer.load(optimizer_id)
+        _active_optimizers[optimizer_id] = optimizer
+        logger.info(f"Reloaded optimizer '{optimizer_id}' from PostgreSQL")
+        return optimizer
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Optimizer not found")
 
 
 # ============================================
@@ -115,7 +136,7 @@ async def health_check():
 @app.post("/optimizer/create", response_model=CreateOptimizerResponse)
 async def create_optimizer(request: CreateOptimizerRequest):
     """Create a new optimization session"""
-    optimizer_id = str(uuid.uuid4())
+    optimizer_id = f"{request.name}-{uuid.uuid4().hex[:8]}"
 
     # Convert parameter bounds to internal format
     param_defs = []
@@ -130,16 +151,16 @@ async def create_optimizer(request: CreateOptimizerRequest):
         )
         param_defs.append(param_def)
 
-    # Create optimizer
+    # Create optimizer (study is persisted to PostgreSQL)
     optimizer = OptunaOptimizer(
-        name=request.name,
+        name=optimizer_id,
         parameters=param_defs,
         direction=request.direction,
         sampler=request.sampler,
         n_startup_trials=request.n_startup_trials
     )
 
-    optimizers[optimizer_id] = optimizer
+    _active_optimizers[optimizer_id] = optimizer
 
     return CreateOptimizerResponse(
         optimizer_id=optimizer_id,
@@ -152,10 +173,7 @@ async def create_optimizer(request: CreateOptimizerRequest):
 @app.post("/optimizer/suggest", response_model=SuggestResponse)
 async def suggest_params(request: SuggestRequest):
     """Get next parameter suggestions from the optimizer"""
-    if request.optimizer_id not in optimizers:
-        raise HTTPException(status_code=404, detail="Optimizer not found")
-
-    optimizer = optimizers[request.optimizer_id]
+    optimizer = _get_optimizer(request.optimizer_id)
     suggestions = optimizer.suggest(request.n_suggestions)
 
     return SuggestResponse(
@@ -167,10 +185,7 @@ async def suggest_params(request: SuggestRequest):
 @app.post("/optimizer/report", response_model=ReportResponse)
 async def report_result(request: ReportRequest):
     """Report the result of a trial"""
-    if request.optimizer_id not in optimizers:
-        raise HTTPException(status_code=404, detail="Optimizer not found")
-
-    optimizer = optimizers[request.optimizer_id]
+    optimizer = _get_optimizer(request.optimizer_id)
     optimizer.report(request.trial_id, request.score, request.metrics)
 
     best = optimizer.get_best()
@@ -186,10 +201,7 @@ async def report_result(request: ReportRequest):
 @app.get("/optimizer/{optimizer_id}/best", response_model=BestParamsResponse)
 async def get_best_params(optimizer_id: str):
     """Get the best parameters found so far"""
-    if optimizer_id not in optimizers:
-        raise HTTPException(status_code=404, detail="Optimizer not found")
-
-    optimizer = optimizers[optimizer_id]
+    optimizer = _get_optimizer(optimizer_id)
     best = optimizer.get_best()
     history = optimizer.get_optimization_history()
 
@@ -204,10 +216,7 @@ async def get_best_params(optimizer_id: str):
 @app.get("/optimizer/{optimizer_id}/status", response_model=OptimizerStatusResponse)
 async def get_optimizer_status(optimizer_id: str):
     """Get the current status of an optimizer"""
-    if optimizer_id not in optimizers:
-        raise HTTPException(status_code=404, detail="Optimizer not found")
-
-    optimizer = optimizers[optimizer_id]
+    optimizer = _get_optimizer(optimizer_id)
     best = optimizer.get_best()
 
     return OptimizerStatusResponse(
@@ -223,19 +232,17 @@ async def get_optimizer_status(optimizer_id: str):
 
 @app.delete("/optimizer/{optimizer_id}")
 async def delete_optimizer(optimizer_id: str):
-    """Delete an optimizer"""
-    if optimizer_id not in optimizers:
-        raise HTTPException(status_code=404, detail="Optimizer not found")
-
-    del optimizers[optimizer_id]
+    """Delete an optimizer from PostgreSQL and cache"""
+    OptunaOptimizer.delete_study(optimizer_id)
+    _active_optimizers.pop(optimizer_id, None)
     return {"deleted": True}
 
 
 @app.get("/optimizers")
 async def list_optimizers():
-    """List all active optimizers"""
+    """List all active optimizers (from in-memory cache)"""
     result = []
-    for opt_id, optimizer in optimizers.items():
+    for opt_id, optimizer in _active_optimizers.items():
         best = optimizer.get_best()
         result.append({
             "optimizer_id": opt_id,

@@ -8,6 +8,7 @@ Supports:
 - Grid Search - exhaustive search
 """
 
+import os
 import optuna
 from optuna.samplers import TPESampler, CmaEsSampler, RandomSampler, GridSampler
 from typing import Dict, List, Optional, Any
@@ -50,11 +51,13 @@ class OptunaOptimizer:
         direction: str = "maximize",
         sampler: str = "tpe",
         n_startup_trials: int = 10,
-        seed: Optional[int] = None
+        seed: Optional[int] = None,
+        storage: Optional[str] = None
     ):
         self.name = name
         self.parameters = {p.name: p for p in parameters}
         self.direction = direction
+        self._storage = storage or get_storage_url()
 
         # Create sampler
         if sampler == "tpe":
@@ -73,14 +76,16 @@ class OptunaOptimizer:
         else:
             raise ValueError(f"Unknown sampler: {sampler}")
 
-        # Create study
+        # Create study (fails if name already exists when load_if_exists=False)
         self.study = optuna.create_study(
             study_name=name,
             direction=direction,
-            sampler=sampler_obj
+            sampler=sampler_obj,
+            storage=self._storage,
+            load_if_exists=False
         )
 
-        # Track running trials
+        # Track running trials (in-memory — acceptable to lose on restart)
         self._running_trials: Dict[int, optuna.trial.Trial] = {}
         self._trial_metrics: Dict[int, Dict[str, float]] = {}
 
@@ -226,6 +231,49 @@ class OptunaOptimizer:
     def n_running_trials(self) -> int:
         """Number of currently running trials"""
         return len(self._running_trials)
+
+    @classmethod
+    def load(cls, name: str, storage: Optional[str] = None) -> "OptunaOptimizer":
+        """
+        Load an existing study from PostgreSQL storage.
+
+        Returns an OptunaOptimizer instance with the study reloaded.
+        Raises KeyError if the study does not exist.
+        """
+        resolved_storage = storage or get_storage_url()
+        study = optuna.load_study(study_name=name, storage=resolved_storage)
+
+        # Build a minimal instance without calling __init__
+        instance = object.__new__(cls)
+        instance.name = name
+        instance.study = study
+        instance.direction = study.direction.name.lower()
+        instance._storage = resolved_storage
+        instance.parameters = {}
+        instance._running_trials = {}
+        instance._trial_metrics = {}
+        return instance
+
+    @staticmethod
+    def delete_study(name: str, storage: Optional[str] = None) -> None:
+        """Delete a study from PostgreSQL storage. No-op if study does not exist."""
+        resolved_storage = storage or get_storage_url()
+        try:
+            optuna.delete_study(study_name=name, storage=resolved_storage)
+        except KeyError:
+            logger.warning(f"Study '{name}' not found in storage, skipping delete")
+
+
+def get_storage_url() -> str:
+    """
+    Read DATABASE_URL from environment for Optuna storage.
+
+    Returns the URL as-is (Optuna accepts postgresql:// connection strings).
+    """
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError("DATABASE_URL environment variable is required for Optuna storage")
+    return url
 
 
 # ============================================
