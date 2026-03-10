@@ -20,6 +20,7 @@ import {
   type SignalPrediction,
   type PaperPosition,
 } from '../database/repositories.js';
+import { getPositionClosingService } from './PositionClosingService.js';
 
 export interface SignalResult {
   signalId: string;
@@ -443,6 +444,10 @@ export class AutoSignalExecutor extends EventEmitter {
 
   /**
    * Close an existing position (EXIT strategy)
+   *
+   * Keeps signal-specific logic (price lookup, prediction recording, trade tracking)
+   * and delegates the actual close (position update, account update, trade recording)
+   * to PositionClosingService for consistent PnL/fee handling.
    */
   private async closePosition(position: PaperPosition, signal: SignalResult): Promise<SignalProcessResult> {
     const shares = Number(position.size);
@@ -482,11 +487,6 @@ export class AutoSignalExecutor extends EventEmitter {
     // legitimately drop 99% (e.g. $0.50 → $0.005) when an event becomes unlikely.
     // Rejecting the exit would trap capital permanently (bought but never sold).
 
-    // Calculate P&L
-    const grossPnl = (exitPrice - entryPrice) * shares;
-    const fee = shares * exitPrice * this.config.feeRate;
-    const netPnl = grossPnl - fee;
-
     // Record the signal prediction
     let prediction: SignalPrediction | null = null;
     try {
@@ -498,89 +498,55 @@ export class AutoSignalExecutor extends EventEmitter {
         strength: signal.strength,
         confidence: signal.confidence,
         price_at_signal: signal.price,
-        metadata: { ...signal.metadata, action: 'close', pnl: netPnl },
+        metadata: { ...signal.metadata, action: 'close' },
       });
     } catch (error) {
       console.error('Failed to record prediction:', error);
     }
 
-    // Execute the SELL trade
-    // Use position.token_id to sell the correct token (Yes for long, No for short positions)
-    try {
-      const trade = await paperTradesRepo.create({
-        time: new Date(),
-        market_id: signal.marketId,
-        token_id: position.token_id,
-        side: 'sell',
-        requested_size: shares,
-        executed_size: shares,
-        requested_price: exitPrice,
-        executed_price: exitPrice,
-        fee,
-        value_usd: shares * exitPrice,
-        signal_id: prediction?.id,
-        signal_type: `${signal.signalId}_exit`,  // Mark as exit trade
-        order_type: 'market',
-        fill_type: 'full',
-      });
+    // Delegate close to PositionClosingService (position update, account update, trade recording, fee computation)
+    const closeResult = await getPositionClosingService().close({
+      positionId: (position as any).id,
+      marketId: signal.marketId,
+      tokenId: position.token_id,
+      side: position.side,
+      size: shares,
+      entryPrice,
+      exitPrice,
+      reason: 'signal',
+      signalId: signal.signalId,
+      predictionId: prediction?.id?.toString(),
+    });
 
-      // Update paper account - add back proceeds
-      const proceeds = shares * exitPrice;
-      await query(
-        `UPDATE paper_account SET
-          current_capital = current_capital + $1,
-          available_capital = available_capital + $1,
-          total_fees_paid = total_fees_paid + $2,
-          total_trades = total_trades + 1,
-          total_realized_pnl = total_realized_pnl + $3,
-          winning_trades = winning_trades + CASE WHEN $3 > 0 THEN 1 ELSE 0 END,
-          losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
-          updated_at = NOW()
-        WHERE id = 1`,
-        [proceeds - fee, fee, netPnl]
-      );
-
-      // Close the position (mark as closed)
-      // Use position.token_id, not signal.tokenId - they may differ (Yes vs No token)
-      await query(
-        `UPDATE paper_positions SET
-          closed_at = NOW(),
-          realized_pnl = $1,
-          size = 0
-        WHERE market_id = $2 AND token_id = $3 AND closed_at IS NULL`,
-        [netPnl, signal.marketId, position.token_id]
-      );
-
-      // Track the trade
-      this.recentTrades.push({ marketId: signal.marketId, timestamp: Date.now() });
-      this.dailyTradeCount++;
-      this.cleanupOldTrades();
-
-      const pnlStr = netPnl >= 0 ? `+$${netPnl.toFixed(2)}` : `-$${Math.abs(netPnl).toFixed(2)}`;
-      this.emit('trade:executed', {
-        signal,
-        trade,
-        prediction,
-        shares,
-        value: proceeds,
-        action: 'close',
-        pnl: netPnl,
-      });
-
-      console.log(`[AutoExecutor] CLOSED: SELL ${shares} shares of ${signal.marketId.substring(0, 20)}... @ $${exitPrice.toFixed(4)} | P&L: ${pnlStr}`);
-
-      return {
-        executed: true,
-        tradeId: trade.id,
-        predictionId: prediction?.id,
-        action: 'close',
-        pnl: netPnl,
-      };
-
-    } catch (error) {
-      console.error('Failed to close position:', error);
-      return { executed: false, reason: `Position close failed: ${error}` };
+    if (!closeResult.executed) {
+      return { executed: false, reason: closeResult.reason || 'Close failed' };
     }
+
+    // Track the trade
+    this.recentTrades.push({ marketId: signal.marketId, timestamp: Date.now() });
+    this.dailyTradeCount++;
+    this.cleanupOldTrades();
+
+    const pnlStr = closeResult.netPnl >= 0 ? `+$${closeResult.netPnl.toFixed(2)}` : `-$${Math.abs(closeResult.netPnl).toFixed(2)}`;
+    this.emit('trade:executed', {
+      signal,
+      tradeId: closeResult.tradeId,
+      prediction,
+      shares,
+      value: shares * exitPrice,
+      action: 'close',
+      pnl: closeResult.netPnl,
+    });
+
+    console.log(`[AutoExecutor] CLOSED: SELL ${shares} shares of ${signal.marketId.substring(0, 20)}... @ $${exitPrice.toFixed(4)} | P&L: ${pnlStr}`);
+
+    return {
+      executed: true,
+      tradeId: closeResult.tradeId ? parseInt(closeResult.tradeId, 10) : undefined,
+      predictionId: prediction?.id,
+      action: 'close',
+      pnl: closeResult.netPnl,
+    };
   }
 
   /**
