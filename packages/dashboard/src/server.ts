@@ -7,6 +7,7 @@
 
 import { createDashboardServer } from './api/server.js';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
+import { signalWeightsRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
@@ -79,8 +80,8 @@ async function main(): Promise<void> {
       console.log('Starting SignalEngine (database-based signals)...');
 
       // Load optimized parameters from database, but enforce minimum thresholds
-      const MIN_CONFIDENCE = 0.60;  // Minimum confidence threshold (conservative)
-      const MIN_STRENGTH = 0.45;    // Minimum strength threshold (conservative)
+      const MIN_CONFIDENCE = 0.43;  // Minimum confidence threshold
+      const MIN_STRENGTH = 0.27;    // Minimum strength threshold
 
       let optimizedParams = { minCombinedConfidence: MIN_CONFIDENCE, minCombinedStrength: MIN_STRENGTH };
       try {
@@ -103,6 +104,24 @@ async function main(): Promise<void> {
           };
           console.log('Loaded params from DB:', { dbConfidence, dbStrength });
           console.log('Applied conservative minimums:', optimizedParams);
+
+          // Also load optimized signal weights from best optimization run
+          const weightMap: Record<string, string> = {
+            'combiner.momentumWeight': 'momentum',
+            'combiner.meanReversionWeight': 'mean_reversion',
+          };
+          for (const [paramKey, signalType] of Object.entries(weightMap)) {
+            const w = params[paramKey];
+            if (w !== undefined && w !== null) {
+              try {
+                const clampedWeight = Math.max(0.05, Math.min(0.95, Number(w)));
+                await signalWeightsRepo.update(signalType, clampedWeight, 'startup-load');
+                console.log(`Loaded optimized weight: ${signalType} = ${clampedWeight}`);
+              } catch (err) {
+                console.warn(`Failed to load weight ${signalType}:`, err);
+              }
+            }
+          }
         } else {
           console.log('No optimization results found, using default conservative thresholds');
         }

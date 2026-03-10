@@ -13,8 +13,8 @@
 
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
-import { paperTradesRepo, paperPositionsRepo } from '../database/repositories.js';
 import { getDbEventListener } from './DbEventListener.js';
+import { getPositionClosingService } from './PositionClosingService.js';
 
 export interface StopLossConfig {
   enabled: boolean;
@@ -242,6 +242,7 @@ export class StopLossService extends EventEmitter {
             pos.id,
             pos.market_id,
             pos.token_id,
+            pos.side as 'long' | 'short',
             size,
             entryPrice,
             currentPrice,
@@ -271,6 +272,7 @@ export class StopLossService extends EventEmitter {
             pos.id,
             pos.market_id,
             pos.token_id,
+            pos.side as 'long' | 'short',
             size,
             entryPrice,
             currentPrice,
@@ -303,6 +305,7 @@ export class StopLossService extends EventEmitter {
               pos.id,
               pos.market_id,
               pos.token_id,
+              pos.side as 'long' | 'short',
               size,
               entryPrice,
               currentPrice,
@@ -349,70 +352,42 @@ export class StopLossService extends EventEmitter {
   }
 
   /**
-   * Close a position due to stop loss or take profit
+   * Close a position due to stop loss or take profit.
+   * Delegates to PositionClosingService for correct fee/PnL accounting.
    */
   private async closePosition(
     positionId: number,
     marketId: string,
     tokenId: string,
+    side: 'long' | 'short',
     size: number,
     entryPrice: number,
     exitPrice: number,
     reason: 'stop_loss' | 'take_profit' | 'time_exit'
   ): Promise<{ pnl: number }> {
-    const exitValue = size * exitPrice;
-    const entryValue = size * entryPrice;
-    const pnl = exitValue - entryValue;
-
-    // Update position to closed
-    await query(`
-      UPDATE paper_positions SET
-        closed_at = NOW(),
-        realized_pnl = $1,
-        current_price = $2,
-        size = 0
-      WHERE id = $3
-    `, [pnl, exitPrice, positionId]);
-
-    // Update paper account
-    await query(`
-      UPDATE paper_account SET
-        current_capital = current_capital + $1,
-        available_capital = available_capital + $1,
-        total_realized_pnl = total_realized_pnl + $2,
-        winning_trades = winning_trades + CASE WHEN $2 > 0 THEN 1 ELSE 0 END,
-        losing_trades = losing_trades + CASE WHEN $2 < 0 THEN 1 ELSE 0 END,
-        updated_at = NOW()
-      WHERE id = 1
-    `, [exitValue, pnl]);
-
-    // Record the trade
-    await paperTradesRepo.create({
-      time: new Date(),
-      market_id: marketId,
-      token_id: tokenId,
-      side: 'sell',
-      requested_size: size,
-      executed_size: size,
-      requested_price: exitPrice,
-      executed_price: exitPrice,
-      fee: 0,
-      value_usd: exitValue,
-      signal_type: reason,
-      order_type: 'market',
-      fill_type: 'full',
-    });
-
-    this.emit('position:closed', {
+    const result = await getPositionClosingService().close({
+      positionId,
       marketId,
-      reason,
+      tokenId,
+      side,
+      size,
       entryPrice,
       exitPrice,
-      pnl,
-      pnlPct: ((exitPrice - entryPrice) / entryPrice) * 100,
+      reason,
     });
 
-    return { pnl };
+    if (result.executed) {
+      this.emit('position:closed', {
+        marketId,
+        reason,
+        entryPrice,
+        exitPrice,
+        pnl: result.netPnl,
+        pnlPct: ((exitPrice - entryPrice) / entryPrice) * 100,
+      });
+    }
+
+    return { pnl: result.netPnl };
   }
 
   /**

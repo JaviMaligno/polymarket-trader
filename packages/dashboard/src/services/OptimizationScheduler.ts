@@ -12,6 +12,7 @@
  */
 
 import { query, isDatabaseConfigured } from '../database/index.js';
+import { signalWeightsRepo } from '../database/repositories.js';
 import { getBacktestService, BacktestService, type BacktestRequest } from './BacktestService.js';
 import { getValidationService, type ValidationService } from './ValidationService.js';
 import { getTradingAutomation } from './TradingAutomation.js';
@@ -674,6 +675,29 @@ export class OptimizationScheduler {
         `, [JSON.stringify(result.params), result.sharpe]);
       } catch (error) {
         console.error('[OptimizationScheduler] Failed to update optimization_runs:', error);
+      }
+    }
+
+    // Apply optimized signal weights to database
+    const WEIGHT_PARAM_MAP: Record<string, string> = {
+      'combiner.momentumWeight': 'momentum',
+      'combiner.meanReversionWeight': 'mean_reversion',
+    };
+
+    const MIN_WEIGHT = 0.05;
+    const MAX_WEIGHT = 0.95;
+
+    for (const [paramKey, signalType] of Object.entries(WEIGHT_PARAM_MAP)) {
+      const rawWeight = result.params[paramKey];
+      if (rawWeight !== undefined && rawWeight !== null) {
+        const weight = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Number(rawWeight)));
+
+        try {
+          await signalWeightsRepo.update(signalType, weight, `optimization-${new Date().toISOString().slice(0, 10)}`);
+          console.log(`[OptimizationScheduler] Updated signal weight: ${signalType} = ${weight.toFixed(4)}`);
+        } catch (err) {
+          console.error(`[OptimizationScheduler] Failed to update weight ${signalType}:`, err);
+        }
       }
     }
 
