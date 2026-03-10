@@ -1,9 +1,9 @@
 name: Daily Trade Review
 
 on:
-  schedule:
-    - cron: '0 8 * * *'   # 8:00 UTC daily
-  workflow_dispatch:        # Manual trigger for testing
+  # schedule:
+  #   - cron: '0 8 * * *'   # Disabled: replaced by Phase 2 (Claude Analysis)
+  workflow_dispatch:          # Keep for manual fallback
 
 concurrency:
   group: daily-review

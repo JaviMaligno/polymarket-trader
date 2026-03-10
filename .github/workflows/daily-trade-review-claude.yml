@@ -1,0 +1,85 @@
+name: Daily Trade Review (Claude Analysis)
+
+on:
+  schedule:
+    - cron: '0 8 * * *'   # 8:00 UTC daily
+  workflow_dispatch:        # Manual trigger for testing
+
+concurrency:
+  group: daily-review
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+jobs:
+  daily-review-claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install -g @anthropic-ai/claude-code nodemailer
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/992492426638/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-deploy@project-94e9f6f2-aba7-4cb6-afc.iam.gserviceaccount.com'
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Gather data from VM
+        id: gather
+        run: |
+          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=ServerAliveInterval=30 --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=30"
+
+          # Run script on VM, save to temp file
+          $SSH --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh > /tmp/daily-review-output.json 2>/tmp/daily-review-stderr.log" \
+            2>ssh-stderr.log || true
+
+          # Retrieve JSON
+          $SSH --command="cat /tmp/daily-review-output.json" \
+            > review-data.json 2>>ssh-stderr.log || true
+
+          if ! jq . review-data.json > /dev/null 2>&1; then
+            echo "::error::Invalid JSON from daily-review.sh"
+            cat ssh-stderr.log 2>/dev/null || true
+            exit 1
+          fi
+          echo "data_collected=true" >> $GITHUB_OUTPUT
+
+      - name: Run Claude Code Analysis
+        if: steps.gather.outputs.data_collected == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          claude --model claude-sonnet-4-6 \
+            --print \
+            --max-turns 25 \
+            --allowedTools "Bash(readonly=false),Read,Write,Glob,Grep,Edit" \
+            "$(cat scripts/daily-review-prompt.md)
+
+          The data file is at: $(pwd)/review-data.json
+          The repo is checked out at: $(pwd)
+          You have access to gh CLI (authenticated), gcloud CLI, and node.
+
+          IMPORTANT: Create the GitHub Issue, send the email (using node scripts/send-review-email.js), and send Slack alert if needed.
+          When done, output a single line: REVIEW_COMPLETE"
