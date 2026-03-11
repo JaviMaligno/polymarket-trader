@@ -53,10 +53,15 @@ export class CircuitBreakerService extends EventEmitter {
   private onPositionsClosed: (() => void) | null = null;
   private resetCount = 0;
   private lastResetTime: Date | null = null;
+  private isHaltedInMemory = false;
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+  }
+
+  isTradingHalted(): boolean {
+    return this.isHaltedInMemory;
   }
 
   /**
@@ -71,6 +76,19 @@ export class CircuitBreakerService extends EventEmitter {
     if (!isDatabaseConfigured()) {
       console.warn('[CircuitBreaker] Database not configured - cannot start');
       return;
+    }
+
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS trading_config (
+          key VARCHAR(255) PRIMARY KEY,
+          value TEXT NOT NULL,
+          description TEXT,
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+    } catch (error) {
+      console.error('[CircuitBreaker] Failed to create trading_config table:', error);
     }
 
     this.isRunning = true;
@@ -311,6 +329,7 @@ export class CircuitBreakerService extends EventEmitter {
    * Halt trading for cooldown period
    */
   private async haltTrading(reason: string): Promise<void> {
+    this.isHaltedInMemory = true;
     try {
       await query(`
         INSERT INTO trading_config (key, value, description, updated_at)
@@ -331,6 +350,7 @@ export class CircuitBreakerService extends EventEmitter {
    * Resume trading after cooldown
    */
   private async resumeTrading(): Promise<void> {
+    this.isHaltedInMemory = false;
     try {
       await query(`
         INSERT INTO trading_config (key, value, description, updated_at)
