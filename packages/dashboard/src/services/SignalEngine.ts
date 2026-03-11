@@ -228,10 +228,13 @@ export class SignalEngine extends EventEmitter {
   setActiveMarkets(markets: ActiveMarket[]): void {
     const MIN_PRICE = 0.05;
     const MAX_PRICE = 0.95;
+    const FIFTY_FIFTY_MIN = 0.45;
+    const FIFTY_FIFTY_MAX = 0.55;
 
     let inactiveCount = 0;
     let resolvedCount = 0;
     let extremePriceCount = 0;
+    let fiftyFiftyCount = 0;
 
     const filtered = markets.filter(m => {
       // Filter 1: Skip inactive markets
@@ -253,13 +256,19 @@ export class SignalEngine extends EventEmitter {
         return false;
       }
 
+      // Filter 4: Skip 50/50 markets (no edge, fees make EV negative)
+      if (price >= FIFTY_FIFTY_MIN && price <= FIFTY_FIFTY_MAX) {
+        fiftyFiftyCount++;
+        return false;
+      }
+
       return true;
     });
 
     // Log filtering summary
-    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount;
+    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount + fiftyFiftyCount;
     if (totalExcluded > 0) {
-      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices`);
+      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices, ${fiftyFiftyCount} 50/50`);
     }
 
     this.activeMarkets = filtered;

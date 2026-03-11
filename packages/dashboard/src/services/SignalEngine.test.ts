@@ -144,3 +144,60 @@ describe('Bayesian Confidence Cap', () => {
     expect(cap).toBeGreaterThan(0);
   });
 });
+
+/**
+ * Test the 50/50 market filter in setActiveMarkets().
+ * Uses the same standalone approach: replicate the filter logic to avoid
+ * importing SignalEngine (which requires @polymarket-trader/signals).
+ */
+describe('SignalEngine — 50/50 Market Filter', () => {
+  function filterMarkets(markets: { currentPrice: number }[]): number {
+    const MIN_PRICE = 0.05;
+    const MAX_PRICE = 0.95;
+    const FIFTY_FIFTY_MIN = 0.45;
+    const FIFTY_FIFTY_MAX = 0.55;
+
+    return markets.filter(m => {
+      const price = m.currentPrice;
+      if (price < MIN_PRICE || price > MAX_PRICE) return false;
+      if (price >= FIFTY_FIFTY_MIN && price <= FIFTY_FIFTY_MAX) return false;
+      return true;
+    }).length;
+  }
+
+  it('should filter out markets with price in 0.45-0.55 range', () => {
+    const markets = [
+      { currentPrice: 0.50 },  // 50/50 → filtered
+      { currentPrice: 0.48 },  // 50/50 → filtered
+      { currentPrice: 0.70 },  // OK
+      { currentPrice: 0.30 },  // OK
+      { currentPrice: 0.45 },  // boundary → filtered
+      { currentPrice: 0.55 },  // boundary → filtered
+      { currentPrice: 0.44 },  // just outside → OK
+      { currentPrice: 0.56 },  // just outside → OK
+    ];
+
+    expect(filterMarkets(markets)).toBe(4); // 0.70, 0.30, 0.44, 0.56
+  });
+
+  it('should not filter markets outside the 50/50 band', () => {
+    const markets = [
+      { currentPrice: 0.20 },
+      { currentPrice: 0.80 },
+      { currentPrice: 0.10 },
+      { currentPrice: 0.90 },
+    ];
+
+    expect(filterMarkets(markets)).toBe(4);
+  });
+
+  it('should filter all if every market is 50/50', () => {
+    const markets = [
+      { currentPrice: 0.50 },
+      { currentPrice: 0.51 },
+      { currentPrice: 0.49 },
+    ];
+
+    expect(filterMarkets(markets)).toBe(0);
+  });
+});
