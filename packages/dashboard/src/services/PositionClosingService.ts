@@ -12,6 +12,7 @@
  * All callers should delegate to this service to ensure consistent financials.
  */
 
+import { EventEmitter } from 'events';
 import { transaction } from '../database/index.js';
 import { paperTradesRepo } from '../database/repositories.js';
 import type { PoolClient } from 'pg';
@@ -59,10 +60,11 @@ const DEFAULT_CONFIG: PositionClosingConfig = {
 // Service
 // ============================================
 
-export class PositionClosingService {
+export class PositionClosingService extends EventEmitter {
   private readonly config: PositionClosingConfig;
 
   constructor(config?: Partial<PositionClosingConfig>) {
+    super();
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
@@ -173,6 +175,8 @@ export class PositionClosingService {
 
     const pnlStr = netPnl >= 0 ? `+$${netPnl.toFixed(2)}` : `-$${Math.abs(netPnl).toFixed(2)}`;
     console.log(`[PositionClosingService] Closed position ${positionId} (${reason}) | ${side} ${size} @ exit=$${exitPrice.toFixed(4)} | PnL: ${pnlStr} | Fee: $${fee.toFixed(4)}`);
+
+    this.emit('position:closed', { marketId, reason });
 
     return { executed: true, netPnl, fee, tradeId };
   }

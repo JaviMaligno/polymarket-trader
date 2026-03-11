@@ -247,6 +247,43 @@ describe('PositionClosingService', () => {
     expect(result.reason).toContain('transaction failed');
   });
 
+  it('should emit position:closed event with marketId and reason after successful close', async () => {
+    const params: ClosePositionParams = {
+      positionId: 1,
+      marketId: 'market-abc',
+      tokenId: 'token-yes',
+      side: 'long',
+      size: 100,
+      entryPrice: 0.40,
+      exitPrice: 0.60,
+      reason: 'stop_loss',
+    };
+
+    const eventSpy = vi.fn();
+    service.on('position:closed', eventSpy);
+
+    await service.close(params);
+
+    expect(eventSpy).toHaveBeenCalledWith({
+      marketId: 'market-abc',
+      reason: 'stop_loss',
+    });
+  });
+
+  it('should NOT emit position:closed event when close fails', async () => {
+    vi.mocked(transaction).mockRejectedValue(new Error('DB down'));
+
+    const eventSpy = vi.fn();
+    service.on('position:closed', eventSpy);
+
+    await service.close({
+      positionId: 1, marketId: 'm1', tokenId: 't1', side: 'long',
+      size: 100, entryPrice: 0.50, exitPrice: 0.60, reason: 'signal',
+    });
+
+    expect(eventSpy).not.toHaveBeenCalled();
+  });
+
   describe('singleton', () => {
     it('should return the same instance from getPositionClosingService', () => {
       const instance1 = getPositionClosingService();
