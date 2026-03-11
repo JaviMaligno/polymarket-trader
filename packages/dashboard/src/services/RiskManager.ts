@@ -444,8 +444,8 @@ export class RiskManager extends EventEmitter {
       return { allowed: true, adaptiveMultiplier: this.adaptiveMultiplier };
 
     } catch (error) {
-      console.error('[RiskManager] Position check failed:', error);
-      return { allowed: true, adaptiveMultiplier: 1 };  // Allow on error
+      console.error('[RiskManager] Position check failed, BLOCKING trade:', error);
+      return { allowed: false, reason: 'risk_check_failed', adaptiveMultiplier: 0 };
     }
   }
 
