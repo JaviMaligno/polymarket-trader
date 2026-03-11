@@ -13,6 +13,7 @@ import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
 import { initializePositionCleanupService } from './services/PositionCleanupService.js';
+import { getPositionClosingService } from './services/PositionClosingService.js';
 import { initializeStopLossService } from './services/StopLossService.js';
 import { initializeCircuitBreakerService } from './services/CircuitBreakerService.js';
 import { getDbEventListener } from './services/DbEventListener.js';
@@ -155,6 +156,7 @@ async function main(): Promise<void> {
       // Start TradingAutomation so signals can be executed
       const automation = getTradingAutomation();
       await automation.start();
+      automation.getExecutor().registerStopLossCooldown(getPositionClosingService());
       console.log('TradingAutomation started');
 
       // Start PositionCleanupService to auto-close positions in inactive/resolved markets

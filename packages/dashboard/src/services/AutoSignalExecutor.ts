@@ -65,6 +65,11 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   minImpliedProbability: parseFloat(process.env.EXECUTOR_MIN_IMPLIED_PROB || '0.10'),
 };
 
+const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+const MAX_POSITIONS_PER_MARKET = 2;
+const NEAR_RESOLUTION_HOURS = 24;
+const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
+
 interface TradeRecord {
   marketId: string;
   timestamp: number;
@@ -88,12 +93,22 @@ export class AutoSignalExecutor extends EventEmitter {
   // Track processed signals to prevent duplicates (key: marketId+direction, value: timestamp)
   private processedSignals: Map<string, number> = new Map();
   private readonly SIGNAL_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+  private stoppedOutMarkets: Map<string, number> = new Map();
 
   constructor(config?: Partial<ExecutorConfig>) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.lastDayReset = new Date();
     this.lastDayReset.setHours(0, 0, 0, 0);
+  }
+
+  registerStopLossCooldown(closingService: import('events').EventEmitter): void {
+    closingService.on('position:closed', ({ marketId, reason }: { marketId: string; reason: string }) => {
+      if (reason === 'stop_loss') {
+        this.stoppedOutMarkets.set(marketId, Date.now());
+        console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
+      }
+    });
   }
 
   /**
@@ -121,9 +136,10 @@ export class AutoSignalExecutor extends EventEmitter {
     //   - Gamma API's market.id (stored as 'id' in DB)
     //   - CLOB API's condition_id (stored as 'condition_id' in DB)
     // We search by BOTH to handle signals from PolymarketService (uses condition_id)
+    let isNearResolution = false;
     try {
-      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean }>(
-        `SELECT is_active, is_resolved FROM markets WHERE id = $1 OR condition_id = $1`,
+      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date_iso: string | null }>(
+        `SELECT is_active, is_resolved, end_date_iso FROM markets WHERE id = $1 OR condition_id = $1`,
         [signal.marketId]
       );
 
@@ -140,6 +156,21 @@ export class AutoSignalExecutor extends EventEmitter {
       if (market.is_resolved === true) {
         console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market is resolved`);
         return { executed: false, reason: 'Market is already resolved' };
+      }
+
+      // 0b. Near-resolution market protection
+      if (market.end_date_iso) {
+        const hoursToResolution = (new Date(market.end_date_iso).getTime() - Date.now()) / 3600000;
+        if (hoursToResolution > 0 && hoursToResolution < NEAR_RESOLUTION_HOURS) {
+          isNearResolution = true;
+          if (signal.signalId === 'mean_reversion') {
+            return { executed: false, reason: `Rejecting mean_reversion on near-resolution market (${hoursToResolution.toFixed(1)}h to resolve)` };
+          }
+          if (signal.confidence < MIN_CONFIDENCE_NEAR_RESOLUTION) {
+            return { executed: false, reason: `Insufficient confidence for near-resolution market (${signal.confidence.toFixed(2)} < ${MIN_CONFIDENCE_NEAR_RESOLUTION})` };
+          }
+          console.log(`[AutoExecutor] Near-resolution market (${hoursToResolution.toFixed(1)}h) — half position size`);
+        }
       }
     } catch (error) {
       console.error('[AutoExecutor] Failed to verify market status:', error);
@@ -179,6 +210,16 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: `Market in cooldown (${Math.ceil(remaining / 1000)}s remaining)` };
     }
 
+    // 3a. Stop-loss re-entry cooldown
+    const stoppedAt = this.stoppedOutMarkets.get(signal.marketId);
+    if (stoppedAt && Date.now() - stoppedAt < STOP_LOSS_COOLDOWN_MS) {
+      const remainingH = ((STOP_LOSS_COOLDOWN_MS - (Date.now() - stoppedAt)) / 3600000).toFixed(1);
+      return { executed: false, reason: `Market in stop-loss cooldown (${remainingH}h remaining)` };
+    }
+    for (const [key, ts] of this.stoppedOutMarkets) {
+      if (Date.now() - ts > STOP_LOSS_COOLDOWN_MS) this.stoppedOutMarkets.delete(key);
+    }
+
     // 3b. Signal deduplication - prevent processing same signal type for same market within window
     const dedupKey = `${signal.marketId}:${signal.direction}`;
     const lastProcessed = this.processedSignals.get(dedupKey);
@@ -209,6 +250,14 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Failed to check positions' };
     }
 
+    // 4a. Per-market concentration limit
+    const openOnMarket = positions.filter(
+      p => p.market_id === signal.marketId && Number(p.size) > 0
+    ).length;
+    if (openOnMarket >= MAX_POSITIONS_PER_MARKET) {
+      return { executed: false, reason: `At market position limit (${openOnMarket}/${MAX_POSITIONS_PER_MARKET})` };
+    }
+
     // 5. Handle SHORT signal - can EXIT existing LONG or ENTER "No" position
     if (signal.direction === 'short') {
       if (existingPosition) {
@@ -232,7 +281,7 @@ export class AutoSignalExecutor extends EventEmitter {
 
       // Open position on the "No" side
       console.log(`[AutoExecutor] SHORT signal for ${signal.marketId.substring(0, 12)}... - opening NO position @ $${signal.price.toFixed(4)}`);
-      return this.openPosition(signal);
+      return this.openPosition(signal, isNearResolution);
     }
 
     // 6. Handle LONG signal - this is our ENTRY strategy
@@ -246,7 +295,7 @@ export class AutoSignalExecutor extends EventEmitter {
         return { executed: false, reason: `Max open positions reached (${this.config.maxOpenPositions})` };
       }
 
-      return this.openPosition(signal);
+      return this.openPosition(signal, isNearResolution);
     }
 
     return { executed: false, reason: 'Unknown signal direction' };
@@ -255,7 +304,7 @@ export class AutoSignalExecutor extends EventEmitter {
   /**
    * Open a new LONG position
    */
-  private async openPosition(signal: SignalResult): Promise<SignalProcessResult> {
+  private async openPosition(signal: SignalResult, isNearResolution = false): Promise<SignalProcessResult> {
     // SMART PRICE VALIDATION based on ROI and probability
     // This is more intuitive than fixed bounds and adapts to market conditions
 
@@ -303,7 +352,7 @@ export class AutoSignalExecutor extends EventEmitter {
     const positionValue = Math.min(
       this.config.maxPositionSize * sizeMultiplier,
       this.config.maxPositionSize
-    );
+    ) * (isNearResolution ? 0.5 : 1.0);
 
     // Calculate number of shares based on price
     const shares = Math.floor(positionValue / signal.price);
