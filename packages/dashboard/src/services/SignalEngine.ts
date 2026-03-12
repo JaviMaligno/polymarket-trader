@@ -27,6 +27,9 @@ import {
   VolumeAnomalyGenerator,
   SpreadCompressionGenerator,
   CrossMarketCorrelationGenerator,
+  PriceDivergenceGenerator,
+  AttentionSpikeGenerator,
+  NewsSentimentGenerator,
   WeightedAverageCombiner,
   DurationWeightModifier,
   type DurationBand,
@@ -100,21 +103,26 @@ export class SignalEngine extends EventEmitter {
     // Initialize signal generators
     this.initializeSignals();
 
-    // Initialize combiner with weights for 8 active generators
-    // Core signals: 30%, Microstructure: 45%, Market Structure: 25%
+    // Initialize combiner with weights for 11 active generators
+    // Core signals: ~26%, Microstructure: ~39%, Market Structure: ~22%, External: ~30%
+    // (WeightedAverageCombiner normalizes, so relative magnitudes matter)
     this.combiner = new WeightedAverageCombiner(
       {
-        // Core signals (30%)
+        // Core signals
         momentum: 0.15,
         mean_reversion: 0.15,
-        // Microstructure signals (45%)
+        // Microstructure signals
         ofi: 0.15,           // Order Flow Imbalance
         mlofi: 0.15,         // Multi-Level OFI
         hawkes: 0.15,        // Trade clustering (Hawkes process)
-        // Market structure signals (25%)
-        volume_anomaly: 0.15,
-        spread_compression: 0.15,
-        cross_market_corr: 0.10,
+        // Market structure signals
+        volume_anomaly: 0.12,
+        spread_compression: 0.12,
+        cross_market_corr: 0.08,
+        // External data signals
+        price_divergence: 0.15,
+        attention_spike: 0.10,
+        news_sentiment: 0.10,
       },
       {
         // Use config values (can be overridden from optimization_runs)
@@ -143,6 +151,11 @@ export class SignalEngine extends EventEmitter {
     this.signals.set('volume_anomaly', new VolumeAnomalyGenerator());
     this.signals.set('spread_compression', new SpreadCompressionGenerator());
     this.signals.set('cross_market_corr', new CrossMarketCorrelationGenerator());
+
+    // External data signals
+    this.signals.set('price_divergence', new PriceDivergenceGenerator());
+    this.signals.set('attention_spike', new AttentionSpikeGenerator());
+    this.signals.set('news_sentiment', new NewsSentimentGenerator());
 
     console.log(`[SignalEngine] Initialized ${this.signals.size} signal generators`);
   }
@@ -568,11 +581,81 @@ export class SignalEngine extends EventEmitter {
         // Non-fatal: CrossMarketCorrelationGenerator will skip if no related markets
       }
 
+      // Fetch external price data for PriceDivergenceGenerator
+      let externalPrices: Array<{ platform: string; probability: number; confidence: number }> = [];
+      try {
+        const extPrices = await query(
+          `SELECT es.source as platform, es.confidence,
+             (es.metadata->>'externalPrice')::float as probability
+           FROM external_signals es
+           WHERE es.market_id = $1 AND es.signal_type = 'price_divergence'
+           AND es.fetched_at > NOW() - INTERVAL '4 hours'
+           ORDER BY es.fetched_at DESC
+           LIMIT 5`,
+          [market.id]
+        );
+        externalPrices = extPrices.rows
+          .filter((r: any) => r.probability !== null && !isNaN(r.probability))
+          .map((r: any) => ({
+            platform: r.platform,
+            probability: parseFloat(r.probability),
+            confidence: parseFloat(r.confidence) || 0.5,
+          }));
+      } catch {
+        // non-fatal
+      }
+
+      // Fetch attention/interest data for AttentionSpikeGenerator
+      let currentInterest = 0;
+      let baselineInterest = 0;
+      try {
+        const attentionData = await query(
+          `SELECT value, metadata FROM external_signals
+           WHERE market_id = $1 AND signal_type = 'attention_spike'
+           AND fetched_at > NOW() - INTERVAL '6 hours'
+           ORDER BY fetched_at DESC LIMIT 1`,
+          [market.id]
+        );
+        if (attentionData.rows[0]) {
+          currentInterest = attentionData.rows[0].value;
+          const meta = attentionData.rows[0].metadata;
+          baselineInterest = (typeof meta === 'object' ? meta?.baseline : JSON.parse(meta)?.baseline) ?? 0;
+        }
+      } catch {
+        // non-fatal
+      }
+
+      // Fetch news sentiment data for NewsSentimentGenerator
+      let newsSentiment = 0;
+      let newsArticleCount = 0;
+      try {
+        const sentimentData = await query(
+          `SELECT value, metadata FROM external_signals
+           WHERE market_id = $1 AND signal_type = 'sentiment'
+           AND fetched_at > NOW() - INTERVAL '4 hours'
+           ORDER BY fetched_at DESC LIMIT 1`,
+          [market.id]
+        );
+        if (sentimentData.rows[0]) {
+          newsSentiment = sentimentData.rows[0].value;
+          const meta = sentimentData.rows[0].metadata;
+          newsArticleCount = (typeof meta === 'object' ? meta?.articleCount : JSON.parse(meta)?.articleCount) ?? 0;
+        }
+      } catch {
+        // non-fatal
+      }
+
       // Merge new context data into custom
       const mergedCustom: Record<string, unknown> = {
         ...(custom ?? {}),
         historicalSpreads,
         relatedMarketPriceChanges,
+        externalPrices,
+        polymarketPrice: market.currentPrice,
+        currentInterest,
+        baselineInterest,
+        newsSentiment,
+        newsArticleCount,
       };
 
       return {

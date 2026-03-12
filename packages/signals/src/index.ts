@@ -83,6 +83,11 @@ export { VolumeAnomalyGenerator } from './signals/market-structure/VolumeAnomaly
 export { SpreadCompressionGenerator } from './signals/market-structure/SpreadCompressionGenerator.js';
 export { CrossMarketCorrelationGenerator } from './signals/market-structure/CrossMarketCorrelationGenerator.js';
 
+// External Data Signals
+export { PriceDivergenceGenerator } from './signals/external/PriceDivergenceGenerator.js';
+export { AttentionSpikeGenerator } from './signals/external/AttentionSpikeGenerator.js';
+export { NewsSentimentGenerator } from './signals/external/NewsSentimentGenerator.js';
+
 // Microstructure Signals
 export {
   OrderFlowImbalanceSignal,
