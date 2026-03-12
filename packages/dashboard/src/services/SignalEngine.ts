@@ -207,9 +207,18 @@ export class SignalEngine extends EventEmitter {
       const weightMap: Record<string, number> = {};
 
       for (const w of weights) {
-        if (w.is_enabled) {
+        // Only sync weights for signal types that have active generators.
+        // Stale DB entries (e.g. 'sentiment', 'volume_spike') dilute the
+        // combiner's normalised weights for real generators (ofi, mlofi, hawkes),
+        // pushing combined signal strength below the execution threshold.
+        if (w.is_enabled && this.signals.has(w.signal_type)) {
           weightMap[w.signal_type] = parseFloat(String(w.weight));
         }
+      }
+
+      const skipped = weights.filter(w => w.is_enabled && !this.signals.has(w.signal_type));
+      if (skipped.length > 0) {
+        console.log(`[SignalEngine] Skipped ${skipped.length} DB weights for inactive generators: ${skipped.map(w => w.signal_type).join(', ')}`);
       }
 
       if (Object.keys(weightMap).length > 0) {
