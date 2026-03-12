@@ -21,6 +21,12 @@ vi.mock('./PositionClosingService.js', () => {
   };
 });
 
+vi.mock('./CircuitBreakerService.js', () => ({
+  getCircuitBreakerService: vi.fn(() => ({
+    isTradingHalted: vi.fn(() => false),
+  })),
+}));
+
 import { query } from '../database/index.js';
 import { paperPositionsRepo } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
@@ -177,6 +183,40 @@ describe('AutoSignalExecutor', () => {
 
       const result = await executor.processSignal(makeSignal());
       expect(result.reason).not.toMatch(/near-resolution/i);
+    });
+  });
+
+  describe('Circuit breaker integration', () => {
+    it('should reject signals when circuit breaker is halted', async () => {
+      const { getCircuitBreakerService } = await import('./CircuitBreakerService.js');
+      vi.mocked(getCircuitBreakerService).mockReturnValue({
+        isTradingHalted: vi.fn(() => true),
+      } as any);
+
+      const executor = new AutoSignalExecutor();
+      mockMarketQuery();
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.executed).toBe(false);
+      expect(result.reason).toContain('circuit breaker');
+    });
+  });
+
+  describe('Per-market limit allows closes', () => {
+    it('should allow SHORT close even when market is at position limit', async () => {
+      const executor = new AutoSignalExecutor();
+      mockMarketQuery();
+
+      // 2 existing positions on same market (at limit)
+      vi.mocked(paperPositionsRepo.getAll).mockResolvedValue([
+        { market_id: 'market-123', token_id: 'token-yes', size: 50, side: 'long', avg_entry_price: 0.40 } as any,
+        { market_id: 'market-123', token_id: 'token-no', size: 30, side: 'short', avg_entry_price: 0.60 } as any,
+      ]);
+
+      // SHORT signal should be able to close the existing position
+      const result = await executor.processSignal(makeSignal({ direction: 'short' }));
+      // Should NOT be rejected for market position limit
+      expect(result.reason || '').not.toContain('market position limit');
     });
   });
 });

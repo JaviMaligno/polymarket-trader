@@ -21,6 +21,7 @@ import {
   type PaperPosition,
 } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
+import { getCircuitBreakerService } from './CircuitBreakerService.js';
 
 export interface SignalResult {
   signalId: string;
@@ -94,6 +95,7 @@ export class AutoSignalExecutor extends EventEmitter {
   private processedSignals: Map<string, number> = new Map();
   private readonly SIGNAL_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
   private stoppedOutMarkets: Map<string, number> = new Map();
+  private nearResolutionMarkets: Set<string> = new Set();
 
   constructor(config?: Partial<ExecutorConfig>) {
     super();
@@ -105,8 +107,14 @@ export class AutoSignalExecutor extends EventEmitter {
   registerStopLossCooldown(closingService: import('events').EventEmitter): void {
     closingService.on('position:closed', ({ marketId, reason }: { marketId: string; reason: string }) => {
       if (reason === 'stop_loss') {
-        this.stoppedOutMarkets.set(marketId, Date.now());
-        console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
+        if (this.nearResolutionMarkets.has(marketId)) {
+          // Permanent cooldown for near-resolution markets (set far-future timestamp)
+          this.stoppedOutMarkets.set(marketId, Date.now() + 365 * 24 * 3600000);
+          console.log(`[AutoExecutor] PERMANENT stop-loss cooldown for near-resolution market ${marketId.substring(0, 12)}...`);
+        } else {
+          this.stoppedOutMarkets.set(marketId, Date.now());
+          console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
+        }
       }
     });
   }
@@ -129,6 +137,11 @@ export class AutoSignalExecutor extends EventEmitter {
     if (!isDatabaseConfigured()) {
       // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Database not configured`);
       return { executed: false, reason: 'Database not configured' };
+    }
+
+    // 0a. Check circuit breaker in-memory halt flag (works even when DB is down)
+    if (getCircuitBreakerService().isTradingHalted()) {
+      return { executed: false, reason: 'Trading halted by circuit breaker' };
     }
 
     // 0. CRITICAL: Verify market is active in database (defense in depth)
@@ -163,6 +176,7 @@ export class AutoSignalExecutor extends EventEmitter {
         const hoursToResolution = (new Date(market.end_date_iso).getTime() - Date.now()) / 3600000;
         if (hoursToResolution > 0 && hoursToResolution < NEAR_RESOLUTION_HOURS) {
           isNearResolution = true;
+          this.nearResolutionMarkets.add(signal.marketId);
           if (signal.signalId === 'mean_reversion') {
             return { executed: false, reason: `Rejecting mean_reversion on near-resolution market (${hoursToResolution.toFixed(1)}h to resolve)` };
           }
@@ -250,12 +264,15 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Failed to check positions' };
     }
 
-    // 4a. Per-market concentration limit
-    const openOnMarket = positions.filter(
-      p => p.market_id === signal.marketId && Number(p.size) > 0
-    ).length;
-    if (openOnMarket >= MAX_POSITIONS_PER_MARKET) {
-      return { executed: false, reason: `At market position limit (${openOnMarket}/${MAX_POSITIONS_PER_MARKET})` };
+    // 4a. Per-market concentration limit (only for new opens, not closes)
+    const isClosingExisting = signal.direction === 'short' && !!existingPosition;
+    if (!isClosingExisting) {
+      const openOnMarket = positions.filter(
+        p => p.market_id === signal.marketId && Number(p.size) > 0
+      ).length;
+      if (openOnMarket >= MAX_POSITIONS_PER_MARKET) {
+        return { executed: false, reason: `At market position limit (${openOnMarket}/${MAX_POSITIONS_PER_MARKET})` };
+      }
     }
 
     // 5. Handle SHORT signal - can EXIT existing LONG or ENTER "No" position
