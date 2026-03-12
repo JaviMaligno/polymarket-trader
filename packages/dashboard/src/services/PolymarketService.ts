@@ -683,6 +683,7 @@ export class PolymarketService extends EventEmitter {
           isActive: m.isActive,
           isResolved: false, // If we're fetching it, it's not resolved yet
           marketType: m.marketType,
+          endDate: m.endDate ?? null,
         }));
 
       engine.setActiveMarkets(activeMarkets);

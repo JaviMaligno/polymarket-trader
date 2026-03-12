@@ -25,6 +25,8 @@ import {
   MultiLevelOFISignal,
   HawkesSignal,
   WeightedAverageCombiner,
+  DurationWeightModifier,
+  type DurationBand,
   type ISignal,
   type SignalContext,
   type SignalOutput,
@@ -72,12 +74,14 @@ interface ActiveMarket {
   isActive?: boolean;    // Market is still active for trading
   isResolved?: boolean;  // Market has been resolved
   marketType?: string;   // crypto_intraday, crypto_daily, event_short, event_long
+  endDate?: Date | null; // Market resolution date for duration-based weight scaling
 }
 
 export class SignalEngine extends EventEmitter {
   private config: SignalEngineConfig;
   private signals: Map<string, ISignal> = new Map();
   private combiner: WeightedAverageCombiner;
+  private durationModifier: DurationWeightModifier = new DurationWeightModifier();
   private computeInterval: NodeJS.Timeout | null = null;
   private syncInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
@@ -372,8 +376,16 @@ export class SignalEngine extends EventEmitter {
       return null;
     }
 
+    // Apply duration-based weight scaling before combining
+    const originalWeights = this.combiner.getWeights();
+    const durationWeights = this.durationModifier.modifyWeights(originalWeights, market.endDate ?? null);
+    this.combiner.setWeights(durationWeights);
+
     // Combine signals with market-type-specific weights
     const combined = this.combiner.combine(signalOutputs, undefined, market.marketType);
+
+    // Restore original weights after combining
+    this.combiner.setWeights(originalWeights);
 
     if (!combined || combined.direction === 'NEUTRAL') {
       return null;
