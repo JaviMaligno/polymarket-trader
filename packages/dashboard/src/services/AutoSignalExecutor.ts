@@ -152,7 +152,7 @@ export class AutoSignalExecutor extends EventEmitter {
     let isNearResolution = false;
     try {
       const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date_iso: string | null }>(
-        `SELECT is_active, is_resolved, end_date_iso FROM markets WHERE id = $1 OR condition_id = $1`,
+        `SELECT is_active, is_resolved, end_date_iso FROM markets WHERE id = $1`,
         [signal.marketId]
       );
 
@@ -533,7 +533,7 @@ export class AutoSignalExecutor extends EventEmitter {
            WHERE token_id = m.clob_token_id_yes
            ORDER BY time DESC LIMIT 1
          ) ph ON true
-         WHERE m.id = $1 OR m.condition_id = $1
+         WHERE m.id = $1
          LIMIT 1`,
         [position.market_id]
       );

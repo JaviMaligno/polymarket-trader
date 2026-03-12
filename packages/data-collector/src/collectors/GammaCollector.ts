@@ -369,7 +369,6 @@ export class GammaCollector {
         best_bid = EXCLUDED.best_bid,
         best_ask = EXCLUDED.best_ask,
         last_trade_price = EXCLUDED.last_trade_price,
-        is_active = EXCLUDED.is_active,
         updated_at = NOW()
       RETURNING (xmax = 0) AS is_insert
       `,

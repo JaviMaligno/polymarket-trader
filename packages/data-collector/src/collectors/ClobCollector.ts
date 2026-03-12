@@ -675,17 +675,41 @@ export class ClobCollector {
       try {
         const prices = await this.fetchPricesBatch(batch);
 
+        const yesUpdates: { id: string; price: number }[] = [];
+        const noUpdates: { id: string; price: number }[] = [];
+
         for (const [tokenId, price] of prices) {
           const mapping = tokenToMarket.get(tokenId);
           if (!mapping) continue;
 
-          const column = mapping.side === 'yes' ? 'current_price_yes' : 'current_price_no';
-
-          await query(
-            `UPDATE markets SET ${column} = $1, updated_at = NOW() WHERE id = $2`,
-            [price, mapping.marketId]
-          );
+          if (mapping.side === 'yes') {
+            yesUpdates.push({ id: mapping.marketId, price });
+          } else {
+            noUpdates.push({ id: mapping.marketId, price });
+          }
           updated++;
+        }
+
+        // Batch update YES prices
+        if (yesUpdates.length > 0) {
+          const ids = yesUpdates.map((u, i) => `$${i * 2 + 1}`).join(',');
+          const sets = yesUpdates.map((u, i) => `WHEN id = $${i * 2 + 1} THEN $${i * 2 + 2}`).join(' ');
+          const params = yesUpdates.flatMap(u => [u.id, u.price]);
+          await query(
+            `UPDATE markets SET current_price_yes = CASE ${sets} END, updated_at = NOW() WHERE id IN (${ids})`,
+            params
+          );
+        }
+
+        // Batch update NO prices
+        if (noUpdates.length > 0) {
+          const ids = noUpdates.map((u, i) => `$${i * 2 + 1}`).join(',');
+          const sets = noUpdates.map((u, i) => `WHEN id = $${i * 2 + 1} THEN $${i * 2 + 2}`).join(' ');
+          const params = noUpdates.flatMap(u => [u.id, u.price]);
+          await query(
+            `UPDATE markets SET current_price_no = CASE ${sets} END, updated_at = NOW() WHERE id IN (${ids})`,
+            params
+          );
         }
       } catch (error) {
         logger.error({ error, batchStart: i }, 'Error updating batch prices');
