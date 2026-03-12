@@ -236,6 +236,9 @@ export {
   type SignalDirection,
 } from './filters/index.js';
 
+// Modifiers
+export { DurationWeightModifier, type DurationBand } from './modifiers/DurationWeightModifier.js';
+
 // Signal Registry (factory for creating signals)
 import { MomentumSignal } from './signals/technical/MomentumSignal.js';
 import { MeanReversionSignal } from './signals/technical/MeanReversionSignal.js';
