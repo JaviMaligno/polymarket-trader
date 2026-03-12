@@ -14,8 +14,10 @@ You have a limited number of turns. Prioritize creating outputs over exploring t
 2. Read `CLAUDE.md` for system context (optional, only if needed)
 3. Analyze the data
 4. Write `report.md` and create the GitHub Issue
-5. Write `email.html` and send the email
-6. Send Slack alert only if critical
+5. For each actionable fix: create branch, implement, PR, deploy to VM, verify, rollback
+6. Comment on issue with PR summary table
+7. Write `email.html` and send the email (include PR links)
+8. Send Slack alert only if critical
 
 Do NOT explore the codebase extensively. The data file contains everything you need.
 
@@ -112,10 +114,91 @@ curl -sf -X POST -H "Content-Type: application/json" \
   "$SLACK_WEBHOOK_URL"
 ```
 
+## Step 4: Implement Fixes as PRs
+
+After creating the issue, implement fixes for actionable problems. **Maximum 5 PRs per run.**
+
+For each fix:
+
+### 4a. Create branch and implement
+```bash
+git checkout -b fix/daily-review-YYYY-MM-DD-<slug>
+# ... make changes ...
+git add <files>
+git commit -m "fix: <description>"
+git push -u origin fix/daily-review-YYYY-MM-DD-<slug>
+```
+
+### 4b. Create PR
+```bash
+gh pr create --title "fix: <short description>" --body-file pr-body.md --label "daily-review"
+```
+
+PR body must include:
+- **Root Cause**: What you found and why it happens
+- **Changes**: What you changed and why
+- **VM Verification**: Results table (filled after testing)
+- `Related to #<issue-number>`
+
+### 4c. Deploy to VM and verify
+```bash
+SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no"
+
+# Deploy PR branch
+$SSH --command="cd /opt/polymarket-trader && git fetch origin && git checkout <branch> && docker compose -f docker-compose.gcp.yml pull && docker compose -f docker-compose.gcp.yml up -d --remove-orphans"
+
+# Wait for containers to start
+sleep 30
+
+# Generic checks
+$SSH --command="docker compose -f docker-compose.gcp.yml ps"
+$SSH --command="docker stats --no-stream --format 'table {{.Name}}\t{{.MemUsage}}'"
+
+# Problem-specific check — YOU decide what to verify based on what you fixed
+# Examples: query DB to verify accounting, check logs for specific errors, etc.
+
+# ALWAYS rollback to main
+$SSH --command="cd /opt/polymarket-trader && git checkout main && docker compose -f docker-compose.gcp.yml pull && docker compose -f docker-compose.gcp.yml up -d --remove-orphans"
+```
+
+### 4d. Update PR with results
+Edit the PR body to fill in the VM Verification section with ✅/❌ results.
+
+### 4e. Return to main locally
+```bash
+git checkout main
+```
+
+Repeat for each fix, then continue to Step 5.
+
+## Step 5: Summarize in Issue
+
+After all PRs are created, add a comment to the issue:
+```bash
+gh issue comment <issue-number> --body-file prs-summary.md
+```
+
+The comment should have a table:
+```markdown
+## PRs Created
+| PR | Problem | VM Verified |
+|----|---------|-------------|
+| #N | Description | ✅/❌ Result |
+```
+
 ## Analysis Principles
 
 - **Root causes, not symptoms**: "Losses from OFI signals in low-liquidity crypto markets" not "PnL is -$50"
 - **Profitability focus**: Every recommendation should aim to make the system more profitable
-- **Conservative actions**: Report and recommend rather than act. Never make code changes.
-- **Resource awareness**: The VM has only 1GB RAM. Don't recommend changes that increase memory usage.
+- **Fix what you can**: If you can fix a problem with code, create a PR. Don't just report — act.
+- **Resource awareness**: The VM has only 1GB RAM. Don't make changes that increase memory usage.
 - **Historical context**: Reference past bugs and patterns from CLAUDE.md and memory files.
+
+## Safety Rules — DO NOT VIOLATE
+
+- **No destructive DB operations**: No DROP TABLE, no DELETE without WHERE
+- **No changing credentials or secrets**
+- **No modifying `.github/workflows/daily-trade-review-claude.yml`** (the review workflow itself)
+- **No force push to main**
+- **Always rollback VM to main** after each PR verification
+- **Maximum 5 PRs per run** — document remaining fixes in the issue

@@ -10,14 +10,15 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
   issues: write
+  pull-requests: write
 
 jobs:
   daily-review-claude:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -41,6 +42,11 @@ jobs:
 
       - name: Setup Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure git
+        run: |
+          git config user.name "Claude (Daily Review)"
+          git config user.email "noreply@anthropic.com"
 
       - name: Gather data from VM
         id: gather
@@ -80,9 +86,9 @@ jobs:
             echo "The repo is checked out at: $(pwd)"
             echo "You have access to gh CLI (authenticated), gcloud CLI, and node."
             echo ""
-            echo "IMPORTANT: Create the GitHub Issue, send the email (using node scripts/send-review-email.js), and send Slack alert if needed."
+            echo "IMPORTANT: Create the GitHub Issue, implement fixes as PRs (deploy to VM to verify each, then rollback to main), send the email (using node scripts/send-review-email.js), and send Slack alert if needed."
             echo "When done, output a single line: REVIEW_COMPLETE"
           } | claude --model claude-sonnet-4-6 \
             --print \
-            --max-turns 50 \
+            --max-turns 100 \
             --dangerously-skip-permissions
