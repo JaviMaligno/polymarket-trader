@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS signal_predictions (
 
     -- Signal details
     signal_type VARCHAR(50) NOT NULL,  -- 'momentum', 'mean_reversion', 'wallet_tracking', etc.
-    direction VARCHAR(4) NOT NULL,      -- 'long' or 'short'
+    direction VARCHAR(8) NOT NULL,      -- 'long' or 'short'
     strength DECIMAL(5,4) NOT NULL,     -- Signal strength 0-1
     confidence DECIMAL(5,4) NOT NULL,   -- Confidence level 0-1
 
@@ -131,7 +131,7 @@ CREATE TABLE IF NOT EXISTS paper_positions (
     token_id VARCHAR(128) NOT NULL,
 
     -- Position state
-    side VARCHAR(4) NOT NULL,            -- 'long' or 'short'
+    side VARCHAR(8) NOT NULL,            -- 'long' or 'short'
     size DECIMAL(20,6) NOT NULL,
     avg_entry_price DECIMAL(10,6) NOT NULL,
     current_price DECIMAL(10,6),
