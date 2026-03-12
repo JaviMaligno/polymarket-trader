@@ -43,8 +43,8 @@ const makeSignal = (overrides?: Partial<SignalResult>): SignalResult => ({
   ...overrides,
 });
 
-function mockMarketQuery(overrides?: { is_active?: boolean; is_resolved?: boolean; end_date_iso?: string | null }) {
-  const defaults = { is_active: true, is_resolved: false, end_date_iso: null, ...overrides };
+function mockMarketQuery(overrides?: { is_active?: boolean; is_resolved?: boolean; end_date?: string | null }) {
+  const defaults = { is_active: true, is_resolved: false, end_date: null, ...overrides };
   (query as any).mockResolvedValue({ rows: [defaults] });
 }
 
@@ -136,7 +136,7 @@ describe('AutoSignalExecutor', () => {
   describe('Near-resolution protection', () => {
     it('should reject mean_reversion signals on near-resolution markets', async () => {
       const sixHoursFromNow = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-      mockMarketQuery({ end_date_iso: sixHoursFromNow });
+      mockMarketQuery({ end_date: sixHoursFromNow });
 
       const result = await executor.processSignal(makeSignal({
         signalId: 'mean_reversion',
@@ -148,7 +148,7 @@ describe('AutoSignalExecutor', () => {
 
     it('should reject weak signals on near-resolution markets', async () => {
       const sixHoursFromNow = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-      mockMarketQuery({ end_date_iso: sixHoursFromNow });
+      mockMarketQuery({ end_date: sixHoursFromNow });
 
       const result = await executor.processSignal(makeSignal({
         signalId: 'momentum',
@@ -160,7 +160,7 @@ describe('AutoSignalExecutor', () => {
 
     it('should allow strong momentum on near-resolution markets', async () => {
       const sixHoursFromNow = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
-      mockMarketQuery({ end_date_iso: sixHoursFromNow });
+      mockMarketQuery({ end_date: sixHoursFromNow });
 
       const result = await executor.processSignal(makeSignal({
         signalId: 'momentum',
@@ -170,8 +170,8 @@ describe('AutoSignalExecutor', () => {
       expect(result.reason).not.toMatch(/near-resolution/i);
     });
 
-    it('should pass markets with null end_date_iso', async () => {
-      mockMarketQuery({ end_date_iso: null });
+    it('should pass markets with null end_date', async () => {
+      mockMarketQuery({ end_date: null });
 
       const result = await executor.processSignal(makeSignal());
       expect(result.reason).not.toMatch(/near-resolution/i);
@@ -179,7 +179,7 @@ describe('AutoSignalExecutor', () => {
 
     it('should pass markets resolving in >24h', async () => {
       const fortyEightHoursFromNow = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-      mockMarketQuery({ end_date_iso: fortyEightHoursFromNow });
+      mockMarketQuery({ end_date: fortyEightHoursFromNow });
 
       const result = await executor.processSignal(makeSignal());
       expect(result.reason).not.toMatch(/near-resolution/i);
@@ -199,6 +199,30 @@ describe('AutoSignalExecutor', () => {
       const result = await executor.processSignal(makeSignal());
       expect(result.executed).toBe(false);
       expect(result.reason).toContain('circuit breaker');
+    });
+  });
+
+  // =========================================================
+  // Bug fix: end_date_iso → end_date column name
+  // =========================================================
+  describe('Near-resolution uses end_date column (not end_date_iso)', () => {
+    it('should reject mean_reversion when end_date is within 24h', async () => {
+      // Ensure circuit breaker is not halted (previous test may have mutated mock)
+      const { getCircuitBreakerService } = await import('./CircuitBreakerService.js');
+      vi.mocked(getCircuitBreakerService).mockReturnValue({
+        isTradingHalted: vi.fn(() => false),
+      } as any);
+
+      const twelveHoursFromNow = new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString();
+      // Only set end_date (the real DB column), NOT end_date_iso
+      mockMarketQuery({ end_date: twelveHoursFromNow });
+
+      const result = await executor.processSignal(makeSignal({
+        signalId: 'mean_reversion',
+        confidence: 0.90,
+      }));
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/mean_reversion.*near-resolution/i);
     });
   });
 

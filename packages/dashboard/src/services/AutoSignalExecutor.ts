@@ -151,8 +151,8 @@ export class AutoSignalExecutor extends EventEmitter {
     // We search by BOTH to handle signals from PolymarketService (uses condition_id)
     let isNearResolution = false;
     try {
-      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date_iso: string | null }>(
-        `SELECT is_active, is_resolved, end_date_iso FROM markets WHERE id = $1`,
+      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date: string | null }>(
+        `SELECT is_active, is_resolved, end_date FROM markets WHERE id = $1`,
         [signal.marketId]
       );
 
@@ -172,8 +172,8 @@ export class AutoSignalExecutor extends EventEmitter {
       }
 
       // 0b. Near-resolution market protection
-      if (market.end_date_iso) {
-        const hoursToResolution = (new Date(market.end_date_iso).getTime() - Date.now()) / 3600000;
+      if (market.end_date) {
+        const hoursToResolution = (new Date(market.end_date).getTime() - Date.now()) / 3600000;
         if (hoursToResolution > 0 && hoursToResolution < NEAR_RESOLUTION_HOURS) {
           isNearResolution = true;
           this.nearResolutionMarkets.add(signal.marketId);
