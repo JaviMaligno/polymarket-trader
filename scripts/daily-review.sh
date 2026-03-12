@@ -214,6 +214,8 @@ orphaned_buys=$(query_one "
 ")
 
 # 11. Account consistency check
+# Formula: current_capital + open_positions_cost = initial_capital + realized_pnl - fees
+# (capital is reduced when positions are opened; we must add position costs back to balance)
 account_consistency=$(query_one "
   SELECT row_to_json(t) FROM (
     SELECT
@@ -221,8 +223,14 @@ account_consistency=$(query_one "
       a.initial_capital::float AS initial,
       a.total_realized_pnl::float AS realized_pnl,
       a.total_fees_paid::float AS total_fees,
-      (a.current_capital - (a.initial_capital + a.total_realized_pnl - a.total_fees_paid))::float AS unexplained_diff
+      COALESCE(pos.open_cost, 0)::float AS open_positions_cost,
+      (a.current_capital + COALESCE(pos.open_cost, 0) - (a.initial_capital + a.total_realized_pnl - a.total_fees_paid))::float AS unexplained_diff
     FROM paper_account a
+    LEFT JOIN (
+      SELECT SUM(size * avg_entry_price) AS open_cost
+      FROM paper_positions
+      WHERE closed_at IS NULL
+    ) pos ON true
     LIMIT 1
   ) t;
 ")
