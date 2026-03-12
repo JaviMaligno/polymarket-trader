@@ -304,6 +304,7 @@ export class OptimizationScheduler {
   // ============================================================
   private async runOptunaOptimization(iterations: number, type: string, paramSpace?: ParameterDef[]): Promise<OptimizationResult[]> {
     const client = this.optunaClient!;
+    const runStartedAt = new Date();
     const results: OptimizationResult[] = [];
 
     // Wake server (Render cold start)
@@ -395,7 +396,7 @@ export class OptimizationScheduler {
           console.log('[OptimizationScheduler] Optuna best:', best.best_params, 'Score:', best.best_score);
         } catch { /* non-critical */ }
 
-        await this.saveOptimizationRun(type, results, 'optuna_tpe');
+        await this.saveOptimizationRun(type, results, 'optuna_tpe', runStartedAt);
       }
     } finally {
       await client.deleteOptimizer(optimizerId);
@@ -445,6 +446,7 @@ export class OptimizationScheduler {
   // Legacy grid/random search (fallback)
   // ============================================================
   private async runGridOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
+    const runStartedAt = new Date();
     const results: OptimizationResult[] = [];
     // Use training period only (exclude OOS period)
     const now = new Date();
@@ -497,7 +499,7 @@ export class OptimizationScheduler {
     }
 
     if (results.length > 0) {
-      await this.saveOptimizationRun(type, results, 'random_search');
+      await this.saveOptimizationRun(type, results, 'random_search', runStartedAt);
     }
 
     return results;
@@ -766,18 +768,20 @@ export class OptimizationScheduler {
   // ============================================================
   // Database persistence
   // ============================================================
-  private async saveOptimizationRun(type: string, results: OptimizationResult[], optimizerType: string = 'random_search'): Promise<void> {
+  private async saveOptimizationRun(type: string, results: OptimizationResult[], optimizerType: string = 'random_search', startedAt?: Date): Promise<void> {
     if (!isDatabaseConfigured()) return;
 
     try {
       const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b, results[0]);
+      const runStartedAt = startedAt ?? new Date();
+      const durationSeconds = Math.round((Date.now() - runStartedAt.getTime()) / 1000);
 
       await query(`
         INSERT INTO optimization_runs (
           name, description, status, optimizer_type, n_iterations,
           objective_metric, parameter_space, data_start_date, data_end_date,
-          best_params, best_score, iterations_completed, completed_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
+          best_params, best_score, iterations_completed, started_at, completed_at, duration_seconds
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14)
       `, [
         `${type}-${new Date().toISOString().slice(0, 10)}`,
         `Automated ${type} optimization (${optimizerType})`,
@@ -791,6 +795,8 @@ export class OptimizationScheduler {
         best ? JSON.stringify(best.params) : null,
         best?.sharpe || null,
         results.length,
+        runStartedAt,
+        durationSeconds,
       ]);
     } catch (error) {
       console.error('[OptimizationScheduler] Failed to save optimization run:', error);
