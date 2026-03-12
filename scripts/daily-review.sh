@@ -343,6 +343,30 @@ if command -v docker &>/dev/null; then
   fi
 fi
 
+# 18b. CPU/Memory alerts (parsed from resource_usage)
+cpu_alerts="[]"
+if [ "$resource_usage" != "[]" ]; then
+  cpu_alerts=$(echo "$resource_usage" | jq '[
+    .[] |
+    {
+      name: .name,
+      cpu: (.cpu_pct | gsub("%"; "") | tonumber),
+      mem_pct: (.mem_pct | gsub("%"; "") | tonumber)
+    } |
+    if .cpu > 90 then {level: "critical", name: .name, message: "\(.name) CPU at \(.cpu)% (>90%)"}
+    elif .cpu > 70 then {level: "warning", name: .name, message: "\(.name) CPU at \(.cpu)% (>70%)"}
+    else empty end
+  ] + [
+    .[] |
+    {
+      name: .name,
+      mem_pct: (.mem_pct | gsub("%"; "") | tonumber)
+    } |
+    if .mem_pct > 85 then {level: "warning", name: .name, message: "\(.name) memory at \(.mem_pct)% (>85%)"}
+    else empty end
+  ]' 2>/dev/null || echo "[]")
+fi
+
 # 19. Error logs from containers
 get_container_errors() {
   local pattern="$1"
@@ -392,6 +416,7 @@ jq -n \
   --argjson consecutive_losses "$consecutive_losses" \
   --argjson containers "$containers" \
   --argjson resource_usage "$resource_usage" \
+  --argjson cpu_alerts "$cpu_alerts" \
   --argjson error_logs "$error_logs" \
   '{
     generated_at: $ts,
@@ -413,5 +438,6 @@ jq -n \
     consecutive_losses: $consecutive_losses,
     containers: $containers,
     resource_usage: $resource_usage,
+    cpu_alerts: $cpu_alerts,
     error_logs: $error_logs
   }'
