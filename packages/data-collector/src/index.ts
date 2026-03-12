@@ -4,6 +4,7 @@ import { pino } from 'pino';
 import { healthCheck, closePool } from './database/connection.js';
 import { getScheduler } from './services/Scheduler.js';
 import { getRateLimiter } from './services/RateLimiter.js';
+import { AdaptiveSyncManager } from './services/AdaptiveSyncManager.js';
 
 const logger = pino({
   name: 'polymarket-data-collector',
@@ -36,8 +37,12 @@ async function main(): Promise<void> {
   const rateLimiter = getRateLimiter();
   logger.info({ endpoints: Object.keys(rateLimiter.getStats()) }, 'Rate limiter initialized');
 
+  // Start adaptive sync manager (CPU-aware interval scaling)
+  const adaptiveSyncManager = new AdaptiveSyncManager();
+  adaptiveSyncManager.start();
+
   // Start scheduler
-  const scheduler = getScheduler();
+  const scheduler = getScheduler(adaptiveSyncManager);
   scheduler.start();
 
   // Start health check HTTP server
@@ -83,6 +88,7 @@ async function main(): Promise<void> {
     clearInterval(statsInterval);
     healthServer.close();
     scheduler.stop();
+    adaptiveSyncManager.stop();
 
     // Wait for running jobs to complete before closing pool
     await scheduler.waitForRunningJobs(30000);

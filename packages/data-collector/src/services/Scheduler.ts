@@ -4,6 +4,7 @@ import { getGammaCollector } from '../collectors/GammaCollector.js';
 import { getClobCollector } from '../collectors/ClobCollector.js';
 import { getRateLimiter } from './RateLimiter.js';
 import { getPool } from '../database/connection.js';
+import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -20,8 +21,10 @@ interface ScheduledJob {
 export class Scheduler {
   private jobs: Map<string, ScheduledJob> = new Map();
   private isRunning = false;
+  private adaptiveSyncManager?: AdaptiveSyncManager;
 
-  constructor() {
+  constructor(adaptiveSyncManager?: AdaptiveSyncManager) {
+    this.adaptiveSyncManager = adaptiveSyncManager;
     // Define all scheduled jobs
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
@@ -125,6 +128,7 @@ export class Scheduler {
 
     if (job.isRunning) {
       logger.debug({ name }, 'Job already running, skipping');
+      this.adaptiveSyncManager?.reportJobSkip(name);
       return;
     }
 
@@ -171,6 +175,7 @@ export class Scheduler {
       logger.error({ error, name }, 'Job failed');
     } finally {
       job.isRunning = false;
+      this.adaptiveSyncManager?.reportJobComplete(name);
     }
   }
 
@@ -377,9 +382,9 @@ export class Scheduler {
 // Singleton instance
 let schedulerInstance: Scheduler | null = null;
 
-export function getScheduler(): Scheduler {
+export function getScheduler(adaptiveSyncManager?: AdaptiveSyncManager): Scheduler {
   if (!schedulerInstance) {
-    schedulerInstance = new Scheduler();
+    schedulerInstance = new Scheduler(adaptiveSyncManager);
   }
   return schedulerInstance;
 }
