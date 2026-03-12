@@ -367,6 +367,7 @@ export class StrategyOptimizer {
         await this.db.query(
           `UPDATE optimization_runs SET
             status = 'completed', completed_at = NOW(),
+            duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER,
             completed_iterations = $1, best_params = $2, best_score = $3
           WHERE id = $4`,
           [completedIterations, JSON.stringify(bestParams), bestScore, runId]
@@ -398,7 +399,8 @@ export class StrategyOptimizer {
       if (this.db) {
         await this.db.query(
           `UPDATE optimization_runs SET
-            status = 'failed', error_message = $1, completed_at = NOW()
+            status = 'failed', error_message = $1, completed_at = NOW(),
+            duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
           WHERE id = $2`,
           [errorMsg, runId]
         );
@@ -535,7 +537,8 @@ export class StrategyOptimizer {
 
     await this.db.query(
       `UPDATE optimization_runs SET
-        status = 'cancelled', completed_at = NOW()
+        status = 'cancelled', completed_at = NOW(),
+        duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER
       WHERE id = $1 AND status = 'running'`,
       [this.currentRunId]
     );

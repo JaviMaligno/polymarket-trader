@@ -150,6 +150,7 @@ export class OptimizationStore {
     }
     if (['completed', 'failed', 'cancelled'].includes(updates.status ?? '')) {
       fields.push(`completed_at = NOW()`);
+      fields.push(`duration_seconds = EXTRACT(EPOCH FROM (NOW() - started_at))::INTEGER`);
     }
 
     if (fields.length === 0) {

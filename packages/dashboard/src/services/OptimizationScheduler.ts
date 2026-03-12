@@ -774,14 +774,15 @@ export class OptimizationScheduler {
     try {
       const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b, results[0]);
       const runStartedAt = startedAt ?? new Date();
-      const durationSeconds = Math.round((Date.now() - runStartedAt.getTime()) / 1000);
 
       await query(`
         INSERT INTO optimization_runs (
           name, description, status, optimizer_type, n_iterations,
           objective_metric, parameter_space, data_start_date, data_end_date,
-          best_params, best_score, iterations_completed, started_at, completed_at, duration_seconds
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14)
+          best_params, best_score, iterations_completed, started_at, completed_at,
+          duration_seconds
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(),
+          EXTRACT(EPOCH FROM (NOW() - $13::timestamptz))::INTEGER)
       `, [
         `${type}-${new Date().toISOString().slice(0, 10)}`,
         `Automated ${type} optimization (${optimizerType})`,
@@ -796,7 +797,6 @@ export class OptimizationScheduler {
         best?.sharpe || null,
         results.length,
         runStartedAt,
-        durationSeconds,
       ]);
     } catch (error) {
       console.error('[OptimizationScheduler] Failed to save optimization run:', error);
