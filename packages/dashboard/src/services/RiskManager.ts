@@ -191,25 +191,28 @@ export class RiskManager extends EventEmitter {
       const initialCapital = parseFloat(accountResult.rows[0].initial_capital);
       const currentCapital = parseFloat(accountResult.rows[0].current_capital);
 
-      // Update peak equity
-      if (currentCapital > this.peakEquity) {
-        this.peakEquity = currentCapital;
-        await query(
-          'UPDATE paper_account SET peak_equity = $1 WHERE id = 1',
-          [this.peakEquity]
-        );
-      }
-
-      // Get positions for exposure calculation
+      // Get positions for exposure calculation (needed before peak update)
       const positions = await paperPositionsRepo.getAll();
       const totalExposure = positions.reduce(
         (sum, p) => sum + parseFloat(String(p.size)) * parseFloat(String(p.current_price || p.avg_entry_price)),
         0
       );
 
-      // FIXED: Correct drawdown calculation (highWaterMark - current) / highWaterMark
+      // Total equity = available cash + value of open positions
+      const currentEquity = currentCapital + totalExposure;
+
+      // Update peak equity using total equity (capital + positions) to match snapshot calculation
+      if (currentEquity > this.peakEquity) {
+        this.peakEquity = currentEquity;
+        await query(
+          'UPDATE paper_account SET peak_equity = $1 WHERE id = 1',
+          [this.peakEquity]
+        );
+      }
+
+      // Correct drawdown calculation: uses total equity so peak and trough are on the same basis
       const currentDrawdownPct = this.peakEquity > 0
-        ? ((this.peakEquity - currentCapital) / this.peakEquity) * 100
+        ? ((this.peakEquity - currentEquity) / this.peakEquity) * 100
         : 0;
 
       // FIXED: Daily loss as percentage (scalable)
