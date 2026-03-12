@@ -90,5 +90,15 @@ jobs:
             echo "When done, output a single line: REVIEW_COMPLETE"
           } | claude --model claude-sonnet-4-6 \
             --print \
+            --verbose \
             --max-turns 100 \
-            --dangerously-skip-permissions
+            --dangerously-skip-permissions \
+            2>&1 | tee claude-output.log
+
+      - name: Upload Claude logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-review-log
+          path: claude-output.log
+          retention-days: 7

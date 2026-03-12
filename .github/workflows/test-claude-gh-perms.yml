@@ -1,0 +1,56 @@
+name: Test Claude GH Permissions
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  test-perms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install -g @anthropic-ai/claude-code
+
+      - name: Configure git
+        run: |
+          git config user.name "Claude (Test)"
+          git config user.email "noreply@anthropic.com"
+
+      - name: Test gh permissions with Claude
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Run these commands and report the full output of each:
+          1. env | grep GH
+          2. gh auth status
+          3. gh api repos/JaviMaligno/polymarket-trader --jq '.permissions'
+          4. git checkout -b test/claude-perms-check
+          5. echo test > test-file.txt && git add test-file.txt && git commit -m 'test: permission check'
+          6. git push -u origin test/claude-perms-check
+          7. gh pr create --title 'test: Claude permission check' --body 'Delete me' --base main
+          Report EVERY line of output, especially errors." \
+          | claude --model claude-sonnet-4-6 \
+            --print \
+            --verbose \
+            --max-turns 15 \
+            --dangerously-skip-permissions \
+            2>&1 | tee test-output.log
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-claude-gh-log
+          path: test-output.log
+          retention-days: 1
