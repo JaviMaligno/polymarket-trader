@@ -5,6 +5,7 @@ import { healthCheck, closePool } from './database/connection.js';
 import { getScheduler } from './services/Scheduler.js';
 import { getRateLimiter } from './services/RateLimiter.js';
 import { AdaptiveSyncManager } from './services/AdaptiveSyncManager.js';
+import { ExternalDataCollector } from './collectors/ExternalDataCollector.js';
 
 const logger = pino({
   name: 'polymarket-data-collector',
@@ -41,8 +42,11 @@ async function main(): Promise<void> {
   const adaptiveSyncManager = new AdaptiveSyncManager();
   adaptiveSyncManager.start();
 
+  // Create external data collector (requires ANTHROPIC_API_KEY for daily Haiku matching)
+  const externalDataCollector = new ExternalDataCollector(process.env.ANTHROPIC_API_KEY);
+
   // Start scheduler
-  const scheduler = getScheduler(adaptiveSyncManager);
+  const scheduler = getScheduler(adaptiveSyncManager, externalDataCollector);
   scheduler.start();
 
   // Start health check HTTP server

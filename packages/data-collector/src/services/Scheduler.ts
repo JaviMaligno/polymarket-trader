@@ -5,6 +5,7 @@ import { getClobCollector } from '../collectors/ClobCollector.js';
 import { getRateLimiter } from './RateLimiter.js';
 import { getPool } from '../database/connection.js';
 import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
+import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -22,9 +23,11 @@ export class Scheduler {
   private jobs: Map<string, ScheduledJob> = new Map();
   private isRunning = false;
   private adaptiveSyncManager?: AdaptiveSyncManager;
+  private externalDataCollector?: ExternalDataCollector;
 
-  constructor(adaptiveSyncManager?: AdaptiveSyncManager) {
+  constructor(adaptiveSyncManager?: AdaptiveSyncManager, externalDataCollector?: ExternalDataCollector) {
     this.adaptiveSyncManager = adaptiveSyncManager;
+    this.externalDataCollector = externalDataCollector;
     // Define all scheduled jobs
     this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
     this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
@@ -34,6 +37,8 @@ export class Scheduler {
     this.defineJob('sync-trades', '*/5 * * * *', this.syncTrades.bind(this));  // Real trades every 5 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
     this.defineJob('prune-zombies', '0 */6 * * *', this.pruneZombieMarkets.bind(this));  // Every 6 hours
+    this.defineJob('fetch-external-prices', '0 * * * *', this.fetchExternalPrices.bind(this));  // Hourly
+    this.defineJob('match-external-markets', '0 3 * * *', this.matchExternalMarkets.bind(this));  // Daily at 3 UTC
   }
 
   /**
@@ -159,6 +164,12 @@ export class Scheduler {
           break;
         case 'log-stats':
           await this.logStats();
+          break;
+        case 'fetch-external-prices':
+          await this.fetchExternalPrices();
+          break;
+        case 'match-external-markets':
+          await this.matchExternalMarkets();
           break;
         default:
           logger.warn({ name }, 'No handler for job');
@@ -321,6 +332,32 @@ export class Scheduler {
   }
 
   /**
+   * Fetch current prices from external platforms for matched markets
+   * and store price divergence signals. Runs hourly.
+   */
+  private async fetchExternalPrices(): Promise<void> {
+    if (!this.externalDataCollector) {
+      logger.debug('ExternalDataCollector not configured, skipping fetch-external-prices');
+      return;
+    }
+    const stored = await this.externalDataCollector.fetchMatchedMarketPrices();
+    logger.info({ stored }, 'External price divergence signals stored');
+  }
+
+  /**
+   * Match unmatched long-duration Polymarket markets against external platforms
+   * using Haiku. Runs daily at 3 UTC.
+   */
+  private async matchExternalMarkets(): Promise<void> {
+    if (!this.externalDataCollector) {
+      logger.debug('ExternalDataCollector not configured, skipping match-external-markets');
+      return;
+    }
+    const matched = await this.externalDataCollector.runDailyMatching();
+    logger.info({ matched }, 'Daily external market matching complete');
+  }
+
+  /**
    * Prune zombie markets: mark as inactive if no volume and no price updates for 7+ days.
    * Reduces DB bloat and speeds up queries/classification.
    */
@@ -382,9 +419,9 @@ export class Scheduler {
 // Singleton instance
 let schedulerInstance: Scheduler | null = null;
 
-export function getScheduler(adaptiveSyncManager?: AdaptiveSyncManager): Scheduler {
+export function getScheduler(adaptiveSyncManager?: AdaptiveSyncManager, externalDataCollector?: ExternalDataCollector): Scheduler {
   if (!schedulerInstance) {
-    schedulerInstance = new Scheduler(adaptiveSyncManager);
+    schedulerInstance = new Scheduler(adaptiveSyncManager, externalDataCollector);
   }
   return schedulerInstance;
 }
