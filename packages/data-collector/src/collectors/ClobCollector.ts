@@ -717,7 +717,7 @@ export class ClobCollector {
       }
     }
 
-    logger.info({ updated, errors, totalTokens: allTokenIds.length }, 'Updated market prices');
+    logger.info({ updated, errors, totalTokens: allTokenIds.length, batched: true }, 'Updated market prices');
     return { updated, errors };
   }
 
