@@ -78,6 +78,11 @@ export {
   DEFAULT_ARBITRAGE_PARAMS,
 } from './signals/arbitrage/CrossMarketArbitrageSignal.js';
 
+// Market Structure Signals
+export { VolumeAnomalyGenerator } from './signals/market-structure/VolumeAnomalyGenerator.js';
+export { SpreadCompressionGenerator } from './signals/market-structure/SpreadCompressionGenerator.js';
+export { CrossMarketCorrelationGenerator } from './signals/market-structure/CrossMarketCorrelationGenerator.js';
+
 // Microstructure Signals
 export {
   OrderFlowImbalanceSignal,

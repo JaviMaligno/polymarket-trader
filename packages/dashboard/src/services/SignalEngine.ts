@@ -24,6 +24,9 @@ import {
   OrderFlowImbalanceSignal,
   MultiLevelOFISignal,
   HawkesSignal,
+  VolumeAnomalyGenerator,
+  SpreadCompressionGenerator,
+  CrossMarketCorrelationGenerator,
   WeightedAverageCombiner,
   DurationWeightModifier,
   type DurationBand,
@@ -97,17 +100,21 @@ export class SignalEngine extends EventEmitter {
     // Initialize signal generators
     this.initializeSignals();
 
-    // Initialize combiner with weights for 5 active generators
-    // Core signals: 40%, Microstructure: 60%
+    // Initialize combiner with weights for 8 active generators
+    // Core signals: 30%, Microstructure: 45%, Market Structure: 25%
     this.combiner = new WeightedAverageCombiner(
       {
-        // Core signals (40%)
-        momentum: 0.20,
-        mean_reversion: 0.20,
-        // Microstructure signals (60%)
-        ofi: 0.20,           // Order Flow Imbalance
-        mlofi: 0.20,         // Multi-Level OFI
-        hawkes: 0.20,        // Trade clustering (Hawkes process)
+        // Core signals (30%)
+        momentum: 0.15,
+        mean_reversion: 0.15,
+        // Microstructure signals (45%)
+        ofi: 0.15,           // Order Flow Imbalance
+        mlofi: 0.15,         // Multi-Level OFI
+        hawkes: 0.15,        // Trade clustering (Hawkes process)
+        // Market structure signals (25%)
+        volume_anomaly: 0.15,
+        spread_compression: 0.15,
+        cross_market_corr: 0.10,
       },
       {
         // Use config values (can be overridden from optimization_runs)
@@ -131,6 +138,11 @@ export class SignalEngine extends EventEmitter {
     this.signals.set('ofi', new OrderFlowImbalanceSignal());
     this.signals.set('mlofi', new MultiLevelOFISignal());
     this.signals.set('hawkes', new HawkesSignal());
+
+    // Market structure signals
+    this.signals.set('volume_anomaly', new VolumeAnomalyGenerator());
+    this.signals.set('spread_compression', new SpreadCompressionGenerator());
+    this.signals.set('cross_market_corr', new CrossMarketCorrelationGenerator());
 
     console.log(`[SignalEngine] Initialized ${this.signals.size} signal generators`);
   }
@@ -498,13 +510,79 @@ export class SignalEngine extends EventEmitter {
         recentTrades = this.synthesizeTradesFromBars(priceBars, market);
       }
 
+      // Fetch historical spreads for SpreadCompressionGenerator
+      let historicalSpreads: number[] = [];
+      try {
+        const spreadRows = await query<{ spread: string }>(
+          `SELECT spread FROM orderbook_snapshots
+           WHERE market_id = $1 AND time > NOW() - INTERVAL '7 days'
+           ORDER BY time DESC LIMIT 100`,
+          [market.id]
+        );
+        historicalSpreads = spreadRows.rows
+          .map((r: { spread: string }) => parseFloat(r.spread))
+          .filter((v: number) => v > 0 && !isNaN(v));
+      } catch (err) {
+        // Non-fatal: SpreadCompressionGenerator will skip if no historical spreads
+      }
+
+      // Fetch related market price changes + related market info for CrossMarketCorrelationGenerator
+      let relatedMarketPriceChanges: Record<string, number> = {};
+      let relatedMarkets: MarketInfo[] = [];
+      try {
+        const relatedRows = await query<{
+          id: string;
+          question: string;
+          current_price_yes: string;
+          clob_token_id_yes: string;
+          price_24h_ago: string | null;
+        }>(
+          `SELECT m2.id,
+             m2.question,
+             m2.current_price_yes,
+             m2.clob_token_id_yes,
+             (SELECT close FROM price_history WHERE token_id = m2.clob_token_id_yes
+              AND time > NOW() - INTERVAL '24 hours' ORDER BY time ASC LIMIT 1) as price_24h_ago
+           FROM markets m1
+           JOIN markets m2 ON m1.event_id = m2.event_id AND m2.id != m1.id
+           WHERE m1.id = $1 AND m2.is_active = true AND m1.event_id IS NOT NULL
+           LIMIT 10`,
+          [market.id]
+        );
+        for (const row of relatedRows.rows) {
+          const oldPrice = row.price_24h_ago ? parseFloat(row.price_24h_ago) : 0;
+          const newPrice = parseFloat(row.current_price_yes);
+          if (oldPrice > 0 && newPrice > 0) {
+            relatedMarketPriceChanges[row.id] = (newPrice - oldPrice) / oldPrice;
+          }
+          relatedMarkets.push({
+            id: row.id,
+            question: row.question,
+            isActive: true,
+            isResolved: false,
+            tokenIdYes: row.clob_token_id_yes,
+            currentPriceYes: parseFloat(row.current_price_yes),
+          });
+        }
+      } catch (err) {
+        // Non-fatal: CrossMarketCorrelationGenerator will skip if no related markets
+      }
+
+      // Merge new context data into custom
+      const mergedCustom: Record<string, unknown> = {
+        ...(custom ?? {}),
+        historicalSpreads,
+        relatedMarketPriceChanges,
+      };
+
       return {
         currentTime: new Date(),
         market: marketInfo,
         priceBars,
         recentTrades,
         orderBook,
-        custom,
+        custom: mergedCustom,
+        relatedMarkets: relatedMarkets.length > 0 ? relatedMarkets : undefined,
       };
     } catch (error) {
       console.error('[SignalEngine] Failed to build context from DB:', error);
