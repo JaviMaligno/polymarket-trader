@@ -32,6 +32,7 @@ import {
   NewsSentimentGenerator,
   WeightedAverageCombiner,
   DurationWeightModifier,
+  PriceRangeWeightModifier,
   type DurationBand,
   type ISignal,
   type SignalContext,
@@ -56,8 +57,9 @@ export interface SignalEngineConfig {
   maxMarketsPerCycle: number;    // Max markets to process per cycle
   minPriceBars: number;          // Minimum price bars needed
   syncWeightsIntervalMs: number; // How often to sync weights from DB
-  minCombinedConfidence?: number; // Minimum combined signal confidence (0-1)
+  minCombinedConfidence?: number; // Open threshold — minimum confidence to enter a new position (0-1)
   minCombinedStrength?: number;   // Minimum combined signal strength (0-1)
+  exitThreshold?: number;         // Exit threshold — minimum confidence to close an existing position (lower than open)
 }
 
 const DEFAULT_CONFIG: SignalEngineConfig = {
@@ -66,8 +68,9 @@ const DEFAULT_CONFIG: SignalEngineConfig = {
   maxMarketsPerCycle: 50,
   minPriceBars: 3,              // Reduced from 30: Bayesian confidence cap handles data scarcity
   syncWeightsIntervalMs: 300000, // 5 minutes
-  minCombinedConfidence: 0.43,   // Default: moderate confidence
+  minCombinedConfidence: 0.43,   // Open threshold: minimum confidence to enter a new position
   minCombinedStrength: 0.27,     // Default: moderate strength
+  exitThreshold: 0.25,           // Exit threshold (lower — only exits on real reversals)
 };
 
 interface ActiveMarket {
@@ -88,6 +91,7 @@ export class SignalEngine extends EventEmitter {
   private signals: Map<string, ISignal> = new Map();
   private combiner: WeightedAverageCombiner;
   private durationModifier: DurationWeightModifier = new DurationWeightModifier();
+  private priceRangeModifier: PriceRangeWeightModifier = new PriceRangeWeightModifier();
   private computeInterval: NodeJS.Timeout | null = null;
   private syncInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
@@ -125,8 +129,9 @@ export class SignalEngine extends EventEmitter {
         news_sentiment: 0.10,
       },
       {
-        // Use config values (can be overridden from optimization_runs)
-        minCombinedConfidence: this.config.minCombinedConfidence ?? 0.43,
+        // Use exitThreshold as combiner floor (lower gate — AutoSignalExecutor applies
+        // the higher openThreshold for new positions, enabling hysteresis)
+        minCombinedConfidence: this.config.exitThreshold ?? 0.25,
         minCombinedStrength: this.config.minCombinedStrength ?? 0.27,
       }
     );
@@ -266,13 +271,10 @@ export class SignalEngine extends EventEmitter {
   setActiveMarkets(markets: ActiveMarket[]): void {
     const MIN_PRICE = 0.05;
     const MAX_PRICE = 0.95;
-    const FIFTY_FIFTY_MIN = 0.45;
-    const FIFTY_FIFTY_MAX = 0.55;
 
     let inactiveCount = 0;
     let resolvedCount = 0;
     let extremePriceCount = 0;
-    let fiftyFiftyCount = 0;
 
     const filtered = markets.filter(m => {
       // Filter 1: Skip inactive markets
@@ -294,19 +296,13 @@ export class SignalEngine extends EventEmitter {
         return false;
       }
 
-      // Filter 4: Skip 50/50 markets (no edge, fees make EV negative)
-      if (price >= FIFTY_FIFTY_MIN && price <= FIFTY_FIFTY_MAX) {
-        fiftyFiftyCount++;
-        return false;
-      }
-
       return true;
     });
 
     // Log filtering summary
-    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount + fiftyFiftyCount;
+    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount;
     if (totalExcluded > 0) {
-      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices, ${fiftyFiftyCount} 50/50`);
+      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices`);
     }
 
     this.activeMarkets = filtered;
@@ -401,10 +397,11 @@ export class SignalEngine extends EventEmitter {
       return null;
     }
 
-    // Apply duration-based weight scaling before combining
+    // Apply duration-based weight scaling, then price-range scaling (multiplicative composition)
     const originalWeights = this.combiner.getWeights();
     const durationWeights = this.durationModifier.modifyWeights(originalWeights, market.endDate ?? null);
-    this.combiner.setWeights(durationWeights);
+    const combinedWeights = this.priceRangeModifier.modifyWeights(durationWeights, market.currentPrice);
+    this.combiner.setWeights(combinedWeights);
 
     // Combine signals with market-type-specific weights
     const combined = this.combiner.combine(signalOutputs, undefined, market.marketType);
@@ -420,8 +417,10 @@ export class SignalEngine extends EventEmitter {
     const confidenceCap = this.computeBayesianConfidenceCap(context.priceBars);
     combined.confidence *= confidenceCap;
 
-    // Re-check confidence after cap
-    if (combined.confidence < (this.config.minCombinedConfidence ?? 0.43)) {
+    // Re-check confidence after cap — use exitThreshold as pass-through floor
+    // (SignalEngine lets through anything ≥ exitThreshold; AutoSignalExecutor re-applies
+    // the higher openThreshold for new positions, enabling hysteresis)
+    if (combined.confidence < (this.config.exitThreshold ?? 0.25)) {
       return null;
     }
 
