@@ -66,6 +66,13 @@ describe('PriceRangeWeightModifier', () => {
       expect(result.momentum).toBeCloseTo(0.15);
       expect(result.ofi).toBeCloseTo(0.15);
     });
+    it('applies transitional multipliers for transitional price', () => {
+      const weights = { momentum: 0.15, mean_reversion: 0.15, ofi: 0.15 };
+      const result = mod.modifyWeights(weights, 0.42); // transitional band
+      expect(result.momentum).toBeCloseTo(0.15 * 0.6);
+      expect(result.mean_reversion).toBeCloseTo(0.15 * 0.4);
+      expect(result.ofi).toBeCloseTo(0.15 * 1.0);
+    });
   });
 
   describe('custom matrix and updateMatrix', () => {
@@ -79,6 +86,16 @@ describe('PriceRangeWeightModifier', () => {
       const m = new PriceRangeWeightModifier();
       m.updateMatrix({ hawkes: { normal: 0.5, transitional: 0.5, uncertain: 0.5 } });
       expect(m.getWeightMultiplier('hawkes', 'normal')).toBe(0.5);
+      // Unrelated signal retains its default after update
+      expect(m.getWeightMultiplier('momentum', 'normal')).toBe(1.0);
+    });
+    it('getMatrix returns a deep copy (mutations do not affect internal state)', () => {
+      const m = new PriceRangeWeightModifier();
+      const matrix = m.getMatrix();
+      expect(matrix['ofi']).toEqual({ normal: 1.0, transitional: 1.0, uncertain: 1.0 });
+      // Mutate the returned object — internal state must not change
+      matrix['ofi'].normal = 0;
+      expect(m.getWeightMultiplier('ofi', 'normal')).toBe(1.0);
     });
   });
 });
