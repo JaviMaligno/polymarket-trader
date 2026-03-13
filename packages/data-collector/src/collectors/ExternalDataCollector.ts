@@ -10,6 +10,7 @@ export class ExternalDataCollector {
   private metaculus: MetaculusSource;
   private manifold: ManifoldSource;
   private matcher: MarketMatcher | null;
+  private schemaReady = false;
 
   constructor(anthropicApiKey?: string) {
     this.metaculus = new MetaculusSource();
@@ -18,10 +19,55 @@ export class ExternalDataCollector {
   }
 
   /**
+   * Ensure the external data tables exist (idempotent — safe to call repeatedly).
+   * Runs the 004_external_data_schema.sql DDL inline so the data-collector
+   * self-heals when the migration has not been applied to the database yet.
+   */
+  async ensureSchema(): Promise<void> {
+    if (this.schemaReady) return;
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS market_crossref (
+          polymarket_id VARCHAR(128) NOT NULL,
+          platform VARCHAR(50) NOT NULL,
+          external_id VARCHAR(255) NOT NULL,
+          external_question TEXT,
+          external_price DECIMAL(10,6),
+          match_confidence FLOAT NOT NULL DEFAULT 0.0,
+          matched_at TIMESTAMPTZ DEFAULT NOW(),
+          last_fetched_at TIMESTAMPTZ,
+          PRIMARY KEY (polymarket_id, platform)
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_crossref_platform ON market_crossref(platform)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_crossref_confidence ON market_crossref(match_confidence)`);
+      await query(`
+        CREATE TABLE IF NOT EXISTS external_signals (
+          id SERIAL PRIMARY KEY,
+          market_id VARCHAR(128) NOT NULL,
+          source VARCHAR(50) NOT NULL,
+          signal_type VARCHAR(50) NOT NULL,
+          value FLOAT NOT NULL,
+          confidence FLOAT DEFAULT 0.5,
+          metadata JSONB DEFAULT '{}',
+          fetched_at TIMESTAMPTZ DEFAULT NOW()
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_external_signals_market ON external_signals(market_id, fetched_at DESC)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_external_signals_source ON external_signals(source, signal_type)`);
+      this.schemaReady = true;
+      logger.info('External data schema verified/created');
+    } catch (error) {
+      logger.error({ error }, 'Failed to ensure external data schema');
+    }
+  }
+
+  /**
    * Fetch current prices from external platforms for all matched markets
    * and store price divergence signals. Runs hourly.
    */
   async fetchMatchedMarketPrices(): Promise<number> {
+    await this.ensureSchema();
     const crossrefResult = await query(
       `SELECT polymarket_id, platform, external_id
        FROM market_crossref
@@ -104,6 +150,7 @@ export class ExternalDataCollector {
    * and use Haiku to find matches. Runs daily at 3 UTC.
    */
   async runDailyMatching(): Promise<number> {
+    await this.ensureSchema();
     if (!this.matcher) {
       logger.info('No ANTHROPIC_API_KEY provided — skipping daily market matching');
       return 0;
