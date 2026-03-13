@@ -85,7 +85,7 @@ The issue should have:
 - **Executive Summary** (1 paragraph): Overall system health assessment
 - **Key Metrics** table: capital, PnL, drawdown, win rate, open positions
 - **Analysis** sections for each area above
-- **Alerts** if any thresholds are exceeded (drawdown >10%, 5+ consecutive losses, system down, daily PnL <-$200, zombie positions, memory >85%)
+- **Alerts** if any thresholds are exceeded — use judgment, not just numbers (see alert guidance below)
 - **Recommendations** ranked by impact: what should be changed to improve profitability
 - **Risk Assessment**: what could go wrong in the next 24h
 
@@ -185,6 +185,25 @@ The comment should have a table:
 |----|---------|-------------|
 | #N | Description | ✅/❌ Result |
 ```
+
+## Alert Guidance — Context-Aware Severity
+
+Thresholds are guidance, not hard rules. Apply judgment based on context:
+
+| Condition | Default | Context override |
+|-----------|---------|-----------------|
+| Drawdown > 10% | Critical | — |
+| 5+ consecutive losses | Warning | — |
+| Daily PnL < -$200 | Critical | — |
+| Container down | Critical | — |
+| Memory > 85% | Warning | — |
+| No prices 1h | Critical | Info if market is quiet / VM sleeping |
+| 0 signals generated | **Info only** if markets are correctly filtered (e.g. all in 50/50 range, price range modifier reducing weights to zero, or no active markets with sufficient data). Critical only if due to engine crash or config error. |
+| Markets filtered by 50/50 / price-range rule | **Expected behavior** — mention in analysis but do NOT create an alert. The `PriceRangeWeightModifier` intentionally reduces weights for near-50% markets. |
+| CPU spike | Warning if sustained >10min; Info if brief <2min (likely DB vacuum/maintenance) |
+| TimescaleDB high CPU | Info if brief; Warning if >5min sustained |
+
+**Key principle**: Distinguish expected behavior from actual problems. The system has many safety filters — markets being filtered, weights being reduced, signals below threshold — these are all correct operation, not failures.
 
 ## Analysis Principles
 

@@ -1,9 +1,9 @@
 name: Daily Trade Review
 
 on:
-  schedule:
-    - cron: '0 8 * * *'   # Daily at 8:00 UTC
-  workflow_dispatch:          # Manual trigger / fallback
+  # schedule:
+  #   - cron: '0 8 * * *'   # Disabled: superseded by daily-trade-review-claude.yml
+  workflow_dispatch:          # Keep for manual fallback / legacy
 
 concurrency:
   group: daily-review
