@@ -1,9 +1,9 @@
 name: Daily Trade Review
 
 on:
-  # schedule:
-  #   - cron: '0 8 * * *'   # Disabled: replaced by Phase 2 (Claude Analysis)
-  workflow_dispatch:          # Keep for manual fallback
+  schedule:
+    - cron: '0 8 * * *'   # Daily at 8:00 UTC
+  workflow_dispatch:          # Manual trigger / fallback
 
 concurrency:
   group: daily-review
@@ -93,11 +93,14 @@ jobs:
             echo "RENDER_OPTIMIZATION_STATUS=error" >> $GITHUB_ENV
           fi
 
-      - name: Format report
+      - name: Analyze with Claude
         id: format
         if: steps.gather.outputs.data_collected == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          OUTPUT=$(cat review-data.json | node scripts/format-review.js)
+          cd scripts && npm install --silent && cd ..
+          OUTPUT=$(node scripts/analyze-review.js review-data.json)
 
           HAS_CRITICAL=$(echo "$OUTPUT" | jq -r '.has_critical_alerts')
           ALERT_COUNT=$(echo "$OUTPUT" | jq -r '.alert_count')
