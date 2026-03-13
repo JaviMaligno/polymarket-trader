@@ -15,7 +15,7 @@ vi.mock('../database/repositories.js', () => ({
 vi.mock('./PositionClosingService.js', () => {
   const { EventEmitter } = require('events');
   const mockService = new EventEmitter();
-  mockService.close = vi.fn();
+  mockService.close = vi.fn().mockResolvedValue({ executed: true, pnl: 0 });
   return {
     getPositionClosingService: vi.fn(() => mockService),
   };
