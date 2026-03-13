@@ -248,6 +248,8 @@ export {
 
 // Modifiers
 export { DurationWeightModifier, type DurationBand } from './modifiers/DurationWeightModifier.js';
+export { PriceRangeWeightModifier } from './modifiers/PriceRangeWeightModifier.js';
+export type { PriceRangeBand, PriceBandMultipliers } from './modifiers/PriceRangeWeightModifier.js';
 
 // Signal Registry (factory for creating signals)
 import { MomentumSignal } from './signals/technical/MomentumSignal.js';
