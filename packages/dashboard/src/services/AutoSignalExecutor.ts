@@ -46,6 +46,9 @@ export interface ExecutorConfig {
   // Smart price validation based on ROI and probability
   minPotentialROI: number;      // Minimum potential ROI to accept (0.15 = 15%)
   minImpliedProbability: number; // Minimum market probability (0.10 = 10%)
+  // Hysteresis thresholds: higher to open, lower to exit
+  openThreshold: number;        // Minimum confidence to OPEN a new position
+  exitThreshold: number;        // Minimum confidence to CLOSE an existing position (lower)
 }
 
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -64,6 +67,9 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // minImpliedProbability: 0.10 means market must show at least 10% chance → rejects prices < 0.10
   minPotentialROI: parseFloat(process.env.EXECUTOR_MIN_POTENTIAL_ROI || '0.15'),
   minImpliedProbability: parseFloat(process.env.EXECUTOR_MIN_IMPLIED_PROB || '0.10'),
+  // Hysteresis thresholds: higher to open, lower to exit
+  openThreshold: parseFloat(process.env.EXECUTOR_OPEN_THRESHOLD || '0.43'),
+  exitThreshold: parseFloat(process.env.EXECUTOR_EXIT_THRESHOLD || '0.25'),
 };
 
 const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
@@ -194,13 +200,7 @@ export class AutoSignalExecutor extends EventEmitter {
     // Reset daily counter if new day
     this.checkDayReset();
 
-    // 1. Check signal thresholds
-    if (signal.confidence < this.config.minConfidence) {
-      const reason = `Confidence ${signal.confidence.toFixed(2)} below threshold ${this.config.minConfidence}`;
-      // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
-      return { executed: false, reason };
-    }
-
+    // 1. Check signal strength threshold
     if (Math.abs(signal.strength) < this.config.minStrength) {
       const reason = `Strength ${Math.abs(signal.strength).toFixed(2)} below threshold ${this.config.minStrength}`;
       // console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ${reason}`);
@@ -262,6 +262,20 @@ export class AutoSignalExecutor extends EventEmitter {
     } catch (error) {
       console.error('Failed to check positions:', error);
       return { executed: false, reason: 'Failed to check positions' };
+    }
+
+    // Hysteresis: use lower exit threshold when closing an existing position,
+    // higher open threshold when entering a new position
+    const isClosingExistingLong = signal.direction === 'short' && !!existingPosition;
+    const threshold = isClosingExistingLong
+      ? this.config.exitThreshold
+      : this.config.openThreshold;
+    if (signal.confidence < threshold) {
+      const action = isClosingExistingLong ? 'exit' : 'open';
+      return {
+        executed: false,
+        reason: `Confidence ${signal.confidence.toFixed(2)} below ${action} threshold ${threshold}`,
+      };
     }
 
     // 4a. Per-market concentration limit (only for new opens, not closes)
