@@ -94,14 +94,19 @@ describe('CircuitBreakerService', () => {
   it('drawdown check should use equity (capital + positions), not capital alone', async () => {
     // Account has $5000 capital but $5000 in open positions = $10000 equity
     // With initialCapital=$10000, drawdown should be 0%, not 50%
+    // Mock sequence:
+    // Slot 1: CREATE TABLE (consumed by start())
+    // Slot 2: SELECT paper_account (consumed by start()'s initial checkDrawdown() — empty rows, exits early)
+    // Slot 3: SELECT paper_account (consumed by timer-triggered checkDrawdown() — returns capital=5000)
+    // Slot 4: SELECT exposure (consumed by same timer-triggered checkDrawdown() — returns 5000)
     vi.mocked(query)
       .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
-      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // SELECT trading_config
-      .mockResolvedValueOnce({  // SELECT paper_account
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // SELECT paper_account (start()'s initial check — exits early)
+      .mockResolvedValueOnce({  // SELECT paper_account (timer-triggered check)
         rows: [{ current_capital: '5000', initial_capital: '10000' }],
         rowCount: 1,
       } as any)
-      .mockResolvedValueOnce({  // SELECT total exposure from positions
+      .mockResolvedValueOnce({  // SELECT total exposure from positions (timer-triggered check)
         rows: [{ total_exposure: '5000' }],
         rowCount: 1,
       } as any);

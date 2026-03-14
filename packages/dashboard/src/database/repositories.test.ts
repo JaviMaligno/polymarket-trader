@@ -29,6 +29,7 @@ describe('paperPositionsRepo.upsert', () => {
 
     const sql = vi.mocked(query).mock.calls[0][0] as string;
     expect(sql).toContain('closed_at = NULL');
+    expect(sql).toContain('side = EXCLUDED.side');
     expect(sql).toContain('opened_at = EXCLUDED.opened_at');
     expect(sql).toContain('avg_entry_price = EXCLUDED.avg_entry_price');
   });

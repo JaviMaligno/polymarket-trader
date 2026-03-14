@@ -6,7 +6,7 @@
  *
  * Features:
  * - Monitors drawdown every 60 seconds
- * - When drawdown exceeds threshold (default 30%):
+ * - When drawdown exceeds threshold (default 15%):
  *   1. Closes all open positions WITH proper sell trades
  *   2. Halts trading (cooldown period)
  *   3. Does NOT reset account - preserves losses for analysis

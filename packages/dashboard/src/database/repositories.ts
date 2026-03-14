@@ -337,6 +337,7 @@ export const paperPositionsRepo = {
          unrealized_pnl_pct = EXCLUDED.unrealized_pnl_pct,
          realized_pnl = EXCLUDED.realized_pnl,
          size = EXCLUDED.size,
+         side = EXCLUDED.side,
          closed_at = NULL,
          opened_at = EXCLUDED.opened_at,
          avg_entry_price = EXCLUDED.avg_entry_price,
