@@ -150,6 +150,8 @@ export class OptunaClient {
     timeoutMs?: number
   ): Promise<Response> {
     const timeout = timeoutMs ?? (this.warmedUp ? 15_000 : 60_000);
+    // HTTP status codes that are transient and should be retried
+    const RETRYABLE_STATUSES = new Set([429, 503, 502, 504]);
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -162,6 +164,18 @@ export class OptunaClient {
         });
 
         clearTimeout(timer);
+
+        // Retry on transient HTTP errors (503 Service Unavailable, 429 Too Many Requests, etc.)
+        if (RETRYABLE_STATUSES.has(res.status) && attempt < maxRetries) {
+          const retryAfter = res.headers.get('Retry-After');
+          const delay = retryAfter
+            ? Math.min(parseInt(retryAfter, 10) * 1000, 30_000)
+            : Math.min(1000 * Math.pow(2, attempt), 30_000);
+          console.log(`[OptunaClient] HTTP ${res.status} for ${path}, retry ${attempt + 1}/${maxRetries} in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+
         this.warmedUp = true;
         return res;
       } catch (err) {
