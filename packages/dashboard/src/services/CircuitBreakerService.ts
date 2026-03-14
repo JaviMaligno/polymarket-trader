@@ -167,8 +167,16 @@ export class CircuitBreakerService extends EventEmitter {
       const currentCapital = parseFloat(accountResult.rows[0].current_capital);
       const initialCapital = this.config.initialCapital;
 
-      // Calculate drawdown percentage
-      const drawdownPct = ((initialCapital - currentCapital) / initialCapital) * 100;
+      // Get total exposure from open positions
+      const exposureResult = await query<{ total_exposure: string }>(
+        `SELECT COALESCE(SUM(size * current_price), 0) as total_exposure
+         FROM paper_positions WHERE closed_at IS NULL`
+      );
+      const totalExposure = parseFloat(exposureResult.rows[0]?.total_exposure || '0');
+      const currentEquity = currentCapital + totalExposure;
+
+      // Calculate drawdown using equity (capital + positions), not capital alone
+      const drawdownPct = ((initialCapital - currentEquity) / initialCapital) * 100;
 
       // Check if we need to trigger circuit breaker
       if (drawdownPct >= this.config.maxDrawdownPct) {

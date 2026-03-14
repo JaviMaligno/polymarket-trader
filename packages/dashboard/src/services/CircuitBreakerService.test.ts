@@ -89,6 +89,33 @@ describe('CircuitBreakerService', () => {
     delete process.env.MAX_DRAWDOWN;
   });
 
+  it('drawdown check should use equity (capital + positions), not capital alone', async () => {
+    // Account has $5000 capital but $5000 in open positions = $10000 equity
+    // With initialCapital=$10000, drawdown should be 0%, not 50%
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // SELECT trading_config
+      .mockResolvedValueOnce({  // SELECT paper_account
+        rows: [{ current_capital: '5000', initial_capital: '10000' }],
+        rowCount: 1,
+      } as any)
+      .mockResolvedValueOnce({  // SELECT total exposure from positions
+        rows: [{ total_exposure: '5000' }],
+        rowCount: 1,
+      } as any);
+
+    const service = new CircuitBreakerService({
+      checkIntervalMs: 60_000,
+      maxDrawdownPct: 30,
+      initialCapital: 10000,
+    });
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // Should NOT have triggered halt (equity = $10000, drawdown = 0%)
+    expect(service.isTradingHalted()).toBe(false);
+  });
+
   it('after checkDrawdown triggers halt, isTradingHalted() returns true even if DB writes fail', async () => {
     // Setup: query mock returns capital=5000 for account check (50% drawdown > 30% threshold)
     // Then all subsequent queries fail (simulating DB failure for halt/close operations)
