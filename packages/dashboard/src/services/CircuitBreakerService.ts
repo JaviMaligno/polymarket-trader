@@ -39,7 +39,7 @@ interface CircuitBreakerEvent {
 const DEFAULT_CONFIG: CircuitBreakerConfig = {
   enabled: true,
   checkIntervalMs: 5 * 60 * 1000,           // Fallback: 5 minutes (primary trigger is event-driven)
-  maxDrawdownPct: 30,                       // 30% drawdown triggers halt
+  maxDrawdownPct: parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100,  // env is decimal (0.15 = 15%)
   initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
   cooldownMs: 30 * 60 * 1000,              // 30 minutes cooldown
   autoReset: false,                         // Don't auto-reset, preserve state

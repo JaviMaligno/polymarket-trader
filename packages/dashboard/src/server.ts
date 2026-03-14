@@ -184,7 +184,7 @@ async function main(): Promise<void> {
       const circuitBreakerService = initializeCircuitBreakerService({
         enabled: true,
         checkIntervalMs: 5 * 60 * 1000,    // Fallback: 5min (primary trigger: event-driven via trade/stopLoss events)
-        maxDrawdownPct: 30,                // Reset if drawdown exceeds 30%
+        maxDrawdownPct: parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100,  // env is decimal (0.15 = 15%)
         initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
       });
       await circuitBreakerService.start();

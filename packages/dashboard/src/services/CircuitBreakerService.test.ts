@@ -60,6 +60,35 @@ describe('CircuitBreakerService', () => {
     expect(service.isTradingHalted()).toBe(false);
   });
 
+  it('DEFAULT_CONFIG should read MAX_DRAWDOWN env var', async () => {
+    // DEFAULT_CONFIG is evaluated at module load time, so we need to re-import the module
+    // with the env var set to test this correctly.
+    process.env.MAX_DRAWDOWN = '0.15';
+    vi.resetModules();
+
+    // Re-register mocks before re-importing
+    vi.doMock('../database/index.js', () => ({
+      query: vi.fn(),
+      isDatabaseConfigured: vi.fn(() => true),
+    }));
+    vi.doMock('../database/repositories.js', () => ({
+      paperTradesRepo: { create: vi.fn() },
+      paperPositionsRepo: { getAll: vi.fn() },
+    }));
+    vi.doMock('./TradingAutomation.js', () => ({
+      getTradingAutomation: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
+    }));
+    vi.doMock('./StopLossService.js', () => ({
+      getStopLossService: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
+    }));
+
+    const { CircuitBreakerService: FreshService } = await import('./CircuitBreakerService.js');
+    const freshService = new FreshService();
+    expect((freshService as any).config.maxDrawdownPct).toBe(15);
+
+    delete process.env.MAX_DRAWDOWN;
+  });
+
   it('after checkDrawdown triggers halt, isTradingHalted() returns true even if DB writes fail', async () => {
     // Setup: query mock returns capital=5000 for account check (50% drawdown > 30% threshold)
     // Then all subsequent queries fail (simulating DB failure for halt/close operations)
