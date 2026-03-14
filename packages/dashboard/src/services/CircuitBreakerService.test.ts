@@ -13,15 +13,16 @@ vi.mock('../database/index.js', () => ({
   query: vi.fn(),
   isDatabaseConfigured: vi.fn(() => true),
 }));
-vi.mock('../database/repositories.js', () => ({
-  paperTradesRepo: { create: vi.fn() },
-  paperPositionsRepo: { getAll: vi.fn() },
-}));
 vi.mock('./TradingAutomation.js', () => ({
   getTradingAutomation: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
 }));
 vi.mock('./StopLossService.js', () => ({
   getStopLossService: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
+}));
+vi.mock('./PositionClosingService.js', () => ({
+  getPositionClosingService: vi.fn(() => ({
+    close: vi.fn().mockResolvedValue({ executed: true, netPnl: -5, fee: 0.01 }),
+  })),
 }));
 
 import { query, isDatabaseConfigured } from '../database/index.js';
@@ -71,15 +72,16 @@ describe('CircuitBreakerService', () => {
       query: vi.fn(),
       isDatabaseConfigured: vi.fn(() => true),
     }));
-    vi.doMock('../database/repositories.js', () => ({
-      paperTradesRepo: { create: vi.fn() },
-      paperPositionsRepo: { getAll: vi.fn() },
-    }));
     vi.doMock('./TradingAutomation.js', () => ({
       getTradingAutomation: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
     }));
     vi.doMock('./StopLossService.js', () => ({
       getStopLossService: vi.fn(() => ({ on: vi.fn(), off: vi.fn() })),
+    }));
+    vi.doMock('./PositionClosingService.js', () => ({
+      getPositionClosingService: vi.fn(() => ({
+        close: vi.fn().mockResolvedValue({ executed: true, netPnl: -5, fee: 0.01 }),
+      })),
     }));
 
     const { CircuitBreakerService: FreshService } = await import('./CircuitBreakerService.js');

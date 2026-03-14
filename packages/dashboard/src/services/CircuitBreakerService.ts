@@ -15,9 +15,9 @@
 
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
-import { paperTradesRepo, paperPositionsRepo } from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { getStopLossService } from './StopLossService.js';
+import { getPositionClosingService } from './PositionClosingService.js';
 
 export interface CircuitBreakerConfig {
   enabled: boolean;
@@ -229,11 +229,10 @@ export class CircuitBreakerService extends EventEmitter {
   }
 
   /**
-   * Close all open positions WITH proper sell trades
-   * Creates actual sell trades and calculates real P&L
+   * Close all open positions by delegating to PositionClosingService.
+   * Ensures consistent fee/PnL calculation and emits position:closed events.
    */
   private async closeAllPositions(): Promise<number> {
-    // Get all open positions with latest prices from price_history (not stale markets table)
     const openPositions = await query<{
       market_id: string;
       token_id: string;
@@ -259,7 +258,7 @@ export class CircuitBreakerService extends EventEmitter {
     `);
 
     let closed = 0;
-    let totalPnl = 0;
+    const closingService = getPositionClosingService();
 
     for (const pos of openPositions.rows) {
       const size = parseFloat(pos.size);
@@ -269,67 +268,28 @@ export class CircuitBreakerService extends EventEmitter {
       const exitPrice = pos.latest_price
         ? parseFloat(pos.latest_price)
         : entryPrice;
-      const feeRate = 0.001;
-      const fee = size * exitPrice * feeRate;
-
-      // Calculate P&L
-      const grossPnl = (exitPrice - entryPrice) * size;
-      const netPnl = grossPnl - fee;
-      totalPnl += netPnl;
 
       try {
-        // Create the SELL trade
-        await paperTradesRepo.create({
-          time: new Date(),
-          market_id: pos.market_id,
-          token_id: pos.token_id,
-          side: 'sell',
-          requested_size: size,
-          executed_size: size,
-          requested_price: exitPrice,
-          executed_price: exitPrice,
-          fee,
-          value_usd: size * exitPrice,
-          signal_type: 'circuit_breaker_exit',
-          order_type: 'market',
-          fill_type: 'full',
+        const result = await closingService.close({
+          marketId: pos.market_id,
+          tokenId: pos.token_id,
+          side: pos.side as 'long' | 'short',
+          size,
+          entryPrice,
+          exitPrice,
+          reason: 'circuit_breaker_exit',
         });
 
-        // Close the position with actual P&L
-        await query(
-          `UPDATE paper_positions SET
-            closed_at = NOW(),
-            size = 0,
-            realized_pnl = $1
-          WHERE market_id = $2 AND token_id = $3 AND closed_at IS NULL`,
-          [netPnl, pos.market_id, pos.token_id]
-        );
-
-        // Update paper_account
-        const proceeds = size * exitPrice;
-        await query(
-          `UPDATE paper_account SET
-            current_capital = current_capital + $1,
-            available_capital = available_capital + $1,
-            total_fees_paid = total_fees_paid + $2,
-            total_trades = total_trades + 1,
-            total_realized_pnl = total_realized_pnl + $3,
-            winning_trades = winning_trades + CASE WHEN $3 > 0 THEN 1 ELSE 0 END,
-            losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
-            updated_at = NOW()
-          WHERE id = 1`,
-          [proceeds - fee, fee, netPnl]
-        );
-
-        closed++;
-        console.log(`[CircuitBreaker] Closed position ${pos.market_id.substring(0, 12)}... | P&L: $${netPnl.toFixed(2)}`);
-
+        if (result.executed) {
+          closed++;
+          console.log(`[CircuitBreaker] Closed ${pos.market_id.substring(0, 12)}... | P&L: $${result.netPnl.toFixed(2)}`);
+        }
       } catch (error) {
         console.error(`[CircuitBreaker] Failed to close position ${pos.market_id}:`, error);
       }
     }
 
-    console.log(`[CircuitBreaker] Closed ${closed} positions | Total P&L: $${totalPnl.toFixed(2)}`);
+    console.log(`[CircuitBreaker] Closed ${closed} positions`);
     return closed;
   }
 
