@@ -21,10 +21,10 @@ import type { PoolClient } from 'pg';
 // Types
 // ============================================
 
-export type CloseReason = 'signal' | 'stop_loss' | 'take_profit' | 'time_exit' | 'cleanup_inactive' | 'cleanup_resolved';
+export type CloseReason = 'signal' | 'stop_loss' | 'take_profit' | 'time_exit' | 'cleanup_inactive' | 'cleanup_resolved' | 'circuit_breaker_exit';
 
 export interface ClosePositionParams {
-  positionId: number;
+  positionId?: number;
   marketId: string;
   tokenId: string;
   side: 'long' | 'short';
