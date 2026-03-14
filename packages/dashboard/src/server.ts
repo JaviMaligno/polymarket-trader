@@ -181,10 +181,12 @@ async function main(): Promise<void> {
       console.log('StopLossService started');
 
       // Start CircuitBreakerService to auto-reset account on excessive drawdown
+      // MAX_DRAWDOWN env var is expressed as a decimal (e.g. 0.15 = 15%); convert to percentage
+      const maxDrawdownPct = parseFloat(process.env.MAX_DRAWDOWN || '0.30') * 100;
       const circuitBreakerService = initializeCircuitBreakerService({
         enabled: true,
         checkIntervalMs: 5 * 60 * 1000,    // Fallback: 5min (primary trigger: event-driven via trade/stopLoss events)
-        maxDrawdownPct: 30,                // Reset if drawdown exceeds 30%
+        maxDrawdownPct,                    // Reads from MAX_DRAWDOWN env var (default: 30%)
         initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
       });
       await circuitBreakerService.start();
