@@ -337,6 +337,13 @@ export const paperPositionsRepo = {
          unrealized_pnl_pct = EXCLUDED.unrealized_pnl_pct,
          realized_pnl = EXCLUDED.realized_pnl,
          size = EXCLUDED.size,
+         closed_at = NULL,
+         opened_at = EXCLUDED.opened_at,
+         avg_entry_price = EXCLUDED.avg_entry_price,
+         signal_type = EXCLUDED.signal_type,
+         metadata = EXCLUDED.metadata,
+         stop_loss = EXCLUDED.stop_loss,
+         take_profit = EXCLUDED.take_profit,
          updated_at = NOW()`,
       [
         position.market_id,
