@@ -26,7 +26,7 @@ import {
   WeightedAverageCombiner,
   type ISignal,
 } from '@polymarket-trader/signals';
-import { isDatabaseConfigured, query } from '../database/index.js';
+import { isDatabaseConfigured, query, transaction, type PoolClient } from '../database/index.js';
 
 export interface BacktestRequest {
   startDate: string;
@@ -341,7 +341,14 @@ export class BacktestService extends EventEmitter {
         topMarketsParams = [startDate, endDate];
       }
 
-      const topMarketsResult = await query<{ market_id: string }>(topMarketsQuery, topMarketsParams);
+      // TimescaleDB vectorized aggregation cannot handle VARCHAR columns (market_id)
+      // in GROUP BY on compressed hypertable chunks — yields
+      // "a variable with non-vectorizable type character varying is marked as vectorized".
+      // Disable for this transaction only to avoid crashing the optimizer.
+      const topMarketsResult = await transaction(async (client: PoolClient) => {
+        await client.query('SET LOCAL timescaledb.enable_vectorized_aggregation = off');
+        return client.query<{ market_id: string }>(topMarketsQuery, topMarketsParams);
+      });
       const selectedMarkets = topMarketsResult.rows.map(r => r.market_id);
 
       if (selectedMarkets.length === 0) {

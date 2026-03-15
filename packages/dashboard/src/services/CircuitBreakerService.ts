@@ -234,6 +234,7 @@ export class CircuitBreakerService extends EventEmitter {
    */
   private async closeAllPositions(): Promise<number> {
     const openPositions = await query<{
+      id: string;
       market_id: string;
       token_id: string;
       side: string;
@@ -242,6 +243,7 @@ export class CircuitBreakerService extends EventEmitter {
       latest_price: string | null;
     }>(`
       SELECT
+        pp.id,
         pp.market_id,
         pp.token_id,
         pp.side,
@@ -271,6 +273,7 @@ export class CircuitBreakerService extends EventEmitter {
 
       try {
         const result = await closingService.close({
+          positionId: parseInt(pos.id, 10),
           marketId: pos.market_id,
           tokenId: pos.token_id,
           side: pos.side as 'long' | 'short',
