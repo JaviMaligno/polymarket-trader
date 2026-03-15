@@ -323,19 +323,23 @@ export class BacktestService extends EventEmitter {
       let topMarketsQuery: string;
       let topMarketsParams: (Date | string[])[];
 
+      // Cast market_id to text to avoid TimescaleDB vectorized aggregation error:
+      // "a variable with non-vectorizable type character varying is marked as vectorized"
+      // This occurs when GROUP BY is used on a VARCHAR segmentby column in a compressed
+      // hypertable. Casting to text bypasses the vectorized execution path.
       if (marketIds && marketIds.length > 0) {
         topMarketsQuery = `
-          SELECT market_id FROM price_history
+          SELECT market_id::text as market_id FROM price_history
           WHERE time >= $1 AND time <= $2 AND market_id = ANY($3)
-          GROUP BY market_id HAVING COUNT(*) >= 35
+          GROUP BY market_id::text HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
         `;
         topMarketsParams = [startDate, endDate, marketIds];
       } else {
         topMarketsQuery = `
-          SELECT market_id FROM price_history
+          SELECT market_id::text as market_id FROM price_history
           WHERE time >= $1 AND time <= $2
-          GROUP BY market_id HAVING COUNT(*) >= 35
+          GROUP BY market_id::text HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
         `;
         topMarketsParams = [startDate, endDate];
