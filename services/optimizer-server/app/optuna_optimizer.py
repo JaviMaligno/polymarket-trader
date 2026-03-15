@@ -161,10 +161,19 @@ class OptunaOptimizer:
             score: The objective value (e.g., Sharpe ratio)
             metrics: Optional additional metrics to store
         """
-        if trial_id not in self._running_trials:
-            raise ValueError(f"Unknown trial_id: {trial_id}")
+        trial = self._running_trials.get(trial_id)
 
-        trial = self._running_trials[trial_id]
+        if trial is None:
+            # Trial not in memory — server may have restarted between suggest and report.
+            # The trial still exists in Optuna's PostgreSQL storage, so report directly by ID.
+            logger.warning(f"Trial {trial_id} not in _running_trials (server restart?), reporting by ID")
+            try:
+                self.study.tell(trial_id, score)
+            except Exception as e:
+                raise ValueError(f"Unknown trial_id: {trial_id} (recovery also failed: {e})")
+            if metrics:
+                self._trial_metrics[trial_id] = metrics
+            return
 
         # Store additional metrics as user attributes
         if metrics:
