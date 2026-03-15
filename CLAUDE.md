@@ -90,6 +90,25 @@ Analyzes recent trades to identify patterns in losing trades.
 - **LONG**: Buy Yes token (price expected to rise)
 - **SHORT**: Buy No token or close Yes position (price expected to fall)
 
+## System Invariants (for debugging and review)
+
+Rules that MUST hold. When data violates one, there's a bug.
+
+### Position Lifecycle
+- All position closes MUST go through `PositionClosingService` (`packages/dashboard/src/services/PositionClosingService.ts`)
+- `paper_positions` with `closed_at IS NOT NULL` must have `size = 0` (otherwise: zombie — capital trapped)
+- Every buy trade should have a corresponding sell trade eventually (buy count >> sell count = positions lost)
+
+### Capital Accounting
+- `current_capital + SUM(open position costs) ≈ initial_capital + total_realized_pnl - total_fees`
+- `paper_account.total_realized_pnl` must equal `SUM(realized_pnl)` from all closed positions
+
+### Historical Bug Patterns
+- Services bypassing PositionClosingService with direct SQL
+- ON CONFLICT upserts not resetting all fields (e.g., `closed_at`)
+- Hardcoded config values that should read env vars
+- Formula asymmetry (e.g., peak uses equity but drawdown uses capital-only)
+
 ## Key Environment Variables
 
 ```bash

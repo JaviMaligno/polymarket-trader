@@ -145,6 +145,20 @@ jobs:
             --dangerously-skip-permissions \
             2>&1 | tee claude-output.log
 
+      - name: Capture Claude session ID
+        id: capture_session
+        if: always()
+        run: |
+          # Find the most recently modified .jsonl session file (written during the Claude run above)
+          SESSION_FILE=$(ls -t ~/.claude/projects/*/*.jsonl 2>/dev/null | head -1 || true)
+          if [ -n "$SESSION_FILE" ]; then
+            SESSION_ID=$(basename "$SESSION_FILE" .jsonl)
+            echo "session_id=$SESSION_ID" >> $GITHUB_OUTPUT
+            echo "Captured session ID: $SESSION_ID"
+          else
+            echo "No Claude session file found — retry will use a new session"
+          fi
+
       - name: Verify PR branches pass tests
         id: verify_prs
         if: always()
@@ -199,23 +213,43 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          {
-            echo "The PRs you created in your previous session have test failures."
-            echo "Fix the failing tests on each branch and push the fixes."
-            echo "Do NOT create new PRs — push to the existing branches."
-            echo ""
-            echo "=== FAILURES ==="
-            cat test-failures.txt
-            echo "================"
-            echo ""
-            echo "Run 'pnpm test' and 'pnpm run test:integration' on each branch to verify."
-            echo "When done, output: FIXES_COMPLETE"
-          } | claude --model claude-sonnet-4-6 \
-            --print \
-            --verbose \
-            --max-turns 40 \
-            --dangerously-skip-permissions \
-            2>&1 | tee claude-fix-output.log
+          # Build the retry prompt
+          PROMPT=$(cat <<'EOF'
+The PRs you created have test failures. Fix them on each branch and push.
+Do NOT create new PRs — push fixes to the existing branches.
+
+=== FAILURES ===
+EOF
+          cat test-failures.txt
+          echo "================"
+          echo ""
+          echo "Run 'pnpm test' and 'pnpm run test:integration' on each branch to verify."
+          echo "When done, output: FIXES_COMPLETE"
+          )
+
+          SESSION_ID="${{ steps.capture_session.outputs.session_id }}"
+
+          if [ -n "$SESSION_ID" ]; then
+            # Resume the previous session — Claude already knows what PRs it created and why
+            echo "Resuming session $SESSION_ID with full prior context"
+            claude --resume "$SESSION_ID" \
+              --model claude-sonnet-4-6 \
+              --print \
+              --verbose \
+              --max-turns 40 \
+              --dangerously-skip-permissions \
+              "$PROMPT" \
+              2>&1 | tee claude-fix-output.log
+          else
+            # Fallback: new session without prior context
+            echo "No session ID found — starting fresh retry session"
+            echo "$PROMPT" | claude --model claude-sonnet-4-6 \
+              --print \
+              --verbose \
+              --max-turns 40 \
+              --dangerously-skip-permissions \
+              2>&1 | tee claude-fix-output.log
+          fi
 
       - name: Upload Claude logs
         if: always()
