@@ -336,6 +336,9 @@ export class OptimizationScheduler {
     console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${WALKFORWARD_CONFIG.trainingPeriodDays} days)`);
 
     try {
+      let consecutiveFailures = 0;
+      const MAX_CONSECUTIVE_FAILURES = 3;
+
       for (let i = 0; i < iterations; i++) {
         // Health check at start of each batch
         if (i % BATCH_CONFIG.batchSize === 0) {
@@ -383,9 +386,15 @@ export class OptimizationScheduler {
 
             results.push({ params, sharpe, totalReturn, trades });
             console.log(`[OptimizationScheduler] Trial ${i + 1} done: Sharpe=${sharpe.toFixed(2)}, Return=${(totalReturn * 100).toFixed(1)}%, Trades=${trades}`);
+            consecutiveFailures = 0;
           }
         } catch (error) {
           console.error(`[OptimizationScheduler] Trial ${i + 1} failed:`, error);
+          consecutiveFailures++;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+            console.error(`[OptimizationScheduler] ${MAX_CONSECUTIVE_FAILURES} consecutive failures — Optuna server likely down, aborting run`);
+            break;
+          }
         }
       }
 
