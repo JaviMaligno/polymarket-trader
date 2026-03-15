@@ -382,30 +382,55 @@ export const paperPositionsRepo = {
   },
 
   async close(marketId: string, exitPrice?: number): Promise<void> {
-    if (exitPrice !== undefined) {
-      // Properly close with PnL calculation
-      await query(
+    // Use a transaction to atomically close the position AND update paper_account
+    // so that total_realized_pnl, winning_trades, and losing_trades stay accurate.
+    // Previously only paper_positions was updated, leaving the account stats stale.
+    await transaction(async (client: PoolClient) => {
+      // Fetch position first to compute PnL and proceeds
+      const posRow = await client.query<{
+        size: string; avg_entry_price: string; current_price: string;
+      }>(
+        `SELECT size, avg_entry_price, current_price
+         FROM paper_positions WHERE market_id = $1 AND closed_at IS NULL LIMIT 1`,
+        [marketId]
+      );
+      if (posRow.rowCount === 0) return; // Already closed or not found
+
+      const size = parseFloat(posRow.rows[0].size);
+      const entryPrice = parseFloat(posRow.rows[0].avg_entry_price);
+      const resolvedExitPrice = exitPrice ?? parseFloat(posRow.rows[0].current_price ?? '0');
+
+      const grossPnl = (resolvedExitPrice - entryPrice) * size;
+      const fee = resolvedExitPrice * size * 0.001; // 0.1% fee rate
+      const netPnl = grossPnl - fee;
+      const proceeds = resolvedExitPrice * size - fee;
+
+      // 1. Mark position closed
+      await client.query(
         `UPDATE paper_positions SET
           closed_at = NOW(),
           current_price = $2,
-          realized_pnl = ($2 - avg_entry_price) * size,
+          realized_pnl = $3,
           size = 0,
           updated_at = NOW()
         WHERE market_id = $1 AND closed_at IS NULL`,
-        [marketId, exitPrice]
+        [marketId, resolvedExitPrice, netPnl]
       );
-    } else {
-      // Fallback: close at current_price (better than DELETE with no PnL)
-      await query(
-        `UPDATE paper_positions SET
-          closed_at = NOW(),
-          realized_pnl = (current_price - avg_entry_price) * size,
-          size = 0,
+
+      // 2. Return proceeds to account and record stats
+      await client.query(
+        `UPDATE paper_account SET
+          current_capital = current_capital + $1,
+          available_capital = available_capital + $1,
+          total_fees_paid = total_fees_paid + $2,
+          total_realized_pnl = total_realized_pnl + $3,
+          winning_trades = winning_trades + CASE WHEN $3 > 0 THEN 1 ELSE 0 END,
+          losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
           updated_at = NOW()
-        WHERE market_id = $1 AND closed_at IS NULL`,
-        [marketId]
+        WHERE id = 1`,
+        [proceeds, fee, netPnl]
       );
-    }
+    });
   },
 };
 
