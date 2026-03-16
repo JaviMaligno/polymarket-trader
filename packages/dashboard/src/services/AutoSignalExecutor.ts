@@ -391,12 +391,23 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Position size too small' };
     }
 
-    // Check account has enough capital
+    // Check account has enough capital + drawdown proximity to CB threshold
     try {
-      const accountResult = await query<{ available_capital: string }>(
-        'SELECT available_capital FROM paper_account LIMIT 1'
+      const accountResult = await query<{ available_capital: string; current_capital: string }>(
+        'SELECT available_capital, current_capital FROM paper_account LIMIT 1'
       );
       const availableCapital = parseFloat(accountResult.rows[0]?.available_capital ?? '0');
+      const currentCapital = parseFloat(accountResult.rows[0]?.current_capital ?? '0');
+
+      // Don't open if near CB threshold — prevents open->CB->close->reopen cycle
+      const initialCapital = parseFloat(process.env.INITIAL_CAPITAL || '10000');
+      const drawdownPct = ((initialCapital - currentCapital) / initialCapital) * 100;
+      const CB_THRESHOLD = parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100; // env is decimal (0.15 = 15%)
+      if (drawdownPct > CB_THRESHOLD - 2) {
+        console.log(`[AutoSignalExecutor] Skipping open — drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%`);
+        return { executed: false, reason: `Drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%` };
+      }
+
       const totalCost = shares * signal.price * (1 + this.config.feeRate);
 
       if (totalCost > availableCapital) {

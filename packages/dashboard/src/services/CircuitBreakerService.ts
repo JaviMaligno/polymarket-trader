@@ -49,7 +49,7 @@ export class CircuitBreakerService extends EventEmitter {
   private config: CircuitBreakerConfig;
   private checkInterval: NodeJS.Timeout | null = null;
   private isRunning = false;
-  private onTradeExecuted: (() => void) | null = null;
+  private onTradeExecuted: ((data: any) => void) | null = null;
   private onPositionsClosed: (() => void) | null = null;
   private resetCount = 0;
   private lastResetTime: Date | null = null;
@@ -96,7 +96,10 @@ export class CircuitBreakerService extends EventEmitter {
 
     // Primary triggers: check after capital changes (trades executed or positions closed)
     const automation = getTradingAutomation();
-    this.onTradeExecuted = () => {
+    this.onTradeExecuted = (data: any) => {
+      // Only check drawdown on sells — buys mechanically reduce capital by fees
+      // but don't represent actual losses
+      if (data?.action === 'open') return;
       this.checkDrawdown().catch(err => {
         console.error('[CircuitBreaker] Post-trade check failed:', err);
       });
@@ -241,6 +244,7 @@ export class CircuitBreakerService extends EventEmitter {
       size: string;
       avg_entry_price: string;
       latest_price: string | null;
+      created_at: string;
     }>(`
       SELECT
         pp.id,
@@ -249,6 +253,7 @@ export class CircuitBreakerService extends EventEmitter {
         pp.side,
         pp.size,
         pp.avg_entry_price,
+        pp.created_at,
         ph.close as latest_price
       FROM paper_positions pp
       LEFT JOIN LATERAL (
@@ -265,6 +270,14 @@ export class CircuitBreakerService extends EventEmitter {
     for (const pos of openPositions.rows) {
       const size = parseFloat(pos.size);
       if (size <= 0) continue;
+
+      // Skip positions opened less than 5 minutes ago (prevent flash close)
+      const MIN_HOLD_MS = 5 * 60 * 1000;
+      const positionAge = Date.now() - new Date(pos.created_at).getTime();
+      if (positionAge < MIN_HOLD_MS) {
+        console.log(`[CircuitBreaker] Skipping position ${pos.market_id} — opened ${Math.round(positionAge / 1000)}s ago (min hold: ${MIN_HOLD_MS / 1000}s)`);
+        continue;
+      }
 
       const entryPrice = parseFloat(pos.avg_entry_price);
       const exitPrice = pos.latest_price
