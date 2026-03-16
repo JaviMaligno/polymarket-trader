@@ -333,10 +333,24 @@ describe.skipIf(!hasDb)('Position Lifecycle Integration', () => {
   });
 
   it('capital invariant: initial = current + open_position_costs + fees after full cycle', async () => {
-    // Open 3 positions
-    await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size: 100, price: 0.5 });
-    await openWithAccountUpdate(client, { market_id: 'm2', token_id: 't2', size: 50, price: 0.8 });
-    await openWithAccountUpdate(client, { market_id: 'm3', token_id: 't3', size: 200, price: 0.2 });
+    const feeRate = 0.001;
+
+    // Track buy-side fees as we open positions.
+    // The accounting model deducts (orderValue + buyFee) at open time and adds
+    // (exitValue - sellFee) at close time. realized_pnl = grossPnl - sellFee only.
+    // Therefore: current = initial + realized_pnl - buyFees
+    // (total_fees_paid includes both buy AND sell fees, so subtracting it all would
+    //  overcount — sell fees are already subtracted inside realized_pnl)
+    const opens = [
+      { market_id: 'm1', token_id: 't1', size: 100, price: 0.5 },
+      { market_id: 'm2', token_id: 't2', size: 50,  price: 0.8 },
+      { market_id: 'm3', token_id: 't3', size: 200, price: 0.2 },
+    ];
+    const totalBuyFees = opens.reduce((sum, o) => sum + o.size * o.price * feeRate, 0);
+
+    for (const o of opens) {
+      await openWithAccountUpdate(client, o);
+    }
 
     // Close all at various prices
     const p1 = await getPositionRow(client, 'm1', 't1');
@@ -351,14 +365,23 @@ describe.skipIf(!hasDb)('Position Lifecycle Integration', () => {
       'SELECT COALESCE(SUM(size * avg_entry_price), 0) as total FROM test_paper_positions WHERE closed_at IS NULL'
     );
 
-    // Invariant: current_capital + open_position_costs ≈ initial + total_realized_pnl - total_fees
+    // Invariant: current_capital + open_position_costs ≈ initial + total_realized_pnl - buy_fees_only
+    //
+    // Derivation:
+    //   capital after opens  = initial - Σ(orderValue + buyFee)
+    //   capital after closes = capital + Σ(exitValue - sellFee)
+    //                        = initial + Σ(grossPnl) - Σ(buyFee) - Σ(sellFee)
+    //   realized_pnl         = Σ(grossPnl - sellFee) = Σ(grossPnl) - Σ(sellFee)
+    //   → current            = initial + realized_pnl - buyFees   ✓
+    //
+    // Note: total_fees_paid = buyFees + sellFees; subtracting it entirely would
+    // overcount because sellFees are already embedded in realized_pnl.
     const current = parseFloat(account.current_capital);
     const openCost = parseFloat(openPositionsCost.rows[0].total);
     const realized = parseFloat(account.total_realized_pnl);
-    const fees = parseFloat(account.total_fees_paid);
     const initial = 10000;
 
-    expect(current + openCost).toBeCloseTo(initial + realized - fees, 2);
+    expect(current + openCost).toBeCloseTo(initial + realized - totalBuyFees, 2);
     expect(await getZombieCount(client)).toBe(0);
   });
 

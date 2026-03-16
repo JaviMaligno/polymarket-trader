@@ -1,6 +1,14 @@
 import { defineConfig } from 'vitest/config';
+import path from 'path';
 
 export default defineConfig({
+  resolve: {
+    // Alias workspace packages to their TypeScript source so Vitest can
+    // resolve them without a pre-built dist/ directory.
+    alias: {
+      '@polymarket-trader/backtest': path.resolve(__dirname, 'packages/backtest/src/index.ts'),
+    },
+  },
   test: {
     globals: true,
     environment: 'node',
