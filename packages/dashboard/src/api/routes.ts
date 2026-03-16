@@ -1091,7 +1091,48 @@ export async function registerRoutes(
           : ((best_bid - price) / best_bid) * 100
         : 0;
 
-      // Create the trade
+      // Check if this is a sell that fully closes a position
+      // If so, delegate entirely to PositionClosingService (handles trade, account, position)
+      const positionResult = await query<{ id: string; size: string; avg_entry_price: string }>(
+        'SELECT id, size, avg_entry_price FROM paper_positions WHERE market_id = $1 AND closed_at IS NULL',
+        [market_id]
+      );
+      const existingPosition = positionResult.rows[0];
+
+      if (side === 'sell' && existingPosition && size >= parseFloat(existingPosition.size)) {
+        // Full close: delegate to PositionClosingService for correct PnL/fee/trade handling
+        const { getPositionClosingService } = await import('../services/PositionClosingService.js');
+        const result = await getPositionClosingService().close({
+          positionId: parseInt(existingPosition.id, 10),
+          marketId: market_id,
+          tokenId: token_id,
+          side: 'long',
+          size: parseFloat(existingPosition.size),
+          entryPrice: parseFloat(existingPosition.avg_entry_price),
+          exitPrice: price,
+          reason: 'signal',
+        });
+
+        // Re-read account state after PositionClosingService updated it
+        const updatedAccount = await query<{ current_capital: string; available_capital: string }>(
+          'SELECT current_capital, available_capital FROM paper_account LIMIT 1'
+        );
+        const newCapital = parseFloat(updatedAccount.rows[0]?.current_capital ?? '0');
+        const newAvailable = parseFloat(updatedAccount.rows[0]?.available_capital ?? '0');
+
+        return reply.send({
+          success: true,
+          data: {
+            trade: { id: result.tradeId, market_id, side, size, price },
+            fee: result.fee,
+            new_capital: newCapital,
+            new_available: newAvailable,
+          },
+          timestamp: new Date(),
+        });
+      }
+
+      // Create the trade record (buys + partial sells only; full sells handled above)
       const trade = await paperTradesRepo.create({
         time: new Date(),
         market_id,
@@ -1111,7 +1152,7 @@ export async function registerRoutes(
         best_ask,
       });
 
-      // Update paper account
+      // Update paper account capital
       const newCapital = side === 'buy'
         ? parseFloat(account.current_capital) - totalCost
         : parseFloat(account.current_capital) + orderValue - fee;
@@ -1129,14 +1170,6 @@ export async function registerRoutes(
         WHERE id = 1`,
         [newCapital, newAvailable, fee]
       );
-
-      // Update or create position
-      const positionResult = await query<{ size: string; avg_entry_price: string }>(
-        'SELECT size, avg_entry_price FROM paper_positions WHERE market_id = $1',
-        [market_id]
-      );
-
-      const existingPosition = positionResult.rows[0];
 
       if (side === 'buy') {
         if (existingPosition) {
@@ -1172,6 +1205,8 @@ export async function registerRoutes(
           });
         }
       } else if (side === 'sell' && existingPosition) {
+        // Partial close (full close handled above via PositionClosingService)
+        // TODO: Refactor partial closes to use PositionClosingService once it supports partial sizes
         const currentSize = parseFloat(existingPosition.size);
         const currentAvg = parseFloat(existingPosition.avg_entry_price);
         const pnl = (price - currentAvg) * Math.min(size, currentSize);
@@ -1189,24 +1224,19 @@ export async function registerRoutes(
           [pnl, isWin ? 1 : 0, isWin ? 0 : 1]
         );
 
-        if (size >= currentSize) {
-          // Close position
-          await paperPositionsRepo.close(market_id, price);
-        } else {
-          // Reduce position
-          await paperPositionsRepo.upsert({
-            market_id,
-            token_id,
-            side: 'long',
-            size: currentSize - size,
-            avg_entry_price: currentAvg,
-            current_price: price,
-            unrealized_pnl: 0,
-            realized_pnl: pnl,
-            opened_at: new Date(),
-            signal_type,
-          });
-        }
+        // Reduce position
+        await paperPositionsRepo.upsert({
+          market_id,
+          token_id,
+          side: 'long',
+          size: currentSize - size,
+          avg_entry_price: currentAvg,
+          current_price: price,
+          unrealized_pnl: 0,
+          realized_pnl: pnl,
+          opened_at: new Date(),
+          signal_type,
+        });
       }
 
       return reply.send({

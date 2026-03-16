@@ -381,6 +381,11 @@ export const paperPositionsRepo = {
     return result.rows[0] ?? null;
   },
 
+  /**
+   * @deprecated Use PositionClosingService.close() instead.
+   * This method does not update paper_account, does not record fees,
+   * and does not create a sell trade. Kept only for backward compatibility.
+   */
   async close(marketId: string, exitPrice?: number): Promise<void> {
     if (exitPrice !== undefined) {
       // Properly close with PnL calculation

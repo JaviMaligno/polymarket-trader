@@ -159,13 +159,33 @@ export class PaperTradingService {
   }
 
   /**
-   * Close position in database
+   * Close position in database via PositionClosingService (correct PnL/fee accounting)
    */
   async closePosition(marketId: string, exitPrice?: number): Promise<void> {
     if (!isDatabaseConfigured()) return;
 
     try {
-      await paperPositionsRepo.close(marketId, exitPrice);
+      const { getPositionClosingService } = await import('./PositionClosingService.js');
+      const posResult = await query<{
+        id: string; market_id: string; token_id: string; side: string;
+        size: string; avg_entry_price: string; current_price: string;
+      }>(`SELECT id, market_id, token_id, side, size, avg_entry_price, current_price
+          FROM paper_positions WHERE market_id = $1 AND closed_at IS NULL LIMIT 1`, [marketId]);
+
+      if (posResult.rows.length === 0) return;
+      const pos = posResult.rows[0];
+      const price = exitPrice ?? parseFloat(pos.current_price) ?? parseFloat(pos.avg_entry_price);
+
+      await getPositionClosingService().close({
+        positionId: parseInt(pos.id, 10),
+        marketId: pos.market_id,
+        tokenId: pos.token_id,
+        side: (pos.side || 'long').toLowerCase() as 'long' | 'short',
+        size: parseFloat(pos.size),
+        entryPrice: parseFloat(pos.avg_entry_price),
+        exitPrice: price,
+        reason: 'signal',
+      });
       console.log(`Position closed: ${marketId}`);
     } catch (error) {
       console.error('Failed to close position:', error);
