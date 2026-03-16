@@ -7,6 +7,7 @@ import type { PolymarketEvent, PolymarketMarket } from '../types/index.js';
 const logger = pino({ name: 'gamma-collector' });
 
 const GAMMA_API_URL = process.env.GAMMA_API_URL || 'https://gamma-api.polymarket.com';
+const MAX_SYNC_PAGES = parseInt(process.env.MAX_SYNC_PAGES || '10', 10);
 
 /**
  * Infer category from market question using keyword matching
@@ -75,109 +76,6 @@ export class GammaCollector {
   }
 
   /**
-   * Fetch all active markets from Gamma API
-   * Uses pagination to get all markets
-   */
-  async fetchAllMarkets(): Promise<PolymarketMarket[]> {
-    const allMarkets: PolymarketMarket[] = [];
-    let cursor: string | undefined;
-    let page = 0;
-
-    logger.info('Starting to fetch all markets from Gamma API');
-
-    do {
-      await this.rateLimiter.acquire('gamma_markets');
-
-      const params: Record<string, string> = {
-        limit: '100',
-        active: 'true',
-        closed: 'false',  // Only fetch non-closed markets to avoid downloading thousands of historical markets
-      };
-
-      if (cursor) {
-        params.next_cursor = cursor;
-      }
-
-      try {
-        const response = await this.client.get<PolymarketMarket[]>('/markets', { params });
-        const markets = response.data;
-
-        if (!markets || markets.length === 0) {
-          break;
-        }
-
-        allMarkets.push(...markets);
-        page++;
-
-        logger.debug({ page, count: markets.length, total: allMarkets.length }, 'Fetched markets page');
-
-        // Gamma API uses offset-based pagination
-        if (markets.length < 100) {
-          break;
-        }
-
-        // Use last market ID as cursor for next page
-        cursor = markets[markets.length - 1]?.id;
-
-      } catch (error) {
-        logger.error({ error, page }, 'Error fetching markets page');
-        throw error;
-      }
-    } while (cursor);
-
-    logger.info({ totalMarkets: allMarkets.length }, 'Finished fetching all markets');
-    return allMarkets;
-  }
-
-  /**
-   * Fetch all events from Gamma API
-   */
-  async fetchAllEvents(): Promise<PolymarketEvent[]> {
-    const allEvents: PolymarketEvent[] = [];
-    let offset = 0;
-    const limit = 100;
-
-    logger.info('Starting to fetch all events from Gamma API');
-
-    while (true) {
-      await this.rateLimiter.acquire('gamma_events');
-
-      try {
-        const response = await this.client.get<PolymarketEvent[]>('/events', {
-          params: {
-            limit: limit.toString(),
-            offset: offset.toString(),
-            active: 'true',
-            closed: 'false',  // Only fetch non-closed events
-          },
-        });
-
-        const events = response.data;
-
-        if (!events || events.length === 0) {
-          break;
-        }
-
-        allEvents.push(...events);
-        logger.debug({ offset, count: events.length, total: allEvents.length }, 'Fetched events page');
-
-        if (events.length < limit) {
-          break;
-        }
-
-        offset += limit;
-
-      } catch (error) {
-        logger.error({ error, offset }, 'Error fetching events page');
-        throw error;
-      }
-    }
-
-    logger.info({ totalEvents: allEvents.length }, 'Finished fetching all events');
-    return allEvents;
-  }
-
-  /**
    * Fetch a single market by ID
    */
   async fetchMarket(marketId: string): Promise<PolymarketMarket | null> {
@@ -226,24 +124,24 @@ export class GammaCollector {
           break;
         }
 
-        // Process batch immediately to avoid memory buildup
-        for (const market of markets) {
-          try {
-            const result = await this.upsertMarket(market);
-            if (result === 'inserted') {
-              inserted++;
-            } else {
-              updated++;
-            }
-          } catch (error: any) {
-            logger.error({ err: error.message || String(error), marketId: market.id }, 'Error upserting market');
-          }
+        // Batch upsert the whole page at once
+        try {
+          const result = await this.batchUpsertMarkets(markets);
+          inserted += result.inserted;
+          updated += result.updated;
+        } catch (error: any) {
+          logger.error({ err: error.message || String(error), page }, 'Error batch upserting markets page');
         }
 
         page++;
         logger.debug({ page, batchSize: markets.length, inserted, updated }, 'Processed markets batch');
 
         if (markets.length < 100) {
+          break;
+        }
+
+        if (page >= MAX_SYNC_PAGES) {
+          logger.info(`[GammaCollector] Reached MAX_SYNC_PAGES (${MAX_SYNC_PAGES}), stopping market sync`);
           break;
         }
 
@@ -266,6 +164,7 @@ export class GammaCollector {
     let inserted = 0;
     let updated = 0;
     let offset = 0;
+    let pageCount = 0;
     const limit = 100;
 
     logger.info('Syncing events to database (streaming)');
@@ -303,9 +202,15 @@ export class GammaCollector {
           }
         }
 
+        pageCount++;
         logger.debug({ offset, batchSize: events.length, inserted, updated }, 'Processed events batch');
 
         if (events.length < limit) {
+          break;
+        }
+
+        if (pageCount >= MAX_SYNC_PAGES) {
+          logger.info(`[GammaCollector] Reached MAX_SYNC_PAGES (${MAX_SYNC_PAGES}), stopping event sync`);
           break;
         }
 
@@ -319,6 +224,96 @@ export class GammaCollector {
 
     logger.info({ inserted, updated }, 'Finished syncing events');
     return { inserted, updated };
+  }
+
+  /**
+   * Batch upsert markets to database (100 per query instead of 1)
+   */
+  private async batchUpsertMarkets(markets: any[]): Promise<{ inserted: number; updated: number }> {
+    if (markets.length === 0) return { inserted: 0, updated: 0 };
+
+    let totalProcessed = 0;
+
+    // Process in batches of 100
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < markets.length; i += BATCH_SIZE) {
+      const batch = markets.slice(i, i + BATCH_SIZE);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+
+      batch.forEach((market, idx) => {
+        const offset = idx * 18;
+
+        // Parse CLOB token IDs (same logic as upsertMarket)
+        let tokenIdYes = '';
+        let tokenIdNo: string | null = null;
+        try {
+          const tokenIds = JSON.parse(market.clobTokenIds || '[]');
+          tokenIdYes = tokenIds[0] || '';
+          tokenIdNo = tokenIds[1] || null;
+        } catch {
+          // keep defaults
+        }
+
+        // Parse outcome prices (same logic as upsertMarket)
+        let priceYes: number | null = null;
+        let priceNo: number | null = null;
+        try {
+          const prices = JSON.parse(market.outcomePrices || '[]');
+          priceYes = prices[0] ? parseFloat(prices[0]) : null;
+          priceNo = prices[1] ? parseFloat(prices[1]) : null;
+        } catch {
+          priceYes = market.bestBid || market.lastTradePrice || null;
+        }
+
+        values.push(
+          market.id,
+          tokenIdYes,
+          tokenIdNo,
+          market.conditionId,
+          market.question,
+          market.description,
+          inferCategoryFromQuestion(market.question || ''),
+          market.endDate ? new Date(market.endDate) : null,
+          priceYes,
+          priceNo,
+          market.spread || null,
+          market.volume24hr || null,
+          market.liquidityNum || null,
+          market.bestBid || null,
+          market.bestAsk || null,
+          market.lastTradePrice || null,
+          market.active && !market.closed,
+          !market.active && market.closed,
+        );
+        placeholders.push(
+          `($${offset+1},$${offset+2},$${offset+3},$${offset+4},$${offset+5},$${offset+6},$${offset+7},$${offset+8},$${offset+9},$${offset+10},$${offset+11},$${offset+12},$${offset+13},$${offset+14},$${offset+15},$${offset+16},$${offset+17},$${offset+18},NOW(),NOW())`
+        );
+      });
+
+      await query(`
+        INSERT INTO markets (
+          id, clob_token_id_yes, clob_token_id_no, condition_id, question, description,
+          category, end_date, current_price_yes, current_price_no, spread,
+          volume_24h, liquidity, best_bid, best_ask, last_trade_price,
+          is_active, is_resolved, created_at, updated_at
+        ) VALUES ${placeholders.join(',')}
+        ON CONFLICT (id) DO UPDATE SET
+          current_price_yes = EXCLUDED.current_price_yes,
+          current_price_no = EXCLUDED.current_price_no,
+          spread = EXCLUDED.spread,
+          volume_24h = EXCLUDED.volume_24h,
+          liquidity = EXCLUDED.liquidity,
+          best_bid = EXCLUDED.best_bid,
+          best_ask = EXCLUDED.best_ask,
+          last_trade_price = EXCLUDED.last_trade_price,
+          updated_at = NOW()
+      `, values);
+
+      totalProcessed += batch.length;
+    }
+
+    return { inserted: 0, updated: totalProcessed };
   }
 
   /**
@@ -439,19 +434,14 @@ export class GammaCollector {
         ]
       );
 
-      // Also sync the event's markets
+      // Link event's markets (market data is synced separately by syncMarketsToDb)
       if (event.markets && event.markets.length > 0) {
-        for (const market of event.markets) {
-          try {
-            await this.upsertMarket(market);
-            // Update market's event_id
-            await query(
-              'UPDATE markets SET event_id = $1, category = $2 WHERE id = $3',
-              [event.id, event.category, market.id]
-            );
-          } catch (error: any) {
-            logger.error({ err: error.message || String(error), marketId: market.id, eventId: event.id }, 'Error upserting event market');
-          }
+        const marketIds = event.markets.map((m: any) => m.id).filter(Boolean);
+        if (marketIds.length > 0) {
+          await query(
+            `UPDATE markets SET event_id = $1, category = COALESCE($3, category) WHERE id = ANY($2::varchar[])`,
+            [event.id, marketIds, event.category || null]
+          );
         }
       }
 

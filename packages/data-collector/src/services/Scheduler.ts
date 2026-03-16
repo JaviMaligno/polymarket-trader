@@ -29,8 +29,8 @@ export class Scheduler {
     this.adaptiveSyncManager = adaptiveSyncManager;
     this.externalDataCollector = externalDataCollector;
     // Define all scheduled jobs
-    this.defineJob('sync-markets', '*/5 * * * *', this.syncMarkets.bind(this));
-    this.defineJob('sync-events', '*/10 * * * *', this.syncEvents.bind(this));
+    this.defineJob('sync-markets', '17 * * * *', this.syncMarkets.bind(this));      // Hourly at :17
+    this.defineJob('sync-events', '47 */2 * * *', this.syncEvents.bind(this));     // Every 2h at :47
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
     this.defineJob('sync-price-history', '*/5 * * * *', this.syncPriceHistory.bind(this));  // Every 5min (aligned with signal interval)
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
@@ -191,6 +191,21 @@ export class Scheduler {
   }
 
   /**
+   * Run a promise with a timeout. Returns null if the timeout fires first.
+   */
+  private async withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T | null> {
+    const timeout = new Promise<null>((resolve) => {
+      setTimeout(() => {
+        // Note: the original promise continues running — Promise.race cannot cancel it.
+        // MAX_SYNC_PAGES limits the actual work, so runaway duration is unlikely.
+        logger.warn(`[Scheduler] ${label} timed out after ${ms / 1000}s`);
+        resolve(null);
+      }, ms);
+    });
+    return Promise.race([promise, timeout]);
+  }
+
+  /**
    * Run initial data sync on startup
    */
   private async runInitialSync(): Promise<void> {
@@ -198,22 +213,22 @@ export class Scheduler {
 
     try {
       // First sync events (includes markets)
-      await this.syncEvents();
+      await this.withTimeout(this.syncEvents(), 120_000, 'Initial sync-events');
 
       // Then sync markets directly
-      await this.syncMarkets();
+      await this.withTimeout(this.syncMarkets(), 120_000, 'Initial sync-markets');
 
       // Update current prices
-      await this.syncPrices();
+      await this.withTimeout(this.syncPrices(), 60_000, 'Initial sync-prices');
 
       // Start historical price sync
-      await this.syncPriceHistory();
+      await this.withTimeout(this.syncPriceHistory(), 120_000, 'Initial sync-price-history');
 
       // Sync order books
-      await this.syncOrderBooks();
+      await this.withTimeout(this.syncOrderBooks(), 60_000, 'Initial sync-orderbooks');
 
       // Sync trades
-      await this.syncTrades();
+      await this.withTimeout(this.syncTrades(), 60_000, 'Initial sync-trades');
 
       logger.info('Initial sync completed');
     } catch (error) {
