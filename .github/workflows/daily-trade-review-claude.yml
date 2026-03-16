@@ -213,19 +213,19 @@ jobs:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Build the retry prompt
-          PROMPT=$(cat <<'EOF'
-The PRs you created have test failures. Fix them on each branch and push.
-Do NOT create new PRs — push fixes to the existing branches.
-
-=== FAILURES ===
-EOF
-          cat test-failures.txt
-          echo "================"
-          echo ""
-          echo "Run 'pnpm test' and 'pnpm run test:integration' on each branch to verify."
-          echo "When done, output: FIXES_COMPLETE"
-          )
+          # Build the retry prompt into a temp file (avoids heredoc-at-column-0 breaking YAML)
+          {
+            echo "The PRs you created have test failures. Fix them on each branch and push."
+            echo "Do NOT create new PRs — push fixes to the existing branches."
+            echo ""
+            echo "=== FAILURES ==="
+            cat test-failures.txt
+            echo "================"
+            echo ""
+            echo "Run 'pnpm test' and 'pnpm run test:integration' on each branch to verify."
+            echo "When done, output: FIXES_COMPLETE"
+          } > /tmp/retry-prompt.txt
+          PROMPT=$(cat /tmp/retry-prompt.txt)
 
           SESSION_ID="${{ steps.capture_session.outputs.session_id }}"
 
