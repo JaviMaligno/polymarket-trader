@@ -52,7 +52,7 @@ jobs:
       - name: Install dependencies
         run: |
           npm install -g @anthropic-ai/claude-code
-          npm install nodemailer
+          npm install --no-save nodemailer
           pnpm install --frozen-lockfile
 
       - name: Authenticate to Google Cloud
