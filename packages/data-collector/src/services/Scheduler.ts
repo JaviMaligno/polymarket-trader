@@ -6,6 +6,8 @@ import { getRateLimiter } from './RateLimiter.js';
 import { getPool } from '../database/connection.js';
 import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
 import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
+import { MarketScorer } from './MarketScorer.js';
+import { MarketRotator } from './MarketRotator.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -24,10 +26,14 @@ export class Scheduler {
   private isRunning = false;
   private adaptiveSyncManager?: AdaptiveSyncManager;
   private externalDataCollector?: ExternalDataCollector;
+  private marketScorer: MarketScorer;
+  private marketRotator: MarketRotator;
 
   constructor(adaptiveSyncManager?: AdaptiveSyncManager, externalDataCollector?: ExternalDataCollector) {
     this.adaptiveSyncManager = adaptiveSyncManager;
     this.externalDataCollector = externalDataCollector;
+    this.marketScorer = new MarketScorer();
+    this.marketRotator = new MarketRotator();
     // Define all scheduled jobs
     this.defineJob('sync-markets', '17 * * * *', this.syncMarkets.bind(this));      // Hourly at :17
     this.defineJob('sync-events', '47 */2 * * *', this.syncEvents.bind(this));     // Every 2h at :47
@@ -242,7 +248,23 @@ export class Scheduler {
   private async syncMarkets(): Promise<void> {
     const collector = getGammaCollector();
     const result = await collector.syncMarketsToDb();
-    logger.info({ inserted: result.inserted, updated: result.updated }, 'Markets synced');
+    logger.info({ inserted: result.inserted, updated: result.updated }, 'Markets synced from Gamma API');
+
+    // Score all markets after sync
+    try {
+      const scoreResult = await this.marketScorer.scoreAllMarkets();
+      logger.info(scoreResult, 'Markets scored');
+    } catch (err) {
+      logger.error({ err }, 'Market scoring failed');
+    }
+
+    // Rotate tracked markets based on scores
+    try {
+      const rotateResult = await this.marketRotator.rotate();
+      logger.info(rotateResult, 'Market rotation complete');
+    } catch (err) {
+      logger.error({ err }, 'Market rotation failed');
+    }
   }
 
   /**
