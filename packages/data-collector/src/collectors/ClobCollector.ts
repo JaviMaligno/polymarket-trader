@@ -8,10 +8,6 @@ const logger = pino({ name: 'clob-collector' });
 
 const CLOB_API_URL = process.env.CLOB_API_URL || 'https://clob.polymarket.com';
 
-// Maximum number of markets to track for price history
-// Set to 0 or undefined to track all markets
-const MAX_TRACKED_MARKETS = parseInt(process.env.MAX_TRACKED_MARKETS || '0', 10) || undefined;
-
 interface PriceHistoryResponse {
   history: PriceHistory[];
 }

@@ -15,6 +15,7 @@ UPDATE markets SET tracking_status = 'active', tracking_status_changed_at = NOW(
 WHERE is_active = true
   AND is_resolved = false
   AND clob_token_id_yes IS NOT NULL
+  AND tracking_status != 'active'
   AND id IN (
     SELECT DISTINCT m.id FROM markets m
     JOIN price_history ph ON ph.token_id = m.clob_token_id_yes

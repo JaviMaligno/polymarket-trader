@@ -229,10 +229,8 @@ export class MarketRotator {
     const currentCounts: StatusCounts = {
       active: active.length + result.promoted - result.demoted,
       warming: warming.length - result.promoted,
-      cooling: cooling.length - result.coolingExpired + (result.demoted > 0 ? 0 : 0), // demoted to cooling counted separately
+      cooling: cooling.length - result.coolingExpired,
     };
-    // Adjust cooling for markets demoted to cooling
-    // (some demoted go to cold, some to cooling — but we already transitioned them above)
 
     let slotsAvailable = this.computeNewWarmingSlots(currentCounts);
 

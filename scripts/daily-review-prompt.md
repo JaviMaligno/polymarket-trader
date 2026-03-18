@@ -259,10 +259,10 @@ Thresholds are guidance, not hard rules. Apply judgment:
 | Container down | Critical | — |
 | Memory > 85% | Warning | — |
 | No prices 1h | Critical | Info if market quiet / VM sleeping |
-| 0 signals generated | **MUST investigate** before classifying. Run SQL to check price distribution of tracked markets. If ALL markets genuinely in 50/50 or extreme range → Info, but report distribution and flag that MarketRotator should have prevented this. If tradeable markets exist but signals still 0 → Critical. |
-| Markets filtered by 50/50 | Only **Info** if verified by SQL query showing actual prices. Never assume without evidence. |
-| CPU spike | Warning if sustained >10min; Info if brief <2min |
-| Capital discrepancy | **Always investigate** — never dismiss as "unexplained" |
+| 0 signals generated | **MUST investigate** | Run SQL to check price distribution of tracked markets. If ALL in 50/50 or extreme → Info, but report distribution and flag MarketRotator. If tradeable markets exist but signals still 0 → Critical. |
+| Markets filtered by 50/50 | Only **Info** if verified | Must be verified by SQL query showing actual prices. Never assume without evidence. |
+| CPU spike | Warning/Info | Warning if sustained >10min; Info if brief <2min |
+| Capital discrepancy | **Always investigate** | Never dismiss as "unexplained" |
 
 **Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure. But you must PROVE it's expected behavior with evidence, not assume it.
 
