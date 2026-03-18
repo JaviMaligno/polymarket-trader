@@ -39,7 +39,7 @@ interface StatusCounts {
 }
 
 const DEFAULT_CONFIG: RotationConfig = {
-  maxTracked: 40,
+  maxTracked: parseInt(process.env.MAX_TRACKED_MARKETS || '40', 10),
   maxRotationsPerHour: 5,
   warmingPromotionBars: 3,
   coolingTimeoutHours: 6,
@@ -181,6 +181,9 @@ export class MarketRotator {
     const expired = this.selectCoolingExpired(cooling);
     for (const m of expired) {
       await this.updateStatus(m.id, 'cold');
+      if (m.has_open_positions) {
+        logger.warn({ marketId: m.id }, 'Cooling timeout with open position — needs stop-loss review');
+      }
       result.coolingExpired++;
     }
 
