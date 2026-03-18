@@ -270,13 +270,12 @@ export class ClobCollector {
    * Respects MAX_TRACKED_MARKETS config
    */
   async syncAllTrades(): Promise<{ markets: number; totalInserted: number; errors: number }> {
-    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
     const marketsResult = await query(
       `SELECT id, clob_token_id_yes, clob_token_id_no
        FROM markets
-       WHERE is_active = true AND clob_token_id_yes IS NOT NULL
-       ORDER BY volume_24h DESC NULLS LAST
-       ${limitClause}`
+       WHERE tracking_status IN ('warming', 'active', 'cooling')
+         AND clob_token_id_yes IS NOT NULL
+       ORDER BY market_score DESC NULLS LAST`
     );
 
     const markets = marketsResult.rows;
@@ -526,14 +525,13 @@ export class ClobCollector {
    * Respects MAX_TRACKED_MARKETS config to limit API calls
    */
   async syncAllOrderBooks(): Promise<{ synced: number; errors: number }> {
-    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
     const marketsResult = await query(
       `
       SELECT id, clob_token_id_yes, clob_token_id_no
       FROM markets
-      WHERE is_active = true AND clob_token_id_yes IS NOT NULL
-      ORDER BY volume_24h DESC NULLS LAST
-      ${limitClause}
+      WHERE tracking_status IN ('warming', 'active', 'cooling')
+        AND clob_token_id_yes IS NOT NULL
+      ORDER BY market_score DESC NULLS LAST
       `
     );
 
@@ -570,22 +568,16 @@ export class ClobCollector {
     totalSkipped: number;
     errors: number;
   }> {
-    // Get active markets with their token IDs, ordered by volume
-    // If MAX_TRACKED_MARKETS is set, only get top N markets by volume
-    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
+    // Get tracked markets ordered by score
     const marketsResult = await query(
       `
       SELECT id, clob_token_id_yes, clob_token_id_no
       FROM markets
-      WHERE is_active = true AND clob_token_id_yes IS NOT NULL
-      ORDER BY volume_24h DESC NULLS LAST
-      ${limitClause}
+      WHERE tracking_status IN ('warming', 'active', 'cooling')
+        AND clob_token_id_yes IS NOT NULL
+      ORDER BY market_score DESC NULLS LAST
       `
     );
-
-    if (MAX_TRACKED_MARKETS) {
-      logger.info({ maxMarkets: MAX_TRACKED_MARKETS }, 'Limiting price history sync to top markets by volume');
-    }
 
     const markets = marketsResult.rows;
     let totalInserted = 0;
@@ -637,16 +629,14 @@ export class ClobCollector {
    * Respects MAX_TRACKED_MARKETS config to limit API calls
    */
   async updateAllMarketPrices(): Promise<{ updated: number; errors: number }> {
-    // Get active token IDs, ordered by volume
-    // If MAX_TRACKED_MARKETS is set, only get top N markets
-    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
+    // Get tracked markets ordered by score
     const tokensResult = await query(
       `
       SELECT id, clob_token_id_yes, clob_token_id_no
       FROM markets
-      WHERE is_active = true AND clob_token_id_yes IS NOT NULL
-      ORDER BY volume_24h DESC NULLS LAST
-      ${limitClause}
+      WHERE tracking_status IN ('warming', 'active', 'cooling')
+        AND clob_token_id_yes IS NOT NULL
+      ORDER BY market_score DESC NULLS LAST
       `
     );
 
@@ -728,16 +718,14 @@ export class ClobCollector {
    * handles flat bars (same price) by counting them as non-informative.
    */
   async snapshotCurrentPricesToHistory(): Promise<{ inserted: number }> {
-    const limitClause = MAX_TRACKED_MARKETS ? `LIMIT ${MAX_TRACKED_MARKETS}` : '';
     const marketsResult = await query(
       `SELECT id, clob_token_id_yes, current_price_yes
        FROM markets
-       WHERE is_active = true
+       WHERE tracking_status IN ('warming', 'active', 'cooling')
          AND clob_token_id_yes IS NOT NULL
          AND current_price_yes IS NOT NULL
          AND current_price_yes > 0
-       ORDER BY volume_24h DESC NULLS LAST
-       ${limitClause}`
+       ORDER BY market_score DESC NULLS LAST`
     );
 
     if (marketsResult.rows.length === 0) return { inserted: 0 };
