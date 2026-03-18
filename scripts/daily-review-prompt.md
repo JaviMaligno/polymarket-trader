@@ -259,12 +259,31 @@ Thresholds are guidance, not hard rules. Apply judgment:
 | Container down | Critical | — |
 | Memory > 85% | Warning | — |
 | No prices 1h | Critical | Info if market quiet / VM sleeping |
-| 0 signals generated | **Info** if markets correctly filtered (50/50 range, price-range modifier). Critical only if engine crash. |
-| Markets filtered by 50/50 | **Expected behavior** — not an alert |
+| 0 signals generated | **MUST investigate** before classifying. Run SQL to check price distribution of tracked markets. If ALL markets genuinely in 50/50 or extreme range → Info, but report distribution and flag that MarketRotator should have prevented this. If tradeable markets exist but signals still 0 → Critical. |
+| Markets filtered by 50/50 | Only **Info** if verified by SQL query showing actual prices. Never assume without evidence. |
 | CPU spike | Warning if sustained >10min; Info if brief <2min |
 | Capital discrepancy | **Always investigate** — never dismiss as "unexplained" |
 
-**Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure.
+**Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure. But you must PROVE it's expected behavior with evidence, not assume it.
+
+## Investigation Rule
+
+Every anomaly (metric out of range, zero where >0 expected, discrepancy in numbers) requires at least ONE SQL query or log check before classifying severity. Report the query result as evidence in the issue. Without evidence, severity is **"Unknown — requires manual investigation"** with a specific next step the human can take.
+
+Examples of adequate investigation (not exhaustive — apply the same rigor to any anomaly):
+- 0 signals → `SELECT price distribution of tracked markets` to verify all are truly in filtered ranges
+- Capital discrepancy → `SELECT SUM(realized_pnl) FROM paper_positions WHERE closed_at IS NOT NULL` vs `paper_account.total_realized_pnl`
+- High trade count → check for duplicate trades in same market within the same minute
+- Container restarts → check for OOM kill in `docker inspect` or `dmesg`
+- Connection timeouts → check if DB, Polymarket API, or Optuna — each has different implications
+
+## Language Rule
+
+Never use "likely", "probably", "may be", "suggests that", "appears to be" when describing root causes. Either:
+1. You investigated and know the cause → state it with evidence (the query you ran and its result)
+2. You couldn't investigate → say **"Unknown — requires manual investigation"** with a specific next step
+
+Speculation disguised as analysis is worse than admitting ignorance.
 
 ## Analysis Principles
 
