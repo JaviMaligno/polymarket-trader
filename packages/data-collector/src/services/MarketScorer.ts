@@ -209,10 +209,10 @@ export class MarketScorer {
              current_price_yes,
              volume_24h,
              spread,
-             end_date_iso AS end_date
+             end_date
       FROM   markets
       WHERE  is_active = true
-        AND  resolved = false
+        AND  is_resolved = false
     `);
 
     const rows = marketsResult.rows;
@@ -262,22 +262,25 @@ export class MarketScorer {
              m.current_price_yes,
              m.volume_24h,
              m.spread,
-             m.end_date_iso AS end_date,
-             s.stddev,
+             m.end_date,
+             s.price_stddev AS stddev,
              s.informative_bars,
              s.total_bars
       FROM   markets m
       LEFT JOIN LATERAL (
-        SELECT STDDEV(close)              AS stddev,
-               COUNT(*) FILTER (WHERE source = 'trade' OR close != LAG(close) OVER (ORDER BY time))
-                                          AS informative_bars,
-               COUNT(*)                   AS total_bars
-        FROM   price_history
-        WHERE  token_id = m.clob_token_id_yes
-          AND  time > NOW() - INTERVAL '24 hours'
+        SELECT
+          STDDEV(close) AS price_stddev,
+          COUNT(*) FILTER (WHERE source = 'api' OR close != prev_close) AS informative_bars,
+          COUNT(*) AS total_bars
+        FROM (
+          SELECT close, source, LAG(close) OVER (ORDER BY time) AS prev_close
+          FROM price_history
+          WHERE token_id = m.clob_token_id_yes
+            AND time > NOW() - INTERVAL '24 hours'
+        ) sub
       ) s ON true
       WHERE  m.is_active = true
-        AND  m.resolved = false
+        AND  m.is_resolved = false
         AND  m.tracking_status IN ('warming', 'active', 'cooling')
     `);
 
@@ -340,8 +343,7 @@ export class MarketScorer {
 
       await query(
         `UPDATE markets AS m
-         SET    composite_score = v.score,
-                score_updated_at = NOW()
+         SET    market_score = v.score
          FROM   (VALUES ${values}) AS v(condition_id, score)
          WHERE  m.condition_id = v.condition_id`,
         params,
