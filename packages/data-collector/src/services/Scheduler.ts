@@ -173,6 +173,9 @@ export class Scheduler {
         case 'log-stats':
           await this.logStats();
           break;
+        case 'prune-zombies':
+          await this.pruneZombieMarkets();
+          break;
         case 'fetch-external-prices':
           await this.fetchExternalPrices();
           break;
