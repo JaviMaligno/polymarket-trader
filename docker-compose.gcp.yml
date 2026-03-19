@@ -1,6 +1,6 @@
 # Docker Compose for Google Cloud e2-micro VM
 # Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
-# Memory budget: TimescaleDB 350M + Data Collector 120M + Dashboard 120M = 590M
+# Memory budget: TimescaleDB 350M + Data Collector 60M + Dashboard 180M = 590M
 # NOTE: Optimizer runs on Render (polymarket-optimizer-server.onrender.com)
 #
 # Usage:
@@ -88,9 +88,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 120M
+          memory: 60M
         reservations:
-          memory: 70M
+          memory: 40M
     logging:
       driver: "json-file"
       options:
@@ -152,9 +152,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 120M
+          memory: 180M
         reservations:
-          memory: 50M
+          memory: 80M
     logging:
       driver: "json-file"
       options:
