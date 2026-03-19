@@ -321,6 +321,8 @@ export interface PaperPosition {
   updated_at?: Date;
   signal_type?: string;
   metadata?: Record<string, unknown>;
+  market_score_at_entry?: number | null;
+  score_dimensions_at_entry?: Record<string, unknown> | null;
 }
 
 export const paperPositionsRepo = {
@@ -329,8 +331,8 @@ export const paperPositionsRepo = {
       `INSERT INTO paper_positions
        (market_id, token_id, side, size, avg_entry_price, current_price,
         unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
-        opened_at, signal_type, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+        opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        ON CONFLICT (market_id, token_id) DO UPDATE SET
          current_price = EXCLUDED.current_price,
          unrealized_pnl = EXCLUDED.unrealized_pnl,
@@ -345,6 +347,8 @@ export const paperPositionsRepo = {
          metadata = EXCLUDED.metadata,
          stop_loss = EXCLUDED.stop_loss,
          take_profit = EXCLUDED.take_profit,
+         market_score_at_entry = COALESCE(paper_positions.market_score_at_entry, EXCLUDED.market_score_at_entry),
+         score_dimensions_at_entry = COALESCE(paper_positions.score_dimensions_at_entry, EXCLUDED.score_dimensions_at_entry),
          updated_at = NOW()`,
       [
         position.market_id,
@@ -361,6 +365,8 @@ export const paperPositionsRepo = {
         position.opened_at,
         position.signal_type,
         JSON.stringify(position.metadata ?? {}),
+        position.market_score_at_entry ?? null,
+        position.score_dimensions_at_entry != null ? JSON.stringify(position.score_dimensions_at_entry) : null,
       ]
     );
   },
