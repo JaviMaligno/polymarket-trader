@@ -120,6 +120,20 @@ export async function optimizeScorerWeights(): Promise<void> {
     }
   }
 
+  // Normalize the 3 optimized dims to sum to (1.0 - volatility - dataQuality)
+  // so that loadWeights() doesn't log a warning on every scoring run
+  const optimizableSum = bestWeights.tradeability + bestWeights.liquidity + bestWeights.ttr;
+  const targetSum = 1.0 - WEIGHTS.volatility - WEIGHTS.dataQuality; // 0.70
+  if (optimizableSum > 0) {
+    const scale = targetSum / optimizableSum;
+    bestWeights = {
+      ...bestWeights,
+      tradeability: bestWeights.tradeability * scale,
+      liquidity:    bestWeights.liquidity    * scale,
+      ttr:          bestWeights.ttr          * scale,
+    };
+  }
+
   logger.info({ bestValue, bestWeights }, 'Optimization complete');
 
   await saveWeights(bestWeights, { nTrades: trades.length, nTrials: N_TRIALS, bestValue });
