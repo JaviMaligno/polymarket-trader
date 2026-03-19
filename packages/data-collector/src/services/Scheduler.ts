@@ -8,6 +8,7 @@ import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
 import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 import { MarketScorer } from './MarketScorer.js';
 import { MarketRotator } from './MarketRotator.js';
+import { optimizeScorerWeights } from './ScorerWeightOptimizer.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -45,6 +46,7 @@ export class Scheduler {
     this.defineJob('prune-zombies', '0 */6 * * *', this.pruneZombieMarkets.bind(this));  // Every 6 hours
     this.defineJob('fetch-external-prices', '0 * * * *', this.fetchExternalPrices.bind(this));  // Hourly
     this.defineJob('match-external-markets', '0 3 * * *', this.matchExternalMarkets.bind(this));  // Daily at 3 UTC
+    this.defineJob('optimize-scorer-weights', '17 3 * * 1', this.optimizeScorerWeights.bind(this));  // Every Monday at 03:17 UTC
   }
 
   /**
@@ -176,6 +178,9 @@ export class Scheduler {
           break;
         case 'match-external-markets':
           await this.matchExternalMarkets();
+          break;
+        case 'optimize-scorer-weights':
+          await this.optimizeScorerWeights();
           break;
         default:
           logger.warn({ name }, 'No handler for job');
@@ -392,6 +397,15 @@ export class Scheduler {
     }
     const matched = await this.externalDataCollector.runDailyMatching();
     logger.info({ matched }, 'Daily external market matching complete');
+  }
+
+  /**
+   * Optimize MarketScorer dimension weights via random search.
+   * Guard: no-op when fewer than MIN_TRADES closed trades exist.
+   * Runs every Monday at 03:17 UTC.
+   */
+  private async optimizeScorerWeights(): Promise<void> {
+    await optimizeScorerWeights();
   }
 
   /**
