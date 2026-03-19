@@ -25,6 +25,14 @@ export interface ScoreDimensions {
   dataQuality: number | null;
 }
 
+export interface ScorerWeights {
+  tradeability: number;
+  liquidity: number;
+  volatility: number;
+  ttr: number;
+  dataQuality: number;
+}
+
 export interface EnrichUpdate {
   conditionId: string;
   trackingStatus: string;
@@ -163,29 +171,29 @@ export class MarketScorer {
    * price_history), those dimensions are excluded and the remaining
    * weights are renormalized so the score stays in [0, 1].
    */
-  static compositeScore(dims: ScoreDimensions): number {
+  static compositeScore(dims: ScoreDimensions, weights: ScorerWeights = WEIGHTS): number {
     let weightedSum = 0;
     let totalWeight = 0;
 
     // Always-present dimensions
-    weightedSum += dims.tradeability * WEIGHTS.tradeability;
-    totalWeight += WEIGHTS.tradeability;
+    weightedSum += dims.tradeability * weights.tradeability;
+    totalWeight += weights.tradeability;
 
-    weightedSum += dims.liquidity * WEIGHTS.liquidity;
-    totalWeight += WEIGHTS.liquidity;
+    weightedSum += dims.liquidity * weights.liquidity;
+    totalWeight += weights.liquidity;
 
-    weightedSum += dims.ttr * WEIGHTS.ttr;
-    totalWeight += WEIGHTS.ttr;
+    weightedSum += dims.ttr * weights.ttr;
+    totalWeight += weights.ttr;
 
     // Optional dimensions
     if (dims.volatility !== null) {
-      weightedSum += dims.volatility * WEIGHTS.volatility;
-      totalWeight += WEIGHTS.volatility;
+      weightedSum += dims.volatility * weights.volatility;
+      totalWeight += weights.volatility;
     }
 
     if (dims.dataQuality !== null) {
-      weightedSum += dims.dataQuality * WEIGHTS.dataQuality;
-      totalWeight += WEIGHTS.dataQuality;
+      weightedSum += dims.dataQuality * weights.dataQuality;
+      totalWeight += weights.dataQuality;
     }
 
     if (totalWeight === 0) return 0;

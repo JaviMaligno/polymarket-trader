@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   MarketScorer,
+  WEIGHTS,
   type ScoreDimensions,
+  type ScorerWeights,
 } from './MarketScorer.js';
 
 describe('MarketScorer', () => {
@@ -386,6 +388,37 @@ describe('MarketScorer', () => {
       const expected =
         0.8 * 0.3 + 0.6 * 0.25 + 0.5 * 0.2 + 0.9 * 0.15 + 0.7 * 0.1;
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(expected, 5);
+    });
+  });
+
+  // ─── compositeScore with custom weights ─────────────────────────────
+  describe('compositeScore with custom weights', () => {
+    it('uses provided weights instead of defaults', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1.0,
+        liquidity: 0.0,
+        volatility: null,
+        ttr: 0.0,
+        dataQuality: null,
+      };
+      // With custom weights where tradeability=0: score must be 0
+      const customWeights: ScorerWeights = {
+        tradeability: 0.0,
+        liquidity: 1.0,
+        volatility: 0.20,
+        ttr: 0.15,
+        dataQuality: 0.10,
+      };
+      expect(MarketScorer.compositeScore(dims, customWeights)).toBe(0);
+    });
+
+    it('falls back to default weights when no weights provided', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1.0, liquidity: 0.0, volatility: null, ttr: 0.0, dataQuality: null,
+      };
+      const withDefault = MarketScorer.compositeScore(dims);
+      const withExplicit = MarketScorer.compositeScore(dims, WEIGHTS);
+      expect(withDefault).toBe(withExplicit);
     });
   });
 });
