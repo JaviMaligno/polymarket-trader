@@ -25,6 +25,19 @@ export interface ScoreDimensions {
   dataQuality: number | null;
 }
 
+export interface EnrichUpdate {
+  conditionId: string;
+  trackingStatus: string;
+  score: number;
+  tradeability: number;
+  liquidity: number;
+  ttr: number;
+  volatility: number | null;
+  dataQuality: number | null;
+  currentPriceYes: number | null;
+  volume24h: number | null;
+}
+
 // ─── Helper: clamp value between 0 and 1 ──────────────────────────────
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
@@ -280,18 +293,7 @@ export class MarketScorer {
     const trackedRows = trackedResult.rows;
     logger.info({ count: trackedRows.length }, 'Pass 2: enriching tracked markets');
 
-    const enrichUpdates: Array<{
-      conditionId: string;
-      trackingStatus: string;
-      score: number;
-      tradeability: number;
-      liquidity: number;
-      ttr: number;
-      volatility: number | null;
-      dataQuality: number | null;
-      currentPriceYes: number | null;
-      volume24h: number | null;
-    }> = [];
+    const enrichUpdates: EnrichUpdate[] = [];
 
     for (const row of trackedRows) {
       const tradeability = MarketScorer.tradeabilityScore(
@@ -348,20 +350,7 @@ export class MarketScorer {
   }
 
   // ─── Private helpers ───────────────────────────────────────────────
-  private async writeScoreHistory(
-    tracked: Array<{
-      conditionId: string;
-      trackingStatus: string;
-      score: number;
-      tradeability: number;
-      liquidity: number;
-      ttr: number;
-      volatility: number | null;
-      dataQuality: number | null;
-      currentPriceYes: number | null;
-      volume24h: number | null;
-    }>,
-  ): Promise<void> {
+  private async writeScoreHistory(tracked: EnrichUpdate[]): Promise<void> {
     // Top 50 cold markets by score (no dimension breakdown — Pass 1 SQL doesn't return them individually)
     const coldResult = await query<{
       condition_id: string;
@@ -395,7 +384,10 @@ export class MarketScorer {
       volume_24h: u.volume24h,
     }));
 
-    const coldRows = coldResult.rows.map((r) => ({
+    // Exclude condition_ids already in trackedRows to prevent race-window duplicates
+    // (a market may transition status between Pass 2 and this query)
+    const trackedIds = new Set(tracked.map((u) => u.conditionId));
+    const coldRows = coldResult.rows.filter((r) => !trackedIds.has(r.condition_id)).map((r) => ({
       time: now,
       condition_id: r.condition_id,
       tracking_status: 'cold' as string | null,
@@ -438,9 +430,7 @@ export class MarketScorer {
     logger.info({ tracked: trackedRows.length, cold: coldRows.length }, 'Score history written');
   }
 
-  private async batchUpdateScores(
-    updates: Array<{ conditionId: string; score: number }>,
-  ): Promise<void> {
+  private async batchUpdateScores(updates: EnrichUpdate[]): Promise<void> {
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
       const batch = updates.slice(i, i + BATCH_SIZE);
 
