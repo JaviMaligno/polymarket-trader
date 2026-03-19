@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import * as connection from '../database/connection.js';
 import {
   MarketScorer,
   WEIGHTS,
@@ -388,6 +389,36 @@ describe('MarketScorer', () => {
       const expected =
         0.8 * 0.3 + 0.6 * 0.25 + 0.5 * 0.2 + 0.9 * 0.15 + 0.7 * 0.1;
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(expected, 5);
+    });
+  });
+
+  // ─── loadWeights ────────────────────────────────────────────────────
+  describe('loadWeights', () => {
+    it('returns hardcoded WEIGHTS when DB query throws', async () => {
+      vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
+      const weights = await MarketScorer.loadWeights();
+      expect(weights.tradeability).toBe(WEIGHTS.tradeability);
+      expect(weights.liquidity).toBe(WEIGHTS.liquidity);
+      expect(weights.ttr).toBe(WEIGHTS.ttr);
+      vi.restoreAllMocks();
+    });
+
+    it('returns hardcoded WEIGHTS when scorer_weights table is empty', async () => {
+      vi.spyOn(connection, 'query').mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
+      const weights = await MarketScorer.loadWeights();
+      expect(weights.tradeability).toBe(WEIGHTS.tradeability);
+      vi.restoreAllMocks();
+    });
+
+    it('returns DB weights when row exists', async () => {
+      vi.spyOn(connection, 'query').mockResolvedValueOnce({
+        rows: [{ tradeability: 0.40, liquidity: 0.20, volatility: 0.15, ttr: 0.15, data_quality: 0.10 }],
+        rowCount: 1,
+      } as any);
+      const weights = await MarketScorer.loadWeights();
+      expect(weights.tradeability).toBeCloseTo(0.40);
+      expect(weights.dataQuality).toBeCloseTo(0.10);
+      vi.restoreAllMocks();
     });
   });
 

@@ -200,6 +200,41 @@ export class MarketScorer {
     return weightedSum / totalWeight;
   }
 
+  // ─── Static method: load dimension weights from DB ─────────────────
+  /**
+   * Reads the latest row from `scorer_weights` table.
+   * Falls back to hardcoded WEIGHTS if the table is empty or the query throws
+   * (e.g. migration has not been applied yet).
+   */
+  static async loadWeights(): Promise<ScorerWeights> {
+    try {
+      const result = await query<{
+        tradeability: number;
+        liquidity: number;
+        volatility: number;
+        ttr: number;
+        data_quality: number;
+      }>(
+        `SELECT tradeability, liquidity, volatility, ttr, data_quality
+         FROM scorer_weights
+         ORDER BY id DESC LIMIT 1`,
+      );
+      if (result.rows.length > 0) {
+        const r = result.rows[0];
+        return {
+          tradeability: r.tradeability,
+          liquidity: r.liquidity,
+          volatility: r.volatility,
+          ttr: r.ttr,
+          dataQuality: r.data_quality,
+        };
+      }
+    } catch {
+      // Table may not exist yet (migration pending) — fall through to defaults
+    }
+    return { ...WEIGHTS };
+  }
+
   // ─── Instance method: score all markets from DB ────────────────────
   /**
    * Two-pass scoring of all active markets.
@@ -221,11 +256,12 @@ export class MarketScorer {
     // ── Pass 1: single SQL UPDATE for cheap dimensions ──────────────
     // Computes tradeability + liquidity + TTR in pure SQL.
     // Only scores eligible candidates (tradeable price, active, unresolved).
-    // Normalizes by available weights (0.30 + 0.25 + 0.15 = 0.70).
-    const NORM = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.ttr;
+    // Normalizes by available weights (tradeability + liquidity + ttr).
+    const weights = await MarketScorer.loadWeights();
+    const NORM = weights.tradeability + weights.liquidity + weights.ttr;
     const pass1Result = await query(`
       UPDATE markets SET market_score = (
-        ${WEIGHTS.tradeability} * CASE
+        ${weights.tradeability} * CASE
           WHEN current_price_yes IS NULL THEN 0
           WHEN current_price_yes < 0.05 OR current_price_yes > 0.95 THEN 0
           WHEN current_price_yes >= 0.45 AND current_price_yes <= 0.55 THEN 0
@@ -237,12 +273,12 @@ export class MarketScorer {
           WHEN current_price_yes > 0.85 AND current_price_yes <= 0.95 THEN (0.95 - current_price_yes) / 0.10
           ELSE 0
         END
-        + ${WEIGHTS.liquidity} * CASE
+        + ${weights.liquidity} * CASE
           WHEN volume_24h IS NULL OR volume_24h <= 0 THEN 0
           WHEN spread IS NOT NULL AND spread > 0.03 THEN LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF})) * 0.5
           ELSE LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF}))
         END
-        + ${WEIGHTS.ttr} * CASE
+        + ${weights.ttr} * CASE
           WHEN end_date IS NULL THEN 0.5
           WHEN end_date < NOW() THEN 0
           WHEN end_date < NOW() + INTERVAL '1 day' THEN 0.1
@@ -329,7 +365,7 @@ export class MarketScorer {
         volatility,
         ttr,
         dataQuality,
-      });
+      }, weights);
 
       enrichUpdates.push({
         conditionId: row.condition_id,
