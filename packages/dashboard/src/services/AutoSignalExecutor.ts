@@ -23,6 +23,42 @@ import {
 import { getPositionClosingService } from './PositionClosingService.js';
 import { getCircuitBreakerService } from './CircuitBreakerService.js';
 
+// ---------------------------------------------------------------------------
+// Inline score helpers (mirror MarketScorer statics — no cross-package import)
+// ---------------------------------------------------------------------------
+function clamp01(v: number): number { return Math.min(1, Math.max(0, v)); }
+
+function computeTradeability(price: number | null): number {
+  if (price === null) return 0;
+  if (price < 0.05 || price > 0.95) return 0;
+  if (price >= 0.45 && price <= 0.55) return 0;
+  if (price >= 0.15 && price <= 0.40) return 1.0;
+  if (price >= 0.60 && price <= 0.85) return 1.0;
+  if (price >= 0.05 && price < 0.15) return clamp01((price - 0.05) / 0.10);
+  if (price > 0.40 && price < 0.45) return clamp01((0.45 - price) / 0.05);
+  if (price > 0.55 && price < 0.60) return clamp01((price - 0.55) / 0.05);
+  if (price > 0.85 && price <= 0.95) return clamp01((0.95 - price) / 0.10);
+  return 0;
+}
+
+const SCORE_MAX_VOLUME_REF = 30_000_000;
+function computeLiquidity(volume: number | null, spread: number | null): number {
+  if (volume === null || volume <= 0) return 0;
+  const raw = clamp01(Math.log(volume) / Math.log(SCORE_MAX_VOLUME_REF));
+  return spread !== null && spread > 0.03 ? raw * 0.5 : raw;
+}
+
+function computeTtr(endDate: Date | null): number {
+  if (endDate === null) return 0.5;
+  const days = (endDate.getTime() - Date.now()) / 86_400_000;
+  if (days <= 0) return 0;
+  if (days < 1) return 0.1;
+  if (days <= 7) return 0.1 + 0.9 * (days - 1) / 6;
+  if (days <= 60) return 1.0;
+  if (days <= 180) return 1.0 - 0.5 * (days - 60) / 120;
+  return 0.5;
+}
+
 export interface SignalResult {
   signalId: string;
   marketId: string;
@@ -418,6 +454,43 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: 'Failed to check account' };
     }
 
+    // Fetch market score for entry capture (non-critical — don't fail trade if missing)
+    let marketScoreAtEntry: number | null = null;
+    let scoreDimensionsAtEntry: Record<string, unknown> | null = null;
+    try {
+      const mktResult = await query<{
+        market_score: string | null;
+        current_price_yes: string | null;
+        volume_24h: string | null;
+        spread: string | null;
+        end_date: string | null;
+      }>(
+        `SELECT market_score, current_price_yes, volume_24h, spread, end_date
+         FROM   markets
+         WHERE  condition_id = $1`,
+        [signal.marketId],
+      );
+      if (mktResult.rows.length > 0) {
+        const m = mktResult.rows[0];
+        marketScoreAtEntry = m.market_score != null ? Number(m.market_score) : null;
+
+        const price = m.current_price_yes != null ? Number(m.current_price_yes) : null;
+        const vol   = m.volume_24h != null ? Number(m.volume_24h) : null;
+        const sprd  = m.spread != null ? Number(m.spread) : null;
+        const endDate = m.end_date ? new Date(m.end_date) : null;
+
+        scoreDimensionsAtEntry = {
+          tradeability: computeTradeability(price),
+          liquidity:    computeLiquidity(vol, sprd),
+          ttr:          computeTtr(endDate),
+          volatility:   null,
+          dataQuality:  null,
+        };
+      }
+    } catch (err) {
+      // Non-critical — trade proceeds without score capture
+    }
+
     // Record the signal prediction
     let prediction: SignalPrediction | null = null;
     try {
@@ -481,6 +554,8 @@ export class AutoSignalExecutor extends EventEmitter {
           unrealized_pnl: 0,
           opened_at: new Date(),
           signal_type: signal.signalId,
+          market_score_at_entry: marketScoreAtEntry,
+          score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
         });
       } catch (positionError) {
         // Position creation failed - reverse the account update and delete the trade
