@@ -467,7 +467,7 @@ export class AutoSignalExecutor extends EventEmitter {
       }>(
         `SELECT market_score, current_price_yes, volume_24h, spread, end_date
          FROM   markets
-         WHERE  condition_id = $1`,
+         WHERE  id = $1`,
         [signal.marketId],
       );
       if (mktResult.rows.length > 0) {

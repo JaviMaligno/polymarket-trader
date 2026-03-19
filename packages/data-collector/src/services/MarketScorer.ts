@@ -225,7 +225,7 @@ export class MarketScorer {
           WHEN end_date IS NULL THEN 0.5
           WHEN end_date < NOW() THEN 0
           WHEN end_date < NOW() + INTERVAL '1 day' THEN 0.1
-          WHEN end_date < NOW() + INTERVAL '7 days' THEN 0.1 + 0.9 * EXTRACT(EPOCH FROM end_date - NOW()) / EXTRACT(EPOCH FROM INTERVAL '6 days')
+          WHEN end_date < NOW() + INTERVAL '7 days' THEN LEAST(1.0, 0.1 + 0.9 * (EXTRACT(EPOCH FROM end_date - NOW()) - 86400) / EXTRACT(EPOCH FROM INTERVAL '6 days'))
           WHEN end_date <= NOW() + INTERVAL '60 days' THEN 1.0
           WHEN end_date <= NOW() + INTERVAL '180 days' THEN 1.0 - 0.5 * EXTRACT(EPOCH FROM end_date - NOW() - INTERVAL '60 days') / EXTRACT(EPOCH FROM INTERVAL '120 days')
           ELSE 0.5

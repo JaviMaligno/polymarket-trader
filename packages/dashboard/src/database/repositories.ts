@@ -210,7 +210,7 @@ export const signalWeightsRepo = {
       previous_weight?: number;
       reason?: string;
     }>(
-      `SELECT time, weight, previous_weight, reason
+      `SELECT time, weight, previous_weight, change_reason AS reason
        FROM signal_weights_history
        WHERE signal_type = $1
        ORDER BY time DESC
