@@ -197,55 +197,46 @@ export class MarketScorer {
    * @returns { scored, enriched } counts
    */
   async scoreAllMarkets(): Promise<{ scored: number; enriched: number }> {
-    // ── Pass 1: cheap dimensions for all active markets ──────────────
-    const marketsResult = await query<{
-      condition_id: string;
-      current_price_yes: number | null;
-      volume_24h: number | null;
-      spread: number | null;
-      end_date: string | null;
-    }>(`
-      SELECT condition_id,
-             current_price_yes,
-             volume_24h,
-             spread,
-             end_date
-      FROM   markets
-      WHERE  is_active = true
-        AND  is_resolved = false
+    // ── Pass 1: single SQL UPDATE for cheap dimensions ──────────────
+    // Computes tradeability + liquidity + TTR in pure SQL.
+    // Only scores eligible candidates (tradeable price, active, unresolved).
+    // Normalizes by available weights (0.30 + 0.25 + 0.15 = 0.70).
+    const NORM = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.ttr;
+    const pass1Result = await query(`
+      UPDATE markets SET market_score = (
+        ${WEIGHTS.tradeability} * CASE
+          WHEN current_price_yes IS NULL THEN 0
+          WHEN current_price_yes < 0.05 OR current_price_yes > 0.95 THEN 0
+          WHEN current_price_yes >= 0.45 AND current_price_yes <= 0.55 THEN 0
+          WHEN current_price_yes >= 0.15 AND current_price_yes <= 0.40 THEN 1.0
+          WHEN current_price_yes >= 0.60 AND current_price_yes <= 0.85 THEN 1.0
+          WHEN current_price_yes >= 0.05 AND current_price_yes < 0.15 THEN (current_price_yes - 0.05) / 0.10
+          WHEN current_price_yes > 0.40 AND current_price_yes < 0.45 THEN (0.45 - current_price_yes) / 0.05
+          WHEN current_price_yes > 0.55 AND current_price_yes < 0.60 THEN (current_price_yes - 0.55) / 0.05
+          WHEN current_price_yes > 0.85 AND current_price_yes <= 0.95 THEN (0.95 - current_price_yes) / 0.10
+          ELSE 0
+        END
+        + ${WEIGHTS.liquidity} * CASE
+          WHEN volume_24h IS NULL OR volume_24h <= 0 THEN 0
+          WHEN spread IS NOT NULL AND spread > 0.03 THEN LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF})) * 0.5
+          ELSE LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF}))
+        END
+        + ${WEIGHTS.ttr} * CASE
+          WHEN end_date IS NULL THEN 0.5
+          WHEN end_date < NOW() THEN 0
+          WHEN end_date < NOW() + INTERVAL '1 day' THEN 0.1
+          WHEN end_date < NOW() + INTERVAL '7 days' THEN 0.1 + 0.9 * EXTRACT(EPOCH FROM end_date - NOW()) / EXTRACT(EPOCH FROM INTERVAL '6 days')
+          WHEN end_date <= NOW() + INTERVAL '60 days' THEN 1.0
+          WHEN end_date <= NOW() + INTERVAL '180 days' THEN 1.0 - 0.5 * EXTRACT(EPOCH FROM end_date - NOW() - INTERVAL '60 days') / EXTRACT(EPOCH FROM INTERVAL '120 days')
+          ELSE 0.5
+        END
+      ) / ${NORM}
+      WHERE is_active = true
+        AND is_resolved = false
+        AND clob_token_id_yes IS NOT NULL
     `);
-
-    const rows = marketsResult.rows;
-    logger.info({ count: rows.length }, 'Pass 1: scoring cheap dimensions for active markets');
-
-    const updates: Array<{ conditionId: string; score: number }> = [];
-
-    for (const row of rows) {
-      const tradeability = MarketScorer.tradeabilityScore(
-        row.current_price_yes != null ? Number(row.current_price_yes) : null,
-      );
-      const liquidity = MarketScorer.liquidityScore(
-        row.volume_24h != null ? Number(row.volume_24h) : null,
-        row.spread != null ? Number(row.spread) : null,
-      );
-      const ttr = MarketScorer.ttrScore(
-        row.end_date ? new Date(row.end_date) : null,
-      );
-
-      const score = MarketScorer.compositeScore({
-        tradeability,
-        liquidity,
-        volatility: null,
-        ttr,
-        dataQuality: null,
-      });
-
-      updates.push({ conditionId: row.condition_id, score });
-    }
-
-    // Batch update pass 1
-    await this.batchUpdateScores(updates);
-    const scored = updates.length;
+    const scored = pass1Result.rowCount ?? 0;
+    logger.info({ scored }, 'Pass 1: scored markets via SQL');
 
     // ── Pass 2: enrich tracked markets with volatility + data quality ─
     const trackedResult = await query<{
