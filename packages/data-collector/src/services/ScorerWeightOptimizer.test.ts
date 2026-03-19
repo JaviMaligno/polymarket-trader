@@ -14,6 +14,10 @@ describe('pearsonCorrelation', () => {
   it('returns 0 for constant series (no variance)', () => {
     expect(pearsonCorrelation([1, 1, 1], [1, 2, 3])).toBe(0);
   });
+
+  it('returns 0 for empty arrays', () => {
+    expect(pearsonCorrelation([], [])).toBe(0);
+  });
 });
 
 describe('computeObjective', () => {

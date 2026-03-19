@@ -81,7 +81,7 @@ async function saveWeights(
   weights: ScorerWeights,
   meta: { nTrades: number; nTrials: number; bestValue: number },
 ): Promise<void> {
-  await query(
+  const result = await query(
     `UPDATE scorer_weights
      SET tradeability = $1, liquidity = $2, volatility = $3, ttr = $4, data_quality = $5,
          n_trades = $6, n_trials = $7, best_value = $8, updated_at = NOW()
@@ -92,6 +92,9 @@ async function saveWeights(
       meta.nTrades, meta.nTrials, meta.bestValue,
     ],
   );
+  if ((result.rowCount ?? 0) === 0) {
+    logger.warn('saveWeights: scorer_weights table is empty — migration not applied? Weights not saved.');
+  }
 }
 
 // ── Main entry point ───────────────────────────────────────────────────────
