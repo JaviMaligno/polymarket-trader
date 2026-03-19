@@ -416,8 +416,13 @@ describe('MarketScorer', () => {
         rowCount: 1,
       } as any);
       const weights = await MarketScorer.loadWeights();
-      expect(weights.tradeability).toBeCloseTo(0.40);
-      expect(weights.dataQuality).toBeCloseTo(0.10);
+      expect(weights).toMatchObject({
+        tradeability: 0.40,
+        liquidity: 0.20,
+        volatility: 0.15,
+        ttr: 0.15,
+        dataQuality: 0.10,
+      });
       vi.restoreAllMocks();
     });
   });

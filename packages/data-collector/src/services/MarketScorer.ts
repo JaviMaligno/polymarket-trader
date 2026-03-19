@@ -221,13 +221,19 @@ export class MarketScorer {
       );
       if (result.rows.length > 0) {
         const r = result.rows[0];
-        return {
+        const weightsObj: ScorerWeights = {
           tradeability: r.tradeability,
           liquidity: r.liquidity,
           volatility: r.volatility,
           ttr: r.ttr,
           dataQuality: r.data_quality,
         };
+        const sum = weightsObj.tradeability + weightsObj.liquidity + weightsObj.volatility
+                   + weightsObj.ttr + weightsObj.dataQuality;
+        if (Math.abs(sum - 1.0) > 0.05) {
+          logger.warn({ sum, weights: weightsObj }, 'scorer_weights do not sum to 1 — using DB values anyway');
+        }
+        return weightsObj;
       }
     } catch {
       // Table may not exist yet (migration pending) — fall through to defaults
