@@ -241,6 +241,7 @@ export class MarketScorer {
     // ── Pass 2: enrich tracked markets with volatility + data quality ─
     const trackedResult = await query<{
       condition_id: string;
+      tracking_status: string;
       current_price_yes: number | null;
       volume_24h: number | null;
       spread: number | null;
@@ -250,6 +251,7 @@ export class MarketScorer {
       total_bars: string;
     }>(`
       SELECT m.condition_id,
+             m.tracking_status,
              m.current_price_yes,
              m.volume_24h,
              m.spread,
@@ -280,6 +282,7 @@ export class MarketScorer {
 
     const enrichUpdates: Array<{
       conditionId: string;
+      trackingStatus: string;
       score: number;
       tradeability: number;
       liquidity: number;
@@ -320,6 +323,7 @@ export class MarketScorer {
 
       enrichUpdates.push({
         conditionId: row.condition_id,
+        trackingStatus: row.tracking_status,
         score,
         tradeability,
         liquidity,
@@ -347,6 +351,7 @@ export class MarketScorer {
   private async writeScoreHistory(
     tracked: Array<{
       conditionId: string;
+      trackingStatus: string;
       score: number;
       tradeability: number;
       liquidity: number;
@@ -379,7 +384,7 @@ export class MarketScorer {
     const trackedRows = tracked.map((u) => ({
       time: now,
       condition_id: u.conditionId,
-      tracking_status: null as string | null,
+      tracking_status: u.trackingStatus,
       market_score: u.score,
       score_tradeability: u.tradeability,
       score_liquidity: u.liquidity,
