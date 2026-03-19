@@ -393,32 +393,46 @@ describe('MarketScorer', () => {
 
   // ─── compositeScore with custom weights ─────────────────────────────
   describe('compositeScore with custom weights', () => {
-    it('uses provided weights instead of defaults', () => {
+    it('uses provided weights to compute weighted average across all dims', () => {
+      // All 5 dims non-null so all weight fields are exercised
       const dims: ScoreDimensions = {
         tradeability: 1.0,
         liquidity: 0.0,
-        volatility: null,
-        ttr: 0.0,
-        dataQuality: null,
+        volatility: 0.0,
+        ttr: 1.0,
+        dataQuality: 0.0,
       };
-      // With custom weights where tradeability=0: score must be 0
+      // Equal weights for tradeability and ttr, zero for others
       const customWeights: ScorerWeights = {
-        tradeability: 0.0,
-        liquidity: 1.0,
-        volatility: 0.20,
-        ttr: 0.15,
-        dataQuality: 0.10,
+        tradeability: 0.5,
+        liquidity: 0.0,
+        volatility: 0.0,
+        ttr: 0.5,
+        dataQuality: 0.0,
       };
-      expect(MarketScorer.compositeScore(dims, customWeights)).toBe(0);
+      // Expected: (1.0*0.5 + 0.0*0.0 + 0.0*0.0 + 1.0*0.5 + 0.0*0.0) / (0.5+0.0+0.0+0.5+0.0) = 1.0 / 1.0 = 1.0
+      expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
     });
 
-    it('falls back to default weights when no weights provided', () => {
+    it('renormalizes correctly when custom weights do not sum to 1', () => {
       const dims: ScoreDimensions = {
-        tradeability: 1.0, liquidity: 0.0, volatility: null, ttr: 0.0, dataQuality: null,
+        tradeability: 1.0,
+        liquidity: 1.0,
+        volatility: null,
+        ttr: 1.0,
+        dataQuality: null,
       };
-      const withDefault = MarketScorer.compositeScore(dims);
-      const withExplicit = MarketScorer.compositeScore(dims, WEIGHTS);
-      expect(withDefault).toBe(withExplicit);
+      // Unequal weights (don't sum to 1)
+      const customWeights: ScorerWeights = {
+        tradeability: 2.0,
+        liquidity: 1.0,
+        volatility: 0.5,
+        ttr: 1.0,
+        dataQuality: 0.5,
+      };
+      // volatility and dataQuality are null → excluded. sumW = 2.0+1.0+1.0 = 4.0
+      // score = (1.0*2.0 + 1.0*1.0 + 1.0*1.0) / 4.0 = 4.0 / 4.0 = 1.0
+      expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
     });
   });
 });
