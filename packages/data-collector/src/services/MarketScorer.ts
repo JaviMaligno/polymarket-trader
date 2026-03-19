@@ -278,7 +278,17 @@ export class MarketScorer {
     const trackedRows = trackedResult.rows;
     logger.info({ count: trackedRows.length }, 'Pass 2: enriching tracked markets');
 
-    const enrichUpdates: Array<{ conditionId: string; score: number }> = [];
+    const enrichUpdates: Array<{
+      conditionId: string;
+      score: number;
+      tradeability: number;
+      liquidity: number;
+      ttr: number;
+      volatility: number | null;
+      dataQuality: number | null;
+      currentPriceYes: number | null;
+      volume24h: number | null;
+    }> = [];
 
     for (const row of trackedRows) {
       const tradeability = MarketScorer.tradeabilityScore(
@@ -308,11 +318,25 @@ export class MarketScorer {
         dataQuality,
       });
 
-      enrichUpdates.push({ conditionId: row.condition_id, score });
+      enrichUpdates.push({
+        conditionId: row.condition_id,
+        score,
+        tradeability,
+        liquidity,
+        ttr,
+        volatility,
+        dataQuality,
+        currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
+        volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
+      });
     }
 
     // Batch update pass 2
     await this.batchUpdateScores(enrichUpdates);
+    // Write score history snapshot (fire-and-forget — don't block scoring return)
+    this.writeScoreHistory(enrichUpdates).catch((err) =>
+      logger.warn({ err }, 'writeScoreHistory failed — non-critical'),
+    );
     const enriched = enrichUpdates.length;
 
     logger.info({ scored, enriched }, 'Market scoring complete');
@@ -320,6 +344,95 @@ export class MarketScorer {
   }
 
   // ─── Private helpers ───────────────────────────────────────────────
+  private async writeScoreHistory(
+    tracked: Array<{
+      conditionId: string;
+      score: number;
+      tradeability: number;
+      liquidity: number;
+      ttr: number;
+      volatility: number | null;
+      dataQuality: number | null;
+      currentPriceYes: number | null;
+      volume24h: number | null;
+    }>,
+  ): Promise<void> {
+    // Top 50 cold markets by score (no dimension breakdown — Pass 1 SQL doesn't return them individually)
+    const coldResult = await query<{
+      condition_id: string;
+      market_score: number | null;
+      current_price_yes: number | null;
+      volume_24h: number | null;
+    }>(`
+      SELECT condition_id, market_score, current_price_yes, volume_24h
+      FROM   markets
+      WHERE  is_active = true
+        AND  is_resolved = false
+        AND  tracking_status = 'cold'
+        AND  market_score > 0
+      ORDER  BY market_score DESC
+      LIMIT  50
+    `);
+
+    const now = new Date();
+
+    const trackedRows = tracked.map((u) => ({
+      time: now,
+      condition_id: u.conditionId,
+      tracking_status: null as string | null,
+      market_score: u.score,
+      score_tradeability: u.tradeability,
+      score_liquidity: u.liquidity,
+      score_ttr: u.ttr,
+      score_volatility: u.volatility,
+      score_data_quality: u.dataQuality,
+      current_price_yes: u.currentPriceYes,
+      volume_24h: u.volume24h,
+    }));
+
+    const coldRows = coldResult.rows.map((r) => ({
+      time: now,
+      condition_id: r.condition_id,
+      tracking_status: 'cold' as string | null,
+      market_score: r.market_score != null ? Number(r.market_score) : null,
+      score_tradeability: null as number | null,
+      score_liquidity: null as number | null,
+      score_ttr: null as number | null,
+      score_volatility: null as number | null,
+      score_data_quality: null as number | null,
+      current_price_yes: r.current_price_yes != null ? Number(r.current_price_yes) : null,
+      volume_24h: r.volume_24h != null ? Number(r.volume_24h) : null,
+    }));
+
+    const all = [...trackedRows, ...coldRows];
+    if (all.length === 0) return;
+
+    // Single multi-row INSERT
+    const values = all
+      .map((_, i) => {
+        const base = i * 11;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11})`;
+      })
+      .join(', ');
+
+    const params = all.flatMap((r) => [
+      r.time, r.condition_id, r.tracking_status,
+      r.market_score, r.score_tradeability, r.score_liquidity, r.score_ttr,
+      r.score_volatility, r.score_data_quality, r.current_price_yes, r.volume_24h,
+    ]);
+
+    await query(
+      `INSERT INTO market_score_history
+         (time, condition_id, tracking_status, market_score,
+          score_tradeability, score_liquidity, score_ttr,
+          score_volatility, score_data_quality, current_price_yes, volume_24h)
+       VALUES ${values}`,
+      params,
+    );
+
+    logger.info({ tracked: trackedRows.length, cold: coldRows.length }, 'Score history written');
+  }
+
   private async batchUpdateScores(
     updates: Array<{ conditionId: string; score: number }>,
   ): Promise<void> {
