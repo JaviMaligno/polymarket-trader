@@ -95,7 +95,12 @@ For each section, don't just report numbers — explain what they MEAN and inves
 - Is the system making or losing money? At what rate?
 - How does drawdown compare to the 15% max threshold?
 - Is capital being used efficiently (available vs total)?
-- **Cross-check**: Does `total_realized_pnl` match the sum of closed position PnLs? If not, investigate.
+- **Cross-check**: For ANY capital discrepancy (even $0.01), run this SQL — "below materiality" is not an acceptable skip:
+  ```sql
+  SELECT total_realized_pnl FROM paper_account;
+  SELECT SUM(realized_pnl) FROM paper_positions WHERE closed_at IS NOT NULL;
+  ```
+  If they match, state that as evidence. If they don't, it's a bug accumulating over time.
 
 ### Trade Quality
 - What's the win rate? Is it improving or degrading?
@@ -126,6 +131,23 @@ For each section, don't just report numbers — explain what they MEAN and inves
 ### Signal Optimization
 - Current signal weights vs actual performance?
 - When was the last optimization? Successful?
+
+### Market Intelligence System (mandatory — central to signal generation)
+Run this query via SSH:
+```sql
+SELECT tracking_status, COUNT(*), ROUND(AVG(market_score)::numeric, 3) AS avg_score
+FROM markets WHERE is_active = true AND is_resolved = false
+GROUP BY tracking_status ORDER BY tracking_status;
+```
+- Are `warming`/`active`/`cooling` markets > 0? If **ALL cold** → MarketRotator not running
+- Are avg_score values > 0? If **all 0** → MarketScorer not running or deadlocked
+- Run a sample of `active` markets' prices:
+```sql
+SELECT condition_id, current_price_yes, market_score
+FROM markets WHERE tracking_status = 'active'
+ORDER BY market_score DESC LIMIT 20;
+```
+- If ALL active markets are in 50/50 (0.45–0.55) or extreme (<0.05 or >0.95) ranges → rotation is stuck on untradeable markets, not filtering working correctly. Flag as **Critical**.
 
 ## Step 3: Generate Outputs
 
@@ -259,7 +281,7 @@ Thresholds are guidance, not hard rules. Apply judgment:
 | Container down | Critical | — |
 | Memory > 85% | Warning | — |
 | No prices 1h | Critical | Info if market quiet / VM sleeping |
-| 0 signals generated | **MUST investigate** | Run SQL to check price distribution of tracked markets. If ALL in 50/50 or extreme → Info, but report distribution and flag MarketRotator. If tradeable markets exist but signals still 0 → Critical. |
+| 0 signals generated | **MUST investigate** | Run SQL to check price distribution of tracked markets. If ALL in 50/50 or extreme → Info, but report distribution and flag MarketRotator. If tradeable markets exist but signals still 0 → Critical. **Connection timeout errors in logs are NOT a valid root cause for 0 signals** — they are symptoms. Always run the market price distribution query regardless of what the logs say. Do NOT classify 0 signals as anything other than "Unknown" without this query result. |
 | Markets filtered by 50/50 | Only **Info** if verified | Must be verified by SQL query showing actual prices. Never assume without evidence. |
 | CPU spike | Warning/Info | Warning if sustained >10min; Info if brief <2min |
 | Capital discrepancy | **Always investigate** | Never dismiss as "unexplained" |
