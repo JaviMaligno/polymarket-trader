@@ -34,6 +34,7 @@ export interface ClosePositionParams {
   reason: CloseReason;
   signalId?: string;
   predictionId?: string;
+  execution_mode?: string;
 }
 
 export interface ClosePositionResult {
@@ -90,6 +91,7 @@ export class PositionClosingService extends EventEmitter {
       reason,
       signalId,
       predictionId,
+      execution_mode,
     } = params;
 
     // 1. Validate exit price
@@ -166,6 +168,7 @@ export class PositionClosingService extends EventEmitter {
         signal_type: reason,
         order_type: 'market',
         fill_type: 'full',
+        execution_mode: execution_mode ?? 'paper',
       });
       tradeId = trade?.id?.toString();
     } catch (error) {

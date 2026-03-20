@@ -22,6 +22,7 @@ import {
 } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
 import { getCircuitBreakerService } from './CircuitBreakerService.js';
+import { getExecutionRouter } from './ExecutionRouter.js';
 
 // ---------------------------------------------------------------------------
 // Inline score helpers (mirror MarketScorer statics — no cross-package import)
@@ -557,6 +558,23 @@ export class AutoSignalExecutor extends EventEmitter {
       console.error('Failed to record prediction:', error);
     }
 
+    // Route through ExecutionRouter for potential real execution
+    const executionRouter = getExecutionRouter();
+    let executionMode: string = 'paper';
+    if (executionRouter) {
+      try {
+        const execResult = await executionRouter.execute({
+          tokenId: signal.tokenId,
+          side: 'BUY',
+          price: signal.price,
+          size: shares,
+        });
+        executionMode = execResult.execution_mode;
+      } catch (routerError) {
+        console.warn('[AutoExecutor] ExecutionRouter error, defaulting to paper:', routerError);
+      }
+    }
+
     // Execute the BUY trade
     try {
       const fee = shares * signal.price * this.config.feeRate;
@@ -575,6 +593,7 @@ export class AutoSignalExecutor extends EventEmitter {
         signal_type: signal.signalId,
         order_type: 'market',
         fill_type: 'full',
+        execution_mode: executionMode,
       });
 
       // Update paper account - subtract cost
@@ -605,6 +624,7 @@ export class AutoSignalExecutor extends EventEmitter {
           signal_type: signal.signalId,
           market_score_at_entry: marketScoreAtEntry,
           score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
+          execution_mode: executionMode,
         });
       } catch (positionError) {
         // Position creation failed - reverse the account update and delete the trade
@@ -719,6 +739,23 @@ export class AutoSignalExecutor extends EventEmitter {
       console.error('Failed to record prediction:', error);
     }
 
+    // Route through ExecutionRouter for potential real execution
+    const executionRouter = getExecutionRouter();
+    let executionMode: string = 'paper';
+    if (executionRouter) {
+      try {
+        const execResult = await executionRouter.execute({
+          tokenId: position.token_id,
+          side: 'SELL',
+          price: exitPrice,
+          size: shares,
+        });
+        executionMode = execResult.execution_mode;
+      } catch (routerError) {
+        console.warn('[AutoExecutor] ExecutionRouter error on close, defaulting to paper:', routerError);
+      }
+    }
+
     // Delegate close to PositionClosingService (position update, account update, trade recording, fee computation)
     const closeResult = await getPositionClosingService().close({
       positionId: (position as any).id,
@@ -731,6 +768,7 @@ export class AutoSignalExecutor extends EventEmitter {
       reason: 'signal',
       signalId: signal.signalId,
       predictionId: prediction?.id?.toString(),
+      execution_mode: executionMode,
     });
 
     if (!closeResult.executed) {
