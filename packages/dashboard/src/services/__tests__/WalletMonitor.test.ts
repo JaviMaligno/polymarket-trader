@@ -61,8 +61,14 @@ describe('WalletMonitor', () => {
   });
 
   it('handles balance check errors gracefully', async () => {
+    // Set an initial known balance
+    mockGetBalance.mockResolvedValue(150);
+    await monitor.check();
+    expect(monitor.getCachedBalance()).toBe(150);
+
+    // Now simulate an RPC error — balance should be preserved, not reset to 0
     mockGetBalance.mockRejectedValue(new Error('RPC timeout'));
     await expect(monitor.check()).resolves.not.toThrow();
-    expect(monitor.getCachedBalance()).toBe(0);
+    expect(monitor.getCachedBalance()).toBe(150);
   });
 });

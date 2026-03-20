@@ -265,12 +265,12 @@ ON CONFLICT (key) DO NOTHING;
 
 -- Real trading config entries
 INSERT INTO trading_config (key, value, description) VALUES
-  ('real_trading_enabled', 'false', 'Hot toggle for real trading execution'),
-  ('real_trading_dry_run', 'false', 'Build+sign orders without submitting to CLOB'),
-  ('wallet_address', 'null', 'Polygon wallet address for real trading'),
-  ('min_balance_threshold', 'null', 'Minimum USDC balance to keep real trading active'),
-  ('warning_balance_threshold', 'null', 'USDC balance warning notification threshold'),
-  ('max_slippage', '0.02', 'Maximum slippage tolerance for limit orders')
+  ('real_trading_enabled', 'false'::jsonb, 'Hot toggle for real trading execution'),
+  ('real_trading_dry_run', 'false'::jsonb, 'Build+sign orders without submitting to CLOB'),
+  ('wallet_address', 'null'::jsonb, 'Polygon wallet address for real trading'),
+  ('min_balance_threshold', 'null'::jsonb, 'Minimum USDC balance to keep real trading active'),
+  ('warning_balance_threshold', 'null'::jsonb, 'USDC balance warning notification threshold'),
+  ('max_slippage', '0.02'::jsonb, 'Maximum slippage tolerance for limit orders')
 ON CONFLICT (key) DO NOTHING;
 
 -- ============================================

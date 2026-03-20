@@ -15,6 +15,7 @@ export class WalletMonitor {
   private cachedBalance = 0;
   private lastWarningAt = 0;
   private lastLowAt = 0;
+  private lastCheckedAt: Date | null = null;
   private readonly warningCooldownMs = 30 * 60 * 1000; // 30 min
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
 
@@ -24,12 +25,17 @@ export class WalletMonitor {
     return this.cachedBalance;
   }
 
+  getLastCheckedAt(): Date | null {
+    return this.lastCheckedAt;
+  }
+
   async check(): Promise<void> {
     try {
       this.cachedBalance = await this.config.getUSDCBalance();
+      this.lastCheckedAt = new Date();
     } catch (err) {
       logger.error({ err }, 'Failed to check USDC balance');
-      this.cachedBalance = 0;
+      logger.warn({ cachedBalance: this.cachedBalance }, 'Retaining last known balance after RPC error');
       return;
     }
 

@@ -68,7 +68,7 @@ async function initializeRealTrading(): Promise<void> {
     const maxSlippage = parseFloat(String(config.max_slippage ?? '0.02'));
 
     const realExecutor = new RealExecutor({ clobClient, maxSlippage, dryRun });
-    const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
+    const USDC_ADDRESS = process.env.USDC_CONTRACT_ADDRESS || '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
     const usdcAbi = ['function balanceOf(address) view returns (uint256)'];
     const usdcContract = new ethers.Contract(USDC_ADDRESS, usdcAbi, provider);
 

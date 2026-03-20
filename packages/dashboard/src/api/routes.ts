@@ -3043,7 +3043,7 @@ export async function registerRoutes(
         data: {
           address: config.wallet_address ?? null,
           balance: monitor ? monitor.getCachedBalance() : null,
-          last_checked: new Date().toISOString(),
+          last_checked: monitor?.getLastCheckedAt()?.toISOString() ?? null,
           min_threshold: config.min_balance_threshold ?? null,
           warning_threshold: config.warning_balance_threshold ?? null,
         },

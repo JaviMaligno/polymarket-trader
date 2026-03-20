@@ -67,7 +67,7 @@ export class RealExecutor {
 
       if (isDryRun) {
         logger.info({ signedOrder }, 'DRY RUN — order signed but not submitted');
-        return { success: true, dryRun: true, orderId: signedOrder.id };
+        return { success: true, dryRun: true, orderId: `dry-run-${Date.now()}` };
       }
 
       const response = await this.submitWithRetry(signedOrder);
