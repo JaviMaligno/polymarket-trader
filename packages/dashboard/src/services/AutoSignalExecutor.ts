@@ -152,7 +152,7 @@ export class AutoSignalExecutor extends EventEmitter {
         if (this.nearResolutionMarkets.has(marketId)) {
           // Permanent cooldown for near-resolution markets (set far-future timestamp)
           const until = Date.now() + 365 * 24 * 3600000;
-          this.stoppedOutMarkets.set(marketId, Date.now() + 365 * 24 * 3600000);
+          this.stoppedOutMarkets.set(marketId, until);
           this.persistCooldown(marketId, until);
           console.log(`[AutoExecutor] PERMANENT stop-loss cooldown for near-resolution market ${marketId.substring(0, 12)}...`);
         } else {
