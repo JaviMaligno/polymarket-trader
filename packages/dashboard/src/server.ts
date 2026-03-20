@@ -51,18 +51,29 @@ async function initializeRealTrading(): Promise<void> {
     const secretName = process.env.GCP_SECRET_NAME || '';
     const privateKey = await loadPrivateKey(secretName);
 
-    // Initialize ethers provider and wallet (used by ClobClient and WalletMonitor)
-    const { ethers } = await import('ethers');
-    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com');
-    const wallet = new ethers.Wallet(privateKey, provider);
+    // Initialize viem wallet client for ClobClient (v5.8.0 expects viem WalletClient)
+    const { createWalletClient, http } = await import('viem');
+    const { privateKeyToAccount } = await import('viem/accounts');
+    const { polygon } = await import('viem/chains');
 
-    // Initialize CLOB client with ethers.Wallet (not raw private key)
+    const viemAccount = privateKeyToAccount(privateKey as `0x${string}`);
+    const walletClient = createWalletClient({
+      account: viemAccount,
+      chain: polygon,
+      transport: http(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com'),
+    });
+
+    // Initialize CLOB client with viem WalletClient
     const { ClobClient } = await import('@polymarket/clob-client');
     const clobClient = new ClobClient(
       process.env.CLOB_API_URL || 'https://clob.polymarket.com',
       137, // Polygon chainId
-      wallet
+      walletClient
     );
+
+    // Initialize ethers provider for USDC balance checks (read-only)
+    const { ethers } = await import('ethers');
+    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com');
 
     const dryRun = config.real_trading_dry_run === true || config.real_trading_dry_run === 'true';
     const maxSlippage = parseFloat(String(config.max_slippage ?? '0.02'));
