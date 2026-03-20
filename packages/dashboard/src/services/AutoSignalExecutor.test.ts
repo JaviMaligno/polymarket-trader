@@ -100,6 +100,42 @@ describe('AutoSignalExecutor', () => {
       const result = await executor.processSignal(makeSignal());
       expect(result.reason).not.toMatch(/stop-loss cooldown/i);
     });
+
+    it('should persist cooldown to trading_config on stop-loss', async () => {
+      const closingService = getPositionClosingService();
+      executor.registerStopLossCooldown(closingService as any);
+
+      (closingService as any).emit('position:closed', { marketId: 'market-123', reason: 'stop_loss' });
+
+      // query should have been called with INSERT INTO trading_config; key is passed as first param
+      const calls = (query as any).mock.calls as [string, unknown[]][];
+      const persistCall = calls.find(([sql, params]) =>
+        sql.includes('trading_config') && Array.isArray(params) && params[0] === 'stoploss_cooldown:market-123'
+      );
+      expect(persistCall).toBeDefined();
+    });
+
+    it('should restore active cooldowns from trading_config on loadPersistedCooldowns', async () => {
+      const futureUntil = Date.now() + 2 * 60 * 60 * 1000; // 2h from now
+      (query as any).mockResolvedValueOnce({
+        rows: [{ key: 'stoploss_cooldown:market-abc', value: JSON.stringify({ until: futureUntil }) }],
+      });
+
+      await executor.loadPersistedCooldowns();
+
+      expect((executor as any).stoppedOutMarkets.has('market-abc')).toBe(true);
+    });
+
+    it('should skip expired cooldowns from trading_config on loadPersistedCooldowns', async () => {
+      const pastUntil = Date.now() - 1000; // already expired
+      (query as any).mockResolvedValueOnce({
+        rows: [{ key: 'stoploss_cooldown:market-xyz', value: JSON.stringify({ until: pastUntil }) }],
+      });
+
+      await executor.loadPersistedCooldowns();
+
+      expect((executor as any).stoppedOutMarkets.has('market-xyz')).toBe(false);
+    });
   });
 
   // =========================================================
