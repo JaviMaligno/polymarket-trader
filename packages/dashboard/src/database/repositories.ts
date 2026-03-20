@@ -245,6 +245,7 @@ export interface PaperTrade {
   rejection_reason?: string;
   best_bid?: number;
   best_ask?: number;
+  execution_mode?: string;
 }
 
 export const paperTradesRepo = {
@@ -254,8 +255,8 @@ export const paperTradesRepo = {
        (time, market_id, token_id, side, requested_size, executed_size,
         requested_price, executed_price, slippage_pct, fee, value_usd,
         signal_id, signal_type, order_type, fill_type, rejection_reason,
-        best_bid, best_ask)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        best_bid, best_ask, execution_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING *`,
       [
         trade.time,
@@ -276,6 +277,7 @@ export const paperTradesRepo = {
         trade.rejection_reason,
         trade.best_bid,
         trade.best_ask,
+        trade.execution_mode ?? 'paper',
       ]
     );
     return result.rows[0];
@@ -323,6 +325,7 @@ export interface PaperPosition {
   metadata?: Record<string, unknown>;
   market_score_at_entry?: number | null;
   score_dimensions_at_entry?: Record<string, unknown> | null;
+  execution_mode?: string;
 }
 
 export const paperPositionsRepo = {
@@ -331,8 +334,9 @@ export const paperPositionsRepo = {
       `INSERT INTO paper_positions
        (market_id, token_id, side, size, avg_entry_price, current_price,
         unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
-        opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry,
+        execution_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
        ON CONFLICT (market_id, token_id) DO UPDATE SET
          current_price = EXCLUDED.current_price,
          unrealized_pnl = EXCLUDED.unrealized_pnl,
@@ -349,6 +353,7 @@ export const paperPositionsRepo = {
          take_profit = EXCLUDED.take_profit,
          market_score_at_entry = COALESCE(paper_positions.market_score_at_entry, EXCLUDED.market_score_at_entry),
          score_dimensions_at_entry = COALESCE(paper_positions.score_dimensions_at_entry, EXCLUDED.score_dimensions_at_entry),
+         execution_mode = EXCLUDED.execution_mode,
          updated_at = NOW()`,
       [
         position.market_id,
@@ -367,6 +372,7 @@ export const paperPositionsRepo = {
         JSON.stringify(position.metadata ?? {}),
         position.market_score_at_entry ?? null,
         position.score_dimensions_at_entry != null ? JSON.stringify(position.score_dimensions_at_entry) : null,
+        position.execution_mode ?? 'paper',
       ]
     );
   },

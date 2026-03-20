@@ -14,6 +14,7 @@ import {
   paperTradesRepo,
   paperPositionsRepo,
   portfolioSnapshotsRepo,
+  tradingConfigRepo,
 } from '../database/repositories.js';
 import { query } from '../database/index.js';
 import { getPaperTradingService } from '../services/PaperTradingService.js';
@@ -2940,4 +2941,120 @@ export async function registerRoutes(
       }
     }
   );
+
+  // ============================================
+  // Trading Mode Routes (Hot Toggle)
+  // ============================================
+
+  // GET /api/trading/mode — returns current trading mode and config
+  fastify.get('/api/trading/mode', async (_request, reply) => {
+    try {
+      const config = await tradingConfigRepo.getAll();
+      const { getExecutionRouter } = await import('../services/ExecutionRouter.js');
+
+      const router = getExecutionRouter();
+      const mode = router ? await router.getMode() : 'paper';
+
+      return reply.send({
+        success: true,
+        data: {
+          mode,
+          real_trading_enabled: config.real_trading_enabled ?? false,
+          real_trading_dry_run: config.real_trading_dry_run ?? false,
+          wallet_address: config.wallet_address ?? null,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // POST /api/trading/mode — update trading mode (hot toggle)
+  // Auth is handled by global hook in server.ts for all POST requests
+  fastify.post('/api/trading/mode', async (request, reply) => {
+    try {
+      const body = request.body as Record<string, unknown>;
+
+      // Capture previous mode BEFORE updating config
+      const { getNotificationService } = await import('../services/NotificationService.js');
+      const { getExecutionRouter } = await import('../services/ExecutionRouter.js');
+
+      const router = getExecutionRouter();
+      const previousMode = router ? await router.getMode() : 'paper';
+
+      // Update core trading mode flags
+      if (body.real_trading_enabled !== undefined) {
+        await tradingConfigRepo.set('real_trading_enabled', body.real_trading_enabled);
+      }
+      if (body.real_trading_dry_run !== undefined) {
+        await tradingConfigRepo.set('real_trading_dry_run', body.real_trading_dry_run);
+      }
+
+      // Update additional real-trading config fields
+      const configFields = ['wallet_address', 'min_balance_threshold', 'warning_balance_threshold', 'max_slippage'];
+      for (const field of configFields) {
+        if (body[field] !== undefined) {
+          await tradingConfigRepo.set(field, body[field]);
+        }
+      }
+
+      // Only send mode_change notification on actual change
+      const newMode = router ? await router.getMode() : 'paper';
+      if (newMode !== previousMode) {
+        await getNotificationService().notify('mode_change', {
+          from: previousMode,
+          to: newMode,
+          by: 'user',
+        });
+      }
+
+      return reply.send({
+        success: true,
+        data: { mode: newMode },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date(),
+      });
+    }
+  });
+
+  // ============================================
+  // Wallet Routes
+  // ============================================
+
+  // GET /api/wallet/status — returns wallet info
+  fastify.get('/api/wallet/status', async (_request, reply) => {
+    try {
+      const config = await tradingConfigRepo.getAll();
+      const { getWalletMonitor } = await import('../services/WalletMonitor.js');
+      const monitor = getWalletMonitor();
+
+      return reply.send({
+        success: true,
+        data: {
+          address: config.wallet_address ?? null,
+          balance: monitor ? monitor.getCachedBalance() : null,
+          last_checked: monitor?.getLastCheckedAt()?.toISOString() ?? null,
+          min_threshold: config.min_balance_threshold ?? null,
+          warning_threshold: config.warning_balance_threshold ?? null,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      return reply.status(500).send({
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        timestamp: new Date(),
+      });
+    }
+  });
 }
