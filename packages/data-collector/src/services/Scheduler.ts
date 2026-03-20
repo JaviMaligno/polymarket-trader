@@ -9,6 +9,7 @@ import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 import { MarketScorer } from './MarketScorer.js';
 import { MarketRotator } from './MarketRotator.js';
 import { optimizeScorerWeights } from './ScorerWeightOptimizer.js';
+import { updateCategoryPriors } from './MarketPerformanceTracker.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -47,6 +48,7 @@ export class Scheduler {
     this.defineJob('fetch-external-prices', '0 * * * *', this.fetchExternalPrices.bind(this));  // Hourly
     this.defineJob('match-external-markets', '0 3 * * *', this.matchExternalMarkets.bind(this));  // Daily at 3 UTC
     this.defineJob('optimize-scorer-weights', '17 3 * * 1', this.optimizeScorerWeights.bind(this));  // Every Monday at 03:17 UTC
+    this.defineJob('compute-market-priors', '45 2 * * *', this.computeMarketPriors.bind(this));  // Daily at 02:45 UTC
   }
 
   /**
@@ -184,6 +186,9 @@ export class Scheduler {
           break;
         case 'optimize-scorer-weights':
           await this.optimizeScorerWeights();
+          break;
+        case 'compute-market-priors':
+          await this.computeMarketPriors();
           break;
         default:
           logger.warn({ name }, 'No handler for job');
@@ -409,6 +414,15 @@ export class Scheduler {
    */
   private async optimizeScorerWeights(): Promise<void> {
     await optimizeScorerWeights();
+  }
+
+  /**
+   * Compute category performance priors from closed trade outcomes.
+   * Updates category_performance table; MarketScorer reads priors at next scoring run.
+   * Daily at 02:45 UTC.
+   */
+  private async computeMarketPriors(): Promise<void> {
+    await updateCategoryPriors();
   }
 
   /**
