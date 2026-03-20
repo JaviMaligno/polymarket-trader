@@ -251,7 +251,7 @@ export class MarketScorer {
   static async loadCategoryPriors(): Promise<Map<string, number>> {
     try {
       const result = await query<{ market_type: string; prior: number }>(
-        `SELECT market_type, prior FROM category_performance`,
+        `SELECT market_type, prior FROM category_performance WHERE n_trades >= 5`,
       );
       const map = new Map<string, number>();
       for (const row of result.rows) {
