@@ -44,6 +44,7 @@ export interface EnrichUpdate {
   dataQuality: number | null;
   currentPriceYes: number | null;
   volume24h: number | null;
+  marketType: string | null;
 }
 
 // ─── Helper: clamp value between 0 and 1 ──────────────────────────────
@@ -241,6 +242,27 @@ export class MarketScorer {
     return { ...WEIGHTS };
   }
 
+  // ─── Static method: load category priors from DB ─────────────────
+  /**
+   * Reads from `category_performance` table.
+   * Returns Map<market_type, prior>.
+   * Falls back to empty Map on any error (table missing, DB down, etc.).
+   */
+  static async loadCategoryPriors(): Promise<Map<string, number>> {
+    try {
+      const result = await query<{ market_type: string; prior: number }>(
+        `SELECT market_type, prior FROM category_performance`,
+      );
+      const map = new Map<string, number>();
+      for (const row of result.rows) {
+        map.set(row.market_type, row.prior);
+      }
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
   // ─── Instance method: score all markets from DB ────────────────────
   /**
    * Two-pass scoring of all active markets.
@@ -264,6 +286,7 @@ export class MarketScorer {
     // Only scores eligible candidates (tradeable price, active, unresolved).
     // Normalizes by available weights (tradeability + liquidity + ttr).
     const weights = await MarketScorer.loadWeights();
+    const categoryPriors = await MarketScorer.loadCategoryPriors();
     const NORM = weights.tradeability + weights.liquidity + weights.ttr;
     const pass1Result = await query(`
       UPDATE markets SET market_score = (
@@ -301,6 +324,18 @@ export class MarketScorer {
     const scored = pass1Result.rowCount ?? 0;
     logger.info({ scored }, 'Pass 1: scored markets via SQL');
 
+    // ── Pass 1b: apply category priors ──────────────────────────────
+    if (categoryPriors.size > 0) {
+      await query(`
+        UPDATE markets SET market_score = market_score * COALESCE(
+          (SELECT prior FROM category_performance WHERE market_type = markets.market_type),
+          1.0
+        )
+        WHERE is_active = true AND is_resolved = false AND clob_token_id_yes IS NOT NULL
+      `);
+      logger.info({ priorCount: categoryPriors.size }, 'Pass 1b: applied category priors');
+    }
+
     // ── Pass 2: enrich tracked markets with volatility + data quality ─
     const trackedResult = await query<{
       condition_id: string;
@@ -309,6 +344,7 @@ export class MarketScorer {
       volume_24h: number | null;
       spread: number | null;
       end_date: string | null;
+      market_type: string | null;
       stddev: number | null;
       informative_bars: string;
       total_bars: string;
@@ -319,6 +355,7 @@ export class MarketScorer {
              m.volume_24h,
              m.spread,
              m.end_date,
+             m.market_type,
              s.price_stddev AS stddev,
              s.informative_bars,
              s.total_bars
@@ -365,13 +402,14 @@ export class MarketScorer {
         ? MarketScorer.dataQualityScore(informativeBars, totalBars)
         : null;
 
+      const prior = categoryPriors.get(row.market_type ?? '') ?? 1.0;
       const score = MarketScorer.compositeScore({
         tradeability,
         liquidity,
         volatility,
         ttr,
         dataQuality,
-      }, weights);
+      }, weights) * prior;
 
       enrichUpdates.push({
         conditionId: row.condition_id,
@@ -384,6 +422,7 @@ export class MarketScorer {
         dataQuality,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
+        marketType: row.market_type ?? null,
       });
     }
 
