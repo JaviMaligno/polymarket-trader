@@ -21,7 +21,7 @@ import { getDbEventListener } from './services/DbEventListener.js';
 import { loadPrivateKey } from './services/SecretManager.js';
 import { RealExecutor } from './services/RealExecutor.js';
 import { ExecutionRouter, setExecutionRouter } from './services/ExecutionRouter.js';
-import { WalletMonitor } from './services/WalletMonitor.js';
+import { WalletMonitor, setWalletMonitor } from './services/WalletMonitor.js';
 import { getNotificationService } from './services/NotificationService.js';
 
 const logger = pino({ name: 'server' });
@@ -51,22 +51,23 @@ async function initializeRealTrading(): Promise<void> {
     const secretName = process.env.GCP_SECRET_NAME || '';
     const privateKey = await loadPrivateKey(secretName);
 
-    // Initialize CLOB client
+    // Initialize ethers provider and wallet (used by ClobClient and WalletMonitor)
+    const { ethers } = await import('ethers');
+    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com');
+    const wallet = new ethers.Wallet(privateKey, provider);
+
+    // Initialize CLOB client with ethers.Wallet (not raw private key)
     const { ClobClient } = await import('@polymarket/clob-client');
     const clobClient = new ClobClient(
       process.env.CLOB_API_URL || 'https://clob.polymarket.com',
       137, // Polygon chainId
-      privateKey
+      wallet
     );
 
     const dryRun = config.real_trading_dry_run === true || config.real_trading_dry_run === 'true';
     const maxSlippage = parseFloat(String(config.max_slippage ?? '0.02'));
 
     const realExecutor = new RealExecutor({ clobClient, maxSlippage, dryRun });
-
-    // Initialize WalletMonitor
-    const { ethers } = await import('ethers');
-    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com');
     const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
     const usdcAbi = ['function balanceOf(address) view returns (uint256)'];
     const usdcContract = new ethers.Contract(USDC_ADDRESS, usdcAbi, provider);
@@ -103,6 +104,7 @@ async function initializeRealTrading(): Promise<void> {
     });
 
     setExecutionRouter(executionRouter);
+    setWalletMonitor(walletMonitor);
     walletMonitor.start();
     logger.info({ walletAddress, dryRun }, 'Real trading services initialized');
   } catch (err) {

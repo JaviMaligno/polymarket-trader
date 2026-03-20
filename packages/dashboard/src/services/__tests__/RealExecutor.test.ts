@@ -39,11 +39,12 @@ describe('RealExecutor', () => {
 
     const result = await executor.execute(intent);
 
+    // BUY price adjusted up by maxSlippage (0.02): 0.65 + 0.02 = 0.67
     expect(mockCreateOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         tokenID: 'token-yes-123',
         side: 'BUY',
-        price: 0.65,
+        price: 0.67,
         size: 100,
       })
     );
@@ -62,10 +63,11 @@ describe('RealExecutor', () => {
 
     const result = await executor.execute(intent);
 
+    // SELL price adjusted down by maxSlippage (0.02): 0.80 - 0.02 = 0.78
     expect(mockCreateOrder).toHaveBeenCalledWith(
       expect.objectContaining({
         side: 'SELL',
-        price: 0.80,
+        price: 0.78,
         size: 50,
       })
     );
@@ -87,6 +89,22 @@ describe('RealExecutor', () => {
     };
 
     const result = await executor.execute(intent);
+
+    expect(mockCreateOrder).toHaveBeenCalled();
+    expect(mockPostOrder).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.dryRun).toBe(true);
+  });
+
+  it('respects dryRunOverride=true even when constructed with dryRun=false', async () => {
+    const intent: OrderIntent = {
+      tokenId: 'token-yes-123',
+      side: 'BUY',
+      price: 0.65,
+      size: 100,
+    };
+
+    const result = await executor.execute(intent, true);
 
     expect(mockCreateOrder).toHaveBeenCalled();
     expect(mockPostOrder).not.toHaveBeenCalled();

@@ -2980,6 +2980,14 @@ export async function registerRoutes(
     try {
       const body = request.body as Record<string, unknown>;
 
+      // Capture previous mode BEFORE updating config
+      const { getNotificationService } = await import('../services/NotificationService.js');
+      const { getExecutionRouter } = await import('../services/ExecutionRouter.js');
+
+      const router = getExecutionRouter();
+      const previousMode = router ? await router.getMode() : 'paper';
+
+      // Update core trading mode flags
       if (body.real_trading_enabled !== undefined) {
         await tradingConfigRepo.set('real_trading_enabled', body.real_trading_enabled);
       }
@@ -2987,18 +2995,23 @@ export async function registerRoutes(
         await tradingConfigRepo.set('real_trading_dry_run', body.real_trading_dry_run);
       }
 
-      // Send mode change notification
-      const { getNotificationService } = await import('../services/NotificationService.js');
-      const { getExecutionRouter } = await import('../services/ExecutionRouter.js');
+      // Update additional real-trading config fields
+      const configFields = ['wallet_address', 'min_balance_threshold', 'warning_balance_threshold', 'max_slippage'];
+      for (const field of configFields) {
+        if (body[field] !== undefined) {
+          await tradingConfigRepo.set(field, body[field]);
+        }
+      }
 
-      const router = getExecutionRouter();
+      // Only send mode_change notification on actual change
       const newMode = router ? await router.getMode() : 'paper';
-
-      await getNotificationService().notify('mode_change', {
-        from: 'unknown',
-        to: newMode,
-        by: 'user',
-      });
+      if (newMode !== previousMode) {
+        await getNotificationService().notify('mode_change', {
+          from: previousMode,
+          to: newMode,
+          by: 'user',
+        });
+      }
 
       return reply.send({
         success: true,
@@ -3022,12 +3035,14 @@ export async function registerRoutes(
   fastify.get('/api/wallet/status', async (_request, reply) => {
     try {
       const config = await tradingConfigRepo.getAll();
+      const { getWalletMonitor } = await import('../services/WalletMonitor.js');
+      const monitor = getWalletMonitor();
 
       return reply.send({
         success: true,
         data: {
           address: config.wallet_address ?? null,
-          balance: null, // WalletMonitor provides this when initialized
+          balance: monitor ? monitor.getCachedBalance() : null,
           last_checked: new Date().toISOString(),
           min_threshold: config.min_balance_threshold ?? null,
           warning_threshold: config.warning_balance_threshold ?? null,

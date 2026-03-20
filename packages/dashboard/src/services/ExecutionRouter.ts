@@ -17,7 +17,7 @@ interface TradingModeConfig {
 }
 
 interface ExecutionRouterDeps {
-  realExecutor: { execute: (intent: OrderIntent) => Promise<OrderResult> };
+  realExecutor: { execute: (intent: OrderIntent, dryRun?: boolean) => Promise<OrderResult> };
   getCachedBalance: () => number;
   getConfig: () => Promise<TradingModeConfig>;
   notify: (type: string, payload: Record<string, unknown>) => Promise<void>;
@@ -38,7 +38,8 @@ export class ExecutionRouter {
     }
 
     // Both 'real' and 'dry_run' go through the real executor
-    const result = await this.deps.realExecutor.execute(intent);
+    // Pass dryRun=true when mode is 'dry_run' so the executor respects current config
+    const result = await this.deps.realExecutor.execute(intent, mode === 'dry_run');
 
     if (!result.success) {
       logger.warn({ error: result.error, intent }, 'Real execution failed, falling back to paper');

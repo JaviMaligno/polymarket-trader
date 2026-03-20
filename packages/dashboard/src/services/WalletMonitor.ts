@@ -72,3 +72,13 @@ export class WalletMonitor {
     }
   }
 }
+
+let walletMonitorInstance: WalletMonitor | null = null;
+
+export function setWalletMonitor(monitor: WalletMonitor): void {
+  walletMonitorInstance = monitor;
+}
+
+export function getWalletMonitor(): WalletMonitor | null {
+  return walletMonitorInstance;
+}

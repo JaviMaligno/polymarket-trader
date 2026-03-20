@@ -42,20 +42,30 @@ export class RealExecutor {
     this.dryRun = config.dryRun;
   }
 
-  async execute(intent: OrderIntent): Promise<OrderResult> {
+  async execute(intent: OrderIntent, dryRunOverride?: boolean): Promise<OrderResult> {
+    const isDryRun = dryRunOverride ?? this.dryRun;
+
     try {
+      // Apply slippage to price
+      let adjustedPrice = intent.price;
+      if (intent.side === 'BUY') {
+        adjustedPrice = Math.min(intent.price + this.maxSlippage, 0.99);
+      } else {
+        adjustedPrice = Math.max(intent.price - this.maxSlippage, 0.01);
+      }
+
       const orderParams = {
         tokenID: intent.tokenId,
         side: intent.side,
-        price: intent.price,
+        price: adjustedPrice,
         size: intent.size,
       };
 
-      logger.info({ orderParams, dryRun: this.dryRun }, 'Building CLOB order');
+      logger.info({ orderParams, dryRun: isDryRun, originalPrice: intent.price }, 'Building CLOB order');
 
       const signedOrder = await this.client.createOrder(orderParams);
 
-      if (this.dryRun) {
+      if (isDryRun) {
         logger.info({ signedOrder }, 'DRY RUN — order signed but not submitted');
         return { success: true, dryRun: true, orderId: signedOrder.id };
       }
