@@ -151,14 +151,60 @@ export class AutoSignalExecutor extends EventEmitter {
       if (reason === 'stop_loss') {
         if (this.nearResolutionMarkets.has(marketId)) {
           // Permanent cooldown for near-resolution markets (set far-future timestamp)
-          this.stoppedOutMarkets.set(marketId, Date.now() + 365 * 24 * 3600000);
+          const until = Date.now() + 365 * 24 * 3600000;
+          this.stoppedOutMarkets.set(marketId, until);
+          this.persistCooldown(marketId, until);
           console.log(`[AutoExecutor] PERMANENT stop-loss cooldown for near-resolution market ${marketId.substring(0, 12)}...`);
         } else {
-          this.stoppedOutMarkets.set(marketId, Date.now());
+          const stoppedAt = Date.now();
+          this.stoppedOutMarkets.set(marketId, stoppedAt);
+          this.persistCooldown(marketId, stoppedAt + STOP_LOSS_COOLDOWN_MS);
           console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
         }
       }
     });
+  }
+
+  /**
+   * Persist a stop-loss cooldown to trading_config so it survives restarts.
+   * Key format: stoploss_cooldown:{marketId}
+   */
+  private persistCooldown(marketId: string, until: number): void {
+    const key = `stoploss_cooldown:${marketId}`;
+    query(
+      `INSERT INTO trading_config (key, value, description, updated_at)
+       VALUES ($1, $2::jsonb, 'stop-loss cooldown', NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`,
+      [key, JSON.stringify({ until })]
+    ).catch(err => console.error('[AutoExecutor] Failed to persist cooldown:', err));
+  }
+
+  /**
+   * Load stop-loss cooldowns from trading_config on startup.
+   * Restores the in-memory Map so cooldowns survive service restarts.
+   */
+  async loadPersistedCooldowns(): Promise<void> {
+    if (!isDatabaseConfigured()) return;
+    try {
+      const result = await query<{ key: string; value: string }>(
+        `SELECT key, value FROM trading_config WHERE key LIKE 'stoploss_cooldown:%'`
+      );
+      const now = Date.now();
+      for (const row of result.rows) {
+        const marketId = row.key.replace('stoploss_cooldown:', '');
+        const { until } = JSON.parse(row.value) as { until: number };
+        if (until > now) {
+          // Store as the original "stoppedAt" timestamp so check logic (Date.now() - stoppedAt < cooldownMs) works
+          this.stoppedOutMarkets.set(marketId, until - STOP_LOSS_COOLDOWN_MS);
+          console.log(`[AutoExecutor] Restored stop-loss cooldown for ${marketId.substring(0, 12)}... (expires in ${((until - now) / 3600000).toFixed(1)}h)`);
+        } else {
+          // Expired — clean up from DB
+          query(`DELETE FROM trading_config WHERE key = $1`, [row.key]).catch(() => {});
+        }
+      }
+    } catch (err) {
+      console.error('[AutoExecutor] Failed to load persisted cooldowns:', err);
+    }
   }
 
   /**
@@ -267,7 +313,10 @@ export class AutoSignalExecutor extends EventEmitter {
       return { executed: false, reason: `Market in stop-loss cooldown (${remainingH}h remaining)` };
     }
     for (const [key, ts] of this.stoppedOutMarkets) {
-      if (Date.now() - ts > STOP_LOSS_COOLDOWN_MS) this.stoppedOutMarkets.delete(key);
+      if (Date.now() - ts > STOP_LOSS_COOLDOWN_MS) {
+        this.stoppedOutMarkets.delete(key);
+        query(`DELETE FROM trading_config WHERE key = $1`, [`stoploss_cooldown:${key}`]).catch(() => {});
+      }
     }
 
     // 3b. Signal deduplication - prevent processing same signal type for same market within window

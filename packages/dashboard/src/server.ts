@@ -157,6 +157,7 @@ async function main(): Promise<void> {
       const automation = getTradingAutomation();
       await automation.start();
       automation.getExecutor().registerStopLossCooldown(getPositionClosingService());
+      await automation.getExecutor().loadPersistedCooldowns();
       console.log('TradingAutomation started');
 
       // Start PositionCleanupService to auto-close positions in inactive/resolved markets
