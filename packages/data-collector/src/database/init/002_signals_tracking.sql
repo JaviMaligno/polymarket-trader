@@ -157,6 +157,29 @@ CREATE TABLE IF NOT EXISTS paper_positions (
 CREATE INDEX IF NOT EXISTS idx_paper_positions_updated ON paper_positions (updated_at DESC);
 
 -- ============================================
+-- REAL TRADING SUPPORT
+-- Add execution_mode to trades and positions
+-- ============================================
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'paper_trades' AND column_name = 'execution_mode'
+  ) THEN
+    ALTER TABLE paper_trades ADD COLUMN execution_mode VARCHAR(10) DEFAULT 'paper';
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'paper_positions' AND column_name = 'execution_mode'
+  ) THEN
+    ALTER TABLE paper_positions ADD COLUMN execution_mode VARCHAR(10) DEFAULT 'paper';
+  END IF;
+END $$;
+
+-- ============================================
 -- PORTFOLIO SNAPSHOTS
 -- Periodic snapshots of portfolio state
 -- ============================================
@@ -238,6 +261,16 @@ INSERT INTO trading_config (key, value, description) VALUES
     ('risk_limits', '{"max_position_size": 1000, "max_slippage_pct": 2.0, "max_drawdown": 0.15, "max_daily_loss": 500}', 'Risk management limits'),
     ('signal_optimization', '{"enabled": true, "interval_days": 7, "max_change_pct": 0.10, "min_predictions": 50}', 'Automatic signal optimization settings'),
     ('orderbook_simulation', '{"enabled": true, "min_liquidity_ratio": 0.1, "simulate_partial_fills": true}', 'Orderbook simulation settings')
+ON CONFLICT (key) DO NOTHING;
+
+-- Real trading config entries
+INSERT INTO trading_config (key, value, description) VALUES
+  ('real_trading_enabled', 'false', 'Hot toggle for real trading execution'),
+  ('real_trading_dry_run', 'false', 'Build+sign orders without submitting to CLOB'),
+  ('wallet_address', 'null', 'Polygon wallet address for real trading'),
+  ('min_balance_threshold', 'null', 'Minimum USDC balance to keep real trading active'),
+  ('warning_balance_threshold', 'null', 'USDC balance warning notification threshold'),
+  ('max_slippage', '0.02', 'Maximum slippage tolerance for limit orders')
 ON CONFLICT (key) DO NOTHING;
 
 -- ============================================
