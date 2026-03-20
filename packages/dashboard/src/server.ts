@@ -5,9 +5,10 @@
  * Includes auto-initialization of markets and strategies on startup.
  */
 
+import pino from 'pino';
 import { createDashboardServer } from './api/server.js';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
-import { signalWeightsRepo } from './database/repositories.js';
+import { signalWeightsRepo, tradingConfigRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
@@ -17,6 +18,109 @@ import { getPositionClosingService } from './services/PositionClosingService.js'
 import { initializeStopLossService } from './services/StopLossService.js';
 import { initializeCircuitBreakerService } from './services/CircuitBreakerService.js';
 import { getDbEventListener } from './services/DbEventListener.js';
+import { loadPrivateKey } from './services/SecretManager.js';
+import { RealExecutor } from './services/RealExecutor.js';
+import { ExecutionRouter, setExecutionRouter } from './services/ExecutionRouter.js';
+import { WalletMonitor } from './services/WalletMonitor.js';
+import { getNotificationService } from './services/NotificationService.js';
+
+const logger = pino({ name: 'server' });
+
+async function initializeRealTrading(): Promise<void> {
+  const config = await tradingConfigRepo.getAll();
+  const walletAddress = config.wallet_address as string;
+
+  if (!walletAddress || walletAddress === 'null') {
+    logger.info('No wallet configured — real trading disabled');
+    // Still create a paper-only ExecutionRouter so getExecutionRouter() works
+    const paperRouter = new ExecutionRouter({
+      realExecutor: { execute: async () => ({ success: false, error: 'No wallet configured' }) },
+      getCachedBalance: () => 0,
+      getConfig: async () => ({
+        real_trading_enabled: false,
+        real_trading_dry_run: false,
+        min_balance_threshold: 0,
+      }),
+      notify: async () => {},
+    });
+    setExecutionRouter(paperRouter);
+    return;
+  }
+
+  try {
+    const secretName = process.env.GCP_SECRET_NAME || '';
+    const privateKey = await loadPrivateKey(secretName);
+
+    // Initialize CLOB client
+    const { ClobClient } = await import('@polymarket/clob-client');
+    const clobClient = new ClobClient(
+      process.env.CLOB_API_URL || 'https://clob.polymarket.com',
+      137, // Polygon chainId
+      privateKey
+    );
+
+    const dryRun = config.real_trading_dry_run === true || config.real_trading_dry_run === 'true';
+    const maxSlippage = parseFloat(String(config.max_slippage ?? '0.02'));
+
+    const realExecutor = new RealExecutor({ clobClient, maxSlippage, dryRun });
+
+    // Initialize WalletMonitor
+    const { ethers } = await import('ethers');
+    const provider = new ethers.JsonRpcProvider(process.env.POLYGON_RPC_URL || 'https://polygon-rpc.com');
+    const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC on Polygon
+    const usdcAbi = ['function balanceOf(address) view returns (uint256)'];
+    const usdcContract = new ethers.Contract(USDC_ADDRESS, usdcAbi, provider);
+
+    const minBalance = parseFloat(String(config.min_balance_threshold ?? '50'));
+    const warningBalance = parseFloat(String(config.warning_balance_threshold ?? String(minBalance * 2)));
+
+    const walletMonitor = new WalletMonitor({
+      getUSDCBalance: async () => {
+        const balance = await usdcContract.balanceOf(walletAddress);
+        return Number(ethers.formatUnits(balance, 6)); // USDC has 6 decimals
+      },
+      notify: (type, payload) => getNotificationService().notify(type as any, payload),
+      setRealTradingEnabled: async (enabled) => {
+        await tradingConfigRepo.set('real_trading_enabled', enabled);
+      },
+      minBalanceThreshold: minBalance,
+      warningThreshold: warningBalance,
+    });
+
+    // Initialize ExecutionRouter
+    const executionRouter = new ExecutionRouter({
+      realExecutor,
+      getCachedBalance: () => walletMonitor.getCachedBalance(),
+      getConfig: async () => {
+        const cfg = await tradingConfigRepo.getAll();
+        return {
+          real_trading_enabled: cfg.real_trading_enabled === true || cfg.real_trading_enabled === 'true',
+          real_trading_dry_run: cfg.real_trading_dry_run === true || cfg.real_trading_dry_run === 'true',
+          min_balance_threshold: parseFloat(String(cfg.min_balance_threshold ?? '50')),
+        };
+      },
+      notify: (type, payload) => getNotificationService().notify(type as any, payload),
+    });
+
+    setExecutionRouter(executionRouter);
+    walletMonitor.start();
+    logger.info({ walletAddress, dryRun }, 'Real trading services initialized');
+  } catch (err) {
+    logger.error({ err }, 'Failed to initialize real trading — running in paper-only mode');
+    // Create paper-only router as fallback
+    const paperRouter = new ExecutionRouter({
+      realExecutor: { execute: async () => ({ success: false, error: 'Initialization failed' }) },
+      getCachedBalance: () => 0,
+      getConfig: async () => ({
+        real_trading_enabled: false,
+        real_trading_dry_run: false,
+        min_balance_threshold: 0,
+      }),
+      notify: async () => {},
+    });
+    setExecutionRouter(paperRouter);
+  }
+}
 
 async function main(): Promise<void> {
   // Parse command line arguments
@@ -190,6 +294,9 @@ async function main(): Promise<void> {
       });
       await circuitBreakerService.start();
       console.log('CircuitBreakerService started');
+
+      // Initialize real trading (non-blocking — failure doesn't prevent paper trading)
+      await initializeRealTrading();
     }, 10000); // 10 second delay to let server fully initialize
   }
 
