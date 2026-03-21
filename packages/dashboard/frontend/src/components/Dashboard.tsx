@@ -29,7 +29,7 @@ import { BacktestPanel } from './BacktestPanel';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { formatCurrency, formatPercent, formatTime, cn, pnlColor } from '../lib/utils';
 import * as api from '../lib/api';
-import type { DashboardState, Position, Alert, PerformanceMetrics } from '../types/api';
+import type { DashboardState, Position, Alert, PerformanceMetrics, PaperAccount } from '../types/api';
 
 type TabId = 'overview' | 'automation' | 'backtest';
 
@@ -39,6 +39,7 @@ export function Dashboard() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [performance, setPerformance] = useState<PerformanceMetrics | null>(null);
+  const [paperAccount, setPaperAccount] = useState<PaperAccount | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,16 +68,18 @@ export function Dashboard() {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [statusData, positionsData, alertsData, perfData] = await Promise.all([
+        const [statusData, positionsData, alertsData, perfData, accountData] = await Promise.all([
           api.getStatus(),
           api.getPositions().catch(() => []),
           api.getAlerts(10).catch(() => []),
           api.getPerformance().catch(() => null),
+          api.getPaperAccount().catch(() => null),
         ]);
         setState(statusData as DashboardState);
         setPositions(positionsData as Position[]);
         setAlerts(alertsData as Alert[]);
         setPerformance(perfData as PerformanceMetrics);
+        setPaperAccount(accountData as PaperAccount | null);
       } catch (e) {
         setError(`Failed to load data: ${e}`);
       } finally {
@@ -111,8 +114,13 @@ export function Dashboard() {
     );
   }
 
-  const pnl = state?.totalPnl ?? 0;
+  const pnl = paperAccount?.total_realized_pnl ?? state?.totalPnl ?? 0;
   const pnlTrend = pnl > 0 ? 'up' : pnl < 0 ? 'down' : 'neutral';
+  const equity = paperAccount?.current_capital ?? state?.equity ?? 0;
+  const equityTrend = pnl > 0 ? 'up' : pnl < 0 ? 'down' : 'neutral';
+  const initialCapital = paperAccount?.initial_capital ?? 10000;
+  const totalReturnPct = initialCapital > 0 ? (equity - initialCapital) / initialCapital : 0;
+  const totalReturnTrend = totalReturnPct > 0 ? 'up' : totalReturnPct < 0 ? 'down' : 'neutral';
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -192,24 +200,27 @@ export function Dashboard() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard
           title="Total Equity"
-          value={formatCurrency(state?.equity ?? 0)}
+          value={formatCurrency(equity)}
+          trend={equityTrend}
           icon={<DollarSign className="w-5 h-5" />}
         />
         <StatCard
           title="Total P&L"
           value={formatCurrency(pnl)}
           trend={pnlTrend}
+          subtitle={initialCapital > 0 ? `${(pnl / initialCapital * 100).toFixed(1)}% of initial capital` : undefined}
           icon={pnl >= 0 ? <TrendingUp className="w-5 h-5" /> : <TrendingDown className="w-5 h-5" />}
         />
         <StatCard
-          title="Today's P&L"
-          value={formatCurrency(state?.todayPnl ?? 0)}
-          trend={(state?.todayPnl ?? 0) >= 0 ? 'up' : 'down'}
+          title="Total Return"
+          value={formatPercent(totalReturnPct)}
+          trend={totalReturnTrend}
+          subtitle={paperAccount ? `${paperAccount.winning_trades}W / ${paperAccount.losing_trades}L (${paperAccount.win_rate.toFixed(1)}% win)` : undefined}
         />
         <StatCard
           title="Open Positions"
-          value={state?.openPositions ?? 0}
-          subtitle={`${state?.openOrders ?? 0} orders pending`}
+          value={positions.length || state?.openPositions || 0}
+          subtitle={paperAccount ? `${paperAccount.total_trades} total trades` : `${state?.openOrders ?? 0} orders pending`}
           icon={<Activity className="w-5 h-5" />}
         />
       </div>

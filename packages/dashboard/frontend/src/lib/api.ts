@@ -150,3 +150,6 @@ export const getBacktestEquity = (id: string) => fetchApi(`/api/backtest/${id}/e
 export const getPaperTradingStatus = () => fetchApi('/api/paper-trading/status');
 export const getPaperTrades = () => fetchApi('/api/paper-trading/trades');
 export const getPaperPositions = () => fetchApi('/api/paper-trading/positions');
+
+// Paper Account
+export const getPaperAccount = () => fetchApi('/api/paper/account');

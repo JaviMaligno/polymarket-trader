@@ -95,6 +95,22 @@ export interface Strategy {
   todayTrades: number;
 }
 
+export interface PaperAccount {
+  initial_capital: number;
+  current_capital: number;
+  available_capital: number;
+  total_realized_pnl: number;
+  total_unrealized_pnl: number;
+  total_fees_paid: number;
+  max_drawdown: number;
+  peak_equity: number;
+  total_trades: number;
+  winning_trades: number;
+  losing_trades: number;
+  win_rate: number;
+  updated_at: string;
+}
+
 export interface ApiResponse<T> {
   success: boolean;
   data?: T;
