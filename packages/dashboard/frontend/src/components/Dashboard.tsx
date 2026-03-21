@@ -93,17 +93,18 @@ export function Dashboard() {
   });
 
   // Map backend snake_case positions to frontend camelCase
+  // Note: DB returns some numeric fields as strings, so parseFloat everything
   function mapPositions(raw: Array<Record<string, unknown>>): Position[] {
     return raw.map((p) => ({
-      marketId: (p.market_id as string) || '',
-      outcome: (p.side as string) === 'long' ? 'YES' : 'NO',
-      size: (p.size as number) || 0,
-      avgEntryPrice: (p.avg_entry_price as number) || (p.entry_price as number) || 0,
-      currentPrice: (p.current_price as number) || (p.avg_entry_price as number) || 0,
-      unrealizedPnl: (p.unrealized_pnl as number) || 0,
-      realizedPnl: (p.realized_pnl as number) || 0,
-      openedAt: new Date((p.opened_at as string) || (p.entry_time as string) || Date.now()),
-      signalType: (p.signal_type as string) || '',
+      marketId: String(p.market_id || ''),
+      outcome: String(p.side || '') === 'long' ? 'YES' : 'NO',
+      size: parseFloat(String(p.size)) || 0,
+      avgEntryPrice: parseFloat(String(p.avg_entry_price ?? p.entry_price)) || 0,
+      currentPrice: parseFloat(String(p.current_price ?? p.avg_entry_price)) || 0,
+      unrealizedPnl: parseFloat(String(p.unrealized_pnl)) || 0,
+      realizedPnl: parseFloat(String(p.realized_pnl)) || 0,
+      openedAt: new Date(String(p.opened_at || p.entry_time || Date.now())),
+      signalType: String(p.signal_type || ''),
     }));
   }
 
@@ -179,13 +180,22 @@ export function Dashboard() {
   const totalReturnTrend = totalReturnPct > 0 ? 'up' : totalReturnPct < 0 ? 'down' : 'neutral';
   const maxDrawdown = paperAccount?.max_drawdown ?? state?.drawdown ?? 0;
 
-  // Format equity curve for Recharts
-  const chartData = equityCurve.length > 0
+  // Format equity curve for Recharts — thin out data points for clean X axis
+  const rawCurve = equityCurve.length > 0
     ? equityCurve.map((point) => ({
+        ts: new Date(point.time).getTime(),
         date: new Date(point.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-        equity: point.value,
+        equity: parseFloat(String(point.value)) || 0,
       }))
-    : [{ date: 'Start', equity: initialCapital }, { date: 'Now', equity: equity }];
+    : [{ ts: 0, date: 'Start', equity: initialCapital }, { ts: 1, date: 'Now', equity: equity }];
+
+  // Show max ~30 evenly-spaced points for clean chart
+  const maxPoints = 30;
+  const chartData = rawCurve.length <= maxPoints
+    ? rawCurve
+    : rawCurve.filter((_, i) =>
+        i === 0 || i === rawCurve.length - 1 || i % Math.ceil(rawCurve.length / maxPoints) === 0
+      );
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -356,8 +366,9 @@ export function Dashboard() {
                   <XAxis
                     dataKey="date"
                     stroke="#9ca3af"
-                    fontSize={12}
+                    fontSize={11}
                     tickLine={false}
+                    interval={Math.max(0, Math.floor(chartData.length / 6) - 1)}
                   />
                   <YAxis
                     stroke="#9ca3af"
@@ -407,13 +418,13 @@ export function Dashboard() {
                       {sw.signal_type.replace('_', ' ')}
                     </span>
                     <span className="text-slate-400 font-mono">
-                      {(sw.weight * 100).toFixed(0)}%
+                      {(parseFloat(String(sw.weight)) * 100).toFixed(0)}%
                     </span>
                   </div>
                   <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-purple-500 rounded-full transition-all"
-                      style={{ width: `${Math.min(sw.weight * 100, 100)}%` }}
+                      style={{ width: `${Math.min(parseFloat(String(sw.weight)) * 100, 100)}%` }}
                     />
                   </div>
                 </div>
@@ -549,7 +560,7 @@ export function Dashboard() {
                     </div>
                     <div className="text-right">
                       <span className="text-slate-300 font-mono">
-                        {formatCurrency(trade.value_usd || (trade.executed_size * trade.executed_price))}
+                        {formatCurrency(parseFloat(String(trade.value_usd)) || (parseFloat(String(trade.executed_size)) * parseFloat(String(trade.executed_price))) || 0)}
                       </span>
                     </div>
                   </div>
