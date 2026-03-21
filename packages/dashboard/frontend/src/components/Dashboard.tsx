@@ -186,34 +186,49 @@ export function Dashboard() {
   const directionalTrades = wins + losses;
   const winRate = directionalTrades > 0 ? (wins / directionalTrades) * 100 : 0;
 
-  // Format equity curve for Recharts — thin out + append current point
+  // Format equity curve for Recharts — use timestamp as X axis for proper time scale
   const rawCurve = equityCurve.length > 0
     ? equityCurve.map((point) => ({
         ts: new Date(point.time).getTime(),
-        date: new Date(point.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         equity: parseFloat(String(point.value)) || 0,
       }))
     : [];
 
-  // Append current equity as final data point (today) if curve doesn't reach today
-  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const lastPoint = rawCurve[rawCurve.length - 1];
-  if (rawCurve.length > 0 && lastPoint?.date !== today) {
-    rawCurve.push({ ts: Date.now(), date: today, equity: equity });
+  // Append current equity as final data point (now)
+  const nowTs = Date.now();
+  const lastTs = rawCurve[rawCurve.length - 1]?.ts ?? 0;
+  if (rawCurve.length > 0 && nowTs - lastTs > 3600000) { // >1h gap
+    rawCurve.push({ ts: nowTs, equity: equity });
   }
-  // If no curve data at all, show start -> now
   if (rawCurve.length === 0) {
-    rawCurve.push({ ts: 0, date: 'Start', equity: initialCapital });
-    rawCurve.push({ ts: Date.now(), date: today, equity: equity });
+    // No snapshot data: show initial -> now
+    const startTs = nowTs - 30 * 86400000; // 30 days ago
+    rawCurve.push({ ts: startTs, equity: initialCapital });
+    rawCurve.push({ ts: nowTs, equity: equity });
   }
 
-  // Show max ~30 evenly-spaced points for clean chart
-  const maxPoints = 30;
-  const chartData = rawCurve.length <= maxPoints
+  // Thin to max ~40 points
+  const maxPoints = 40;
+  const thinned = rawCurve.length <= maxPoints
     ? rawCurve
     : rawCurve.filter((_, i) =>
         i === 0 || i === rawCurve.length - 1 || i % Math.ceil(rawCurve.length / maxPoints) === 0
       );
+
+  // Format date labels for thinned data
+  const chartData = thinned.map((p) => ({
+    ...p,
+    date: new Date(p.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  }));
+
+  // Generate ~6 evenly-spaced tick labels across the time range
+  const tsMin = chartData[0]?.ts ?? 0;
+  const tsMax = chartData[chartData.length - 1]?.ts ?? 0;
+  const tickCount = 6;
+  const tickValues: number[] = [];
+  for (let i = 0; i < tickCount; i++) {
+    tickValues.push(tsMin + (tsMax - tsMin) * (i / (tickCount - 1)));
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-6">
@@ -364,11 +379,17 @@ export function Dashboard() {
                 <AreaChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
                   <XAxis
-                    dataKey="date"
+                    dataKey="ts"
+                    type="number"
+                    domain={['dataMin', 'dataMax']}
+                    scale="time"
                     stroke="#9ca3af"
                     fontSize={11}
                     tickLine={false}
-                    interval={Math.max(0, Math.floor(chartData.length / 6) - 1)}
+                    ticks={tickValues}
+                    tickFormatter={(ts: number) =>
+                      new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                    }
                   />
                   <YAxis
                     stroke="#9ca3af"
