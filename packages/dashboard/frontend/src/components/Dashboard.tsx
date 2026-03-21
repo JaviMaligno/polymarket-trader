@@ -9,8 +9,6 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Play,
-  Square,
   RefreshCw,
   Eye,
   BarChart3,
@@ -148,22 +146,6 @@ export function Dashboard() {
 
     fetchData();
   }, []);
-
-  const handleStartSystem = async () => {
-    try {
-      await api.startSystem();
-    } catch (e) {
-      setError(`Failed to start system: ${e}`);
-    }
-  };
-
-  const handleStopSystem = async () => {
-    try {
-      await api.stopSystem();
-    } catch (e) {
-      setError(`Failed to stop system: ${e}`);
-    }
-  };
 
   if (loading) {
     return (
@@ -309,34 +291,10 @@ export function Dashboard() {
             <span className="text-purple-500 hidden md:inline">· Daily 08:00 UTC</span>
             <ExternalLink className="w-3 h-3 text-purple-500" />
           </a>
-          <div className="flex items-center gap-2">
-            <div
-              className={cn(
-                'w-2 h-2 rounded-full',
-                isConnected ? 'bg-green-500' : 'bg-red-500'
-              )}
-            />
-            <span className="text-sm text-slate-400">
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-green-900/30 border border-green-700/50 rounded-lg">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-sm text-green-300">System Live</span>
           </div>
-          {state?.isTrading ? (
-            <button
-              onClick={handleStopSystem}
-              className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors"
-            >
-              <Square className="w-4 h-4" />
-              Stop
-            </button>
-          ) : (
-            <button
-              onClick={handleStartSystem}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 rounded-lg transition-colors"
-            >
-              <Play className="w-4 h-4" />
-              Start
-            </button>
-          )}
         </div>
       </header>
 
