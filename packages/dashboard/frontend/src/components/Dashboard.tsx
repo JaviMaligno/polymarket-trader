@@ -180,14 +180,32 @@ export function Dashboard() {
   const totalReturnTrend = totalReturnPct > 0 ? 'up' : totalReturnPct < 0 ? 'down' : 'neutral';
   const maxDrawdown = paperAccount?.max_drawdown ?? state?.drawdown ?? 0;
 
-  // Format equity curve for Recharts — thin out data points for clean X axis
+  // Correct win rate: wins / (wins + losses), ignoring neutral trades
+  const wins = paperAccount?.winning_trades ?? 0;
+  const losses = paperAccount?.losing_trades ?? 0;
+  const directionalTrades = wins + losses;
+  const winRate = directionalTrades > 0 ? (wins / directionalTrades) * 100 : 0;
+
+  // Format equity curve for Recharts — thin out + append current point
   const rawCurve = equityCurve.length > 0
     ? equityCurve.map((point) => ({
         ts: new Date(point.time).getTime(),
         date: new Date(point.time).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         equity: parseFloat(String(point.value)) || 0,
       }))
-    : [{ ts: 0, date: 'Start', equity: initialCapital }, { ts: 1, date: 'Now', equity: equity }];
+    : [];
+
+  // Append current equity as final data point (today) if curve doesn't reach today
+  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const lastPoint = rawCurve[rawCurve.length - 1];
+  if (rawCurve.length > 0 && lastPoint?.date !== today) {
+    rawCurve.push({ ts: Date.now(), date: today, equity: equity });
+  }
+  // If no curve data at all, show start -> now
+  if (rawCurve.length === 0) {
+    rawCurve.push({ ts: 0, date: 'Start', equity: initialCapital });
+    rawCurve.push({ ts: Date.now(), date: today, equity: equity });
+  }
 
   // Show max ~30 evenly-spaced points for clean chart
   const maxPoints = 30;
@@ -301,7 +319,7 @@ export function Dashboard() {
           title="Total Return"
           value={formatPercent(totalReturnPct)}
           trend={totalReturnTrend}
-          subtitle={paperAccount ? `${paperAccount.winning_trades}W / ${paperAccount.losing_trades}L (${paperAccount.win_rate.toFixed(1)}% win)` : undefined}
+          subtitle={paperAccount ? `${wins}W / ${losses}L (${winRate.toFixed(0)}% win rate)` : undefined}
           icon={<BarChart3 className="w-5 h-5" />}
         />
         <StatCard
@@ -313,44 +331,26 @@ export function Dashboard() {
       </div>
 
       {/* Performance Metrics — from paper account */}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
           <p className="text-xs text-slate-400">Win Rate</p>
-          <p className="text-lg font-semibold">
-            {paperAccount ? `${paperAccount.win_rate.toFixed(1)}%` : 'N/A'}
-          </p>
+          <p className="text-lg font-semibold">{winRate.toFixed(0)}%</p>
+          <p className="text-xs text-slate-500">{wins}W / {losses}L of {paperAccount?.total_trades ?? 0} trades</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
           <p className="text-xs text-slate-400">Max Drawdown</p>
-          <p className="text-lg font-semibold text-red-400">
-            {formatPercent(maxDrawdown)}
-          </p>
+          <p className="text-lg font-semibold text-green-400">{formatPercent(maxDrawdown)}</p>
+          <p className="text-xs text-slate-500">Limit: 15%</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-          <p className="text-xs text-slate-400">Total Trades</p>
-          <p className="text-lg font-semibold">{paperAccount?.total_trades ?? 0}</p>
-        </div>
-        <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-          <p className="text-xs text-slate-400">Profit Factor</p>
-          <p className="text-lg font-semibold">
-            {paperAccount && paperAccount.losing_trades > 0
-              ? (paperAccount.winning_trades / paperAccount.losing_trades).toFixed(2)
-              : 'N/A'}
-          </p>
+          <p className="text-xs text-slate-400">Peak Equity</p>
+          <p className="text-lg font-semibold">{formatCurrency(paperAccount?.peak_equity ?? equity)}</p>
+          <p className="text-xs text-slate-500">All-time high</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
           <p className="text-xs text-slate-400">Fees Paid</p>
-          <p className="text-lg font-semibold text-yellow-400">
-            {formatCurrency(paperAccount?.total_fees_paid ?? 0)}
-          </p>
-        </div>
-        <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-          <p className="text-xs text-slate-400">Avg Trade</p>
-          <p className="text-lg font-semibold">
-            {paperAccount && paperAccount.total_trades > 0
-              ? formatCurrency(pnl / paperAccount.total_trades)
-              : 'N/A'}
-          </p>
+          <p className="text-lg font-semibold text-yellow-400">{formatCurrency(paperAccount?.total_fees_paid ?? 0)}</p>
+          <p className="text-xs text-slate-500">{paperAccount?.total_trades ?? 0} total trades</p>
         </div>
       </div>
 
