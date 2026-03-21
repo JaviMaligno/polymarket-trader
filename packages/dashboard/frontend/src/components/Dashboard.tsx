@@ -65,9 +65,10 @@ export function Dashboard() {
   const [positions, setPositions] = useState<Position[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [paperAccount, setPaperAccount] = useState<PaperAccount | null>(null);
-  const [equityCurve, setEquityCurve] = useState<EquityCurvePoint[]>([]);
+  // equityCurve from portfolio_snapshots no longer used — reconstructed from trades
   const [signalWeights, setSignalWeights] = useState<SignalWeight[]>([]);
   const [recentTrades, setRecentTrades] = useState<PaperTrade[]>([]);
+  const [allTrades, setAllTrades] = useState<PaperTrade[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -118,25 +119,26 @@ export function Dashboard() {
           positionsData,
           alertsData,
           accountData,
-          equityData,
           weightsData,
-          tradesData,
+          allTradesData,
         ] = await Promise.all([
           api.getStatus(),
           api.getPaperPositionsDB().catch(() => []),
           api.getAlerts(10).catch(() => []),
           api.getPaperAccount().catch(() => null),
-          api.getPortfolioEquityCurve(30).catch(() => []),
           api.getSignalWeights().catch(() => []),
-          api.getRecentPaperTrades(10).catch(() => []),
+          api.getRecentPaperTrades(2000).catch(() => []),
         ]);
         setState(statusData as DashboardState);
         setPositions(mapPositions(positionsData as Array<Record<string, unknown>>));
         setAlerts(alertsData as Alert[]);
         setPaperAccount(accountData as PaperAccount | null);
-        setEquityCurve(equityData as EquityCurvePoint[]);
         setSignalWeights(weightsData as SignalWeight[]);
-        setRecentTrades(tradesData as PaperTrade[]);
+
+        // Process all trades: recent display + equity reconstruction
+        const allTrades = (allTradesData as PaperTrade[]) || [];
+        setRecentTrades(allTrades.slice(0, 10));
+        setAllTrades(allTrades);
       } catch (e) {
         setError(`Failed to load data: ${e}`);
       } finally {
@@ -186,42 +188,98 @@ export function Dashboard() {
   const directionalTrades = wins + losses;
   const winRate = directionalTrades > 0 ? (wins / directionalTrades) * 100 : 0;
 
-  // Format equity curve for Recharts — use timestamp as X axis for proper time scale
-  const rawCurve = equityCurve.length > 0
-    ? equityCurve.map((point) => ({
-        ts: new Date(point.time).getTime(),
-        equity: parseFloat(String(point.value)) || 0,
-      }))
-    : [];
+  // Reconstruct equity curve from trades (daily available capital)
+  // Logic: start at initial_capital, for each day compute net cash flow from trades
+  // sell = capital in (+value_usd - fee), buy = capital out (-value_usd - fee)
+  const reconstructedCurve = (() => {
+    if (allTrades.length === 0) {
+      return [
+        { ts: Date.now() - 15 * 86400000, equity: initialCapital },
+        { ts: Date.now(), equity: equity },
+      ];
+    }
 
-  // Append current equity as final data point (now)
-  const nowTs = Date.now();
-  const lastTs = rawCurve[rawCurve.length - 1]?.ts ?? 0;
-  if (rawCurve.length > 0 && nowTs - lastTs > 3600000) { // >1h gap
-    rawCurve.push({ ts: nowTs, equity: equity });
-  }
-  if (rawCurve.length === 0) {
-    // No snapshot data: show initial -> now
-    const startTs = nowTs - 30 * 86400000; // 30 days ago
-    rawCurve.push({ ts: startTs, equity: initialCapital });
-    rawCurve.push({ ts: nowTs, equity: equity });
-  }
+    // Sort trades oldest first
+    const sorted = [...allTrades].sort((a, b) =>
+      new Date(a.time).getTime() - new Date(b.time).getTime()
+    );
 
-  // Thin to max ~40 points
-  const maxPoints = 40;
-  const thinned = rawCurve.length <= maxPoints
-    ? rawCurve
-    : rawCurve.filter((_, i) =>
-        i === 0 || i === rawCurve.length - 1 || i % Math.ceil(rawCurve.length / maxPoints) === 0
-      );
+    // Group by date and compute daily capital change
+    const dailyMap = new Map<string, { ts: number; netFlow: number }>();
+    for (const t of sorted) {
+      const date = new Date(t.time).toISOString().split('T')[0];
+      const ts = new Date(date).getTime();
+      const val = parseFloat(String(t.value_usd)) || 0;
+      const fee = parseFloat(String(t.fee)) || 0;
+      const flow = t.side === 'sell' ? (val - fee) : -(val + fee);
+      const existing = dailyMap.get(date);
+      if (existing) {
+        existing.netFlow += flow;
+      } else {
+        dailyMap.set(date, { ts, netFlow: flow });
+      }
+    }
 
-  // Format date labels for thinned data
-  const chartData = thinned.map((p) => ({
+    // Build cumulative equity curve
+    const days = [...dailyMap.entries()].sort((a, b) => a[1].ts - b[1].ts);
+    let runningCapital = initialCapital;
+    const curve = [{ ts: days[0][1].ts - 86400000, equity: initialCapital }]; // day before first trade
+    for (const [, { ts, netFlow }] of days) {
+      runningCapital += netFlow;
+      curve.push({ ts, equity: runningCapital });
+    }
+    // Append today's actual equity (from paper account, more accurate)
+    curve.push({ ts: Date.now(), equity: equity });
+    return curve;
+  })();
+
+  // Compute profit factor from trade pairs (match buy/sell per market, proportional to closed size)
+  const profitFactor = (() => {
+    if (allTrades.length === 0) return null;
+
+    // Group trades by market
+    const byMarket = new Map<string, { buyQty: number; buyValue: number; buyFees: number; sellQty: number; sellValue: number; sellFees: number }>();
+    for (const t of allTrades) {
+      const mid = String(t.market_id);
+      const qty = parseFloat(String(t.executed_size)) || 0;
+      const val = parseFloat(String(t.value_usd)) || 0;
+      const fee = parseFloat(String(t.fee)) || 0;
+      const existing = byMarket.get(mid) || { buyQty: 0, buyValue: 0, buyFees: 0, sellQty: 0, sellValue: 0, sellFees: 0 };
+      if (t.side === 'buy') {
+        existing.buyQty += qty;
+        existing.buyValue += val;
+        existing.buyFees += fee;
+      } else {
+        existing.sellQty += qty;
+        existing.sellValue += val;
+        existing.sellFees += fee;
+      }
+      byMarket.set(mid, existing);
+    }
+
+    let grossProfit = 0;
+    let grossLoss = 0;
+    for (const [, m] of byMarket) {
+      if (m.sellQty <= 0 || m.buyQty <= 0) continue; // skip if no sells or no buys
+      // Only count the closed portion: proportion of buys that were sold
+      const closedRatio = Math.min(m.sellQty / m.buyQty, 1);
+      const closedBuyCost = (m.buyValue + m.buyFees) * closedRatio;
+      const sellRevenue = m.sellValue - m.sellFees;
+      const pnl = sellRevenue - closedBuyCost;
+      if (pnl > 0) grossProfit += pnl;
+      else grossLoss += Math.abs(pnl);
+    }
+
+    return grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : null;
+  })();
+
+  // Chart data from reconstructed curve
+  const chartData = reconstructedCurve.map((p) => ({
     ...p,
     date: new Date(p.ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
   }));
 
-  // Generate ~6 evenly-spaced tick labels across the time range
+  // Generate ~6 evenly-spaced tick labels
   const tsMin = chartData[0]?.ts ?? 0;
   const tsMax = chartData[chartData.length - 1]?.ts ?? 0;
   const tickCount = 6;
@@ -358,9 +416,11 @@ export function Dashboard() {
           <p className="text-xs text-slate-500">Limit: 15%</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-          <p className="text-xs text-slate-400">Peak Equity</p>
-          <p className="text-lg font-semibold">{formatCurrency(paperAccount?.peak_equity ?? equity)}</p>
-          <p className="text-xs text-slate-500">All-time high</p>
+          <p className="text-xs text-slate-400">Profit Factor</p>
+          <p className="text-lg font-semibold">
+            {profitFactor !== null ? (profitFactor === Infinity ? '> 10' : profitFactor.toFixed(2)) : 'N/A'}
+          </p>
+          <p className="text-xs text-slate-500">{profitFactor !== null && profitFactor > 1 ? 'Gross profit > loss' : profitFactor !== null ? 'Gross loss > profit' : ''}</p>
         </div>
         <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
           <p className="text-xs text-slate-400">Fees Paid</p>
