@@ -69,6 +69,22 @@ export const stopStrategy = (id: string) =>
 export const getPerformance = () => fetchApi('/api/analytics/performance');
 export const getEquityCurve = () => fetchApi('/api/analytics/equity-curve');
 
+// Portfolio (DB-backed)
+export const getPortfolioEquityCurve = (days = 30) =>
+  fetchApi<Array<{ time: string; value: number }>>(`/api/portfolio/equity-curve?days=${days}`);
+
+// Paper Positions (DB-backed, returns open positions from paper_positions table)
+export const getPaperPositionsDB = () =>
+  fetchApi<Array<Record<string, unknown>>>('/api/paper-positions');
+
+// Signal Weights (DB-backed)
+export const getSignalWeights = () =>
+  fetchApi<Array<{ signal_type: string; weight: number; is_enabled: boolean; min_confidence: number; updated_at: string }>>('/api/signals/weights');
+
+// Recent Paper Trades (DB-backed)
+export const getRecentPaperTrades = (limit = 10) =>
+  fetchApi<Array<Record<string, unknown>>>(`/api/paper-trades?limit=${limit}`);
+
 // Journal
 export const getJournal = (params?: {
   page?: number;
