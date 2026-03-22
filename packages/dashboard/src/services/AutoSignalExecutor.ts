@@ -612,10 +612,10 @@ export class AutoSignalExecutor extends EventEmitter {
         signal_type: signal.signalId,
         order_type: 'market',
         fill_type: actualShares < shares ? 'partial' : 'full',
-        best_bid: sim.bestBid,
-        best_ask: sim.bestAsk,
+        best_bid: sim.bestBid ?? undefined,
+        best_ask: sim.bestAsk ?? undefined,
         fill_source: sim.fillSource,
-        snapshot_age_ms: sim.snapshotAgeMs,
+        snapshot_age_ms: sim.snapshotAgeMs ?? undefined,
         available_depth: sim.availableDepth,
         execution_mode: executionMode,
       });
