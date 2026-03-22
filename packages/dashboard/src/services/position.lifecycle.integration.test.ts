@@ -108,7 +108,7 @@ async function upsertPosition(
        avg_entry_price = EXCLUDED.avg_entry_price,
        current_price = EXCLUDED.current_price,
        unrealized_pnl = 0,
-       realized_pnl = 0,
+       realized_pnl = CASE WHEN test_paper_positions.closed_at IS NOT NULL THEN test_paper_positions.realized_pnl ELSE 0 END,
        closed_at = NULL,
        opened_at = EXCLUDED.opened_at,
        updated_at = NOW()`,
@@ -134,7 +134,7 @@ async function closePosition(
   const posResult = await client.query(
     `UPDATE test_paper_positions SET
       closed_at = NOW(),
-      realized_pnl = $1,
+      realized_pnl = COALESCE(realized_pnl, 0) + $1,
       current_price = $2,
       size = 0
     WHERE id = $3 AND closed_at IS NULL`,
@@ -403,6 +403,36 @@ describe.skipIf(!hasDb)('Position Lifecycle Integration', () => {
   });
 
   // ── Invariant 4: Missing positionId is safe ───────────────────────────────
+
+  it('cumulative PnL invariant: position.realized_pnl matches account after close→reopen→close', async () => {
+    // First lifecycle: open at 0.5, close at 0.6 (profit)
+    await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size: 100, price: 0.5 });
+    const pos1 = await getPositionRow(client, 'm1', 't1');
+    const r1 = await closePosition(client, pos1.id, 0.6, 100, 0.5);
+    expect(r1.executed).toBe(true);
+
+    // Re-open same market/token (upsert triggers ON CONFLICT path)
+    await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size: 80, price: 0.55 });
+
+    // Second lifecycle: close at 0.65 (profit again)
+    const pos2 = await getPositionRow(client, 'm1', 't1');
+    const r2 = await closePosition(client, pos2.id, 0.65, 80, 0.55);
+    expect(r2.executed).toBe(true);
+
+    const account = await getAccount(client);
+    const accountPnl = parseFloat(account.total_realized_pnl);
+
+    // Position row must reflect cumulative PnL from both closes
+    const closedPos = await getPositionRow(client, 'm1', 't1');
+    const positionPnl = parseFloat(closedPos.realized_pnl);
+
+    // Both should equal r1.netPnl + r2.netPnl
+    expect(positionPnl).toBeCloseTo(r1.netPnl + r2.netPnl, 4);
+    expect(positionPnl).toBeCloseTo(accountPnl, 4);
+
+    // No zombies
+    expect(await getZombieCount(client)).toBe(0);
+  });
 
   it('close with undefined positionId: no DB changes (circuit breaker safety)', async () => {
     await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size: 100, price: 0.5 });
