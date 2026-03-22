@@ -23,6 +23,7 @@ import {
 import { getPositionClosingService } from './PositionClosingService.js';
 import { getCircuitBreakerService } from './CircuitBreakerService.js';
 import { getExecutionRouter } from './ExecutionRouter.js';
+import { OrderBookExecutionSimulator, type SimulationResult } from './OrderBookExecutionSimulator.js';
 
 // ---------------------------------------------------------------------------
 // Inline score helpers (mirror MarketScorer statics — no cross-package import)
@@ -139,10 +140,12 @@ export class AutoSignalExecutor extends EventEmitter {
   private readonly SIGNAL_DEDUP_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
   private stoppedOutMarkets: Map<string, number> = new Map();
   private nearResolutionMarkets: Set<string> = new Set();
+  private simulator: OrderBookExecutionSimulator;
 
-  constructor(config?: Partial<ExecutorConfig>) {
+  constructor(config?: Partial<ExecutorConfig>, simulator?: OrderBookExecutionSimulator) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.simulator = simulator || new OrderBookExecutionSimulator();
     this.lastDayReset = new Date();
     this.lastDayReset.setHours(0, 0, 0, 0);
   }
@@ -577,27 +580,47 @@ export class AutoSignalExecutor extends EventEmitter {
 
     // Execute the BUY trade
     try {
-      const fee = shares * signal.price * this.config.feeRate;
+      // Simulate realistic execution via order book
+      const sim = await this.simulator.simulateBuy(
+        signal.marketId, signal.tokenId, shares, signal.price
+      );
+
+      if (!sim.executed) {
+        console.log(`[AutoExecutor] Trade rejected by simulator: ${sim.rejectReason}`);
+        return { executed: false, reason: `Simulator rejected: ${sim.rejectReason}` };
+      }
+
+      // Use simulated values instead of signal.price
+      const actualShares = sim.executedSize;
+      const actualPrice = sim.executedPrice;
+      const actualFee = sim.fee;
+      const actualValue = actualShares * actualPrice;
+
       const trade = await paperTradesRepo.create({
         time: new Date(),
         market_id: signal.marketId,
         token_id: signal.tokenId,
         side: 'buy',
         requested_size: shares,
-        executed_size: shares,
+        executed_size: actualShares,
         requested_price: signal.price,
-        executed_price: signal.price,
-        fee,
-        value_usd: shares * signal.price,
+        executed_price: actualPrice,
+        slippage_pct: sim.slippagePct,
+        fee: actualFee,
+        value_usd: actualValue,
         signal_id: prediction?.id,
         signal_type: signal.signalId,
         order_type: 'market',
-        fill_type: 'full',
+        fill_type: actualShares < shares ? 'partial' : 'full',
+        best_bid: sim.bestBid,
+        best_ask: sim.bestAsk,
+        fill_source: sim.fillSource,
+        snapshot_age_ms: sim.snapshotAgeMs,
+        available_depth: sim.availableDepth,
         execution_mode: executionMode,
       });
 
       // Update paper account - subtract cost
-      const orderValue = shares * signal.price;
       await query(
         `UPDATE paper_account SET
           current_capital = current_capital - $1,
@@ -606,7 +629,7 @@ export class AutoSignalExecutor extends EventEmitter {
           total_trades = total_trades + 1,
           updated_at = NOW()
         WHERE id = 1`,
-        [orderValue + fee, fee]
+        [actualValue + actualFee, actualFee]
       );
 
       // Create position - CRITICAL: if this fails, we need to reverse the trade
@@ -616,9 +639,9 @@ export class AutoSignalExecutor extends EventEmitter {
           market_id: signal.marketId,
           token_id: signal.tokenId,
           side: signal.direction === 'long' ? 'long' : 'short',
-          size: shares,
-          avg_entry_price: signal.price,
-          current_price: signal.price,
+          size: actualShares,
+          avg_entry_price: actualPrice,
+          current_price: actualPrice,
           unrealized_pnl: 0,
           opened_at: new Date(),
           signal_type: signal.signalId,
@@ -638,7 +661,7 @@ export class AutoSignalExecutor extends EventEmitter {
               total_trades = total_trades - 1,
               updated_at = NOW()
             WHERE id = 1`,
-            [orderValue + fee, fee]
+            [actualValue + actualFee, actualFee]
           );
           await query('DELETE FROM paper_trades WHERE id = $1', [trade.id]);
         } catch (reverseError) {
@@ -656,13 +679,13 @@ export class AutoSignalExecutor extends EventEmitter {
         signal,
         trade,
         prediction,
-        shares,
-        value: orderValue,
+        shares: actualShares,
+        value: actualValue,
         action: 'open',
       });
 
       const side = signal.direction === 'long' ? 'YES' : 'NO';
-      console.log(`[AutoExecutor] OPENED: BUY ${shares} ${side} shares of ${signal.marketId.substring(0, 20)}... @ $${signal.price.toFixed(4)}`);
+      console.log(`[AutoExecutor] OPENED: BUY ${actualShares} ${side} shares of ${signal.marketId.substring(0, 20)}... @ $${actualPrice.toFixed(4)} (slippage: ${sim.slippagePct.toFixed(2)}%, source: ${sim.fillSource})`);
 
       return {
         executed: true,
@@ -721,6 +744,19 @@ export class AutoSignalExecutor extends EventEmitter {
     // Note: No price drop sanity check — in prediction markets, a token can
     // legitimately drop 99% (e.g. $0.50 → $0.005) when an event becomes unlikely.
     // Rejecting the exit would trap capital permanently (bought but never sold).
+
+    // Simulate realistic sell execution
+    const sim = await this.simulator.simulateSell(
+      signal.marketId, position.token_id, shares, exitPrice
+    );
+
+    if (!sim.executed) {
+      console.log(`[AutoExecutor] Close rejected by simulator: ${sim.rejectReason}`);
+      return { executed: false, reason: `Simulator rejected close: ${sim.rejectReason}` };
+    }
+
+    // Use simulated exit price
+    exitPrice = sim.executedPrice;
 
     // Record the signal prediction
     let prediction: SignalPrediction | null = null;
@@ -926,7 +962,7 @@ export function getAutoSignalExecutor(): AutoSignalExecutor {
   return autoSignalExecutor;
 }
 
-export function initializeAutoSignalExecutor(config?: Partial<ExecutorConfig>): AutoSignalExecutor {
-  autoSignalExecutor = new AutoSignalExecutor(config);
+export function initializeAutoSignalExecutor(config?: Partial<ExecutorConfig>, simulator?: OrderBookExecutionSimulator): AutoSignalExecutor {
+  autoSignalExecutor = new AutoSignalExecutor(config, simulator);
   return autoSignalExecutor;
 }

@@ -441,8 +441,12 @@ export class ClobCollector {
       return false;
     }
 
-    const bestBid = orderBook.bids[0] ? parseFloat(orderBook.bids[0].price) : null;
-    const bestAsk = orderBook.asks[0] ? parseFloat(orderBook.asks[0].price) : null;
+    // CLOB API returns bids ascending, asks descending — sort for correct best prices
+    const sortedBids = [...orderBook.bids].sort((a, b) => parseFloat(b.price) - parseFloat(a.price));
+    const sortedAsks = [...orderBook.asks].sort((a, b) => parseFloat(a.price) - parseFloat(b.price));
+
+    const bestBid = sortedBids[0] ? parseFloat(sortedBids[0].price) : null;
+    const bestAsk = sortedAsks[0] ? parseFloat(sortedAsks[0].price) : null;
     const spread = bestBid && bestAsk ? bestAsk - bestBid : null;
     const midPrice = bestBid && bestAsk ? (bestBid + bestAsk) / 2 : null;
 
@@ -488,8 +492,8 @@ export class ClobCollector {
           bestAsk,
           spread,
           midPrice,
-          JSON.stringify(orderBook.bids.slice(0, 10)),  // Store top 10 levels
-          JSON.stringify(orderBook.asks.slice(0, 10)),
+          JSON.stringify(sortedBids.slice(0, 10)),  // Store top 10 BEST bid levels
+          JSON.stringify(sortedAsks.slice(0, 10)),  // Store top 10 BEST ask levels
           bidDepth,
           askDepth,
         ]

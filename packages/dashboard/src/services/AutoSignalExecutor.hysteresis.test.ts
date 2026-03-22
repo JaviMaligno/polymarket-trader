@@ -1,26 +1,26 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mock all dependencies before importing the class under test
-vi.mock('../../database/index.js', () => ({
-  isDatabaseConfigured: () => true,
-  // Return an active market for all market-status queries
-  query: vi.fn().mockResolvedValue({
-    rows: [{ is_active: true, is_resolved: false, end_date: null }],
-  }),
+vi.mock('../database/index.js', () => ({
+  isDatabaseConfigured: vi.fn(() => true),
+  query: vi.fn(),
 }));
-vi.mock('../../database/repositories.js', () => ({
+
+vi.mock('../database/repositories.js', () => ({
   paperTradesRepo: { create: vi.fn() },
   paperPositionsRepo: { getAll: vi.fn().mockResolvedValue([]) },
   signalPredictionsRepo: { create: vi.fn() },
   signalWeightsRepo: { getAll: vi.fn().mockResolvedValue([]) },
 }));
-vi.mock('../PositionClosingService.js', () => ({
+
+vi.mock('./PositionClosingService.js', () => ({
   getPositionClosingService: () => ({ closePosition: vi.fn() }),
 }));
-vi.mock('../CircuitBreakerService.js', () => ({
+
+vi.mock('./CircuitBreakerService.js', () => ({
   getCircuitBreakerService: () => ({ isTradingHalted: () => false }),
 }));
-vi.mock('../OrderBookExecutionSimulator.js', () => ({
+
+vi.mock('./OrderBookExecutionSimulator.js', () => ({
   OrderBookExecutionSimulator: class {
     simulateBuy = vi.fn().mockResolvedValue({
       executed: true, executedPrice: 0.60, executedSize: 10,
@@ -37,7 +37,9 @@ vi.mock('../OrderBookExecutionSimulator.js', () => ({
   },
 }));
 
-import { AutoSignalExecutor } from '../AutoSignalExecutor.js';
+import { query } from '../database/index.js';
+import { paperPositionsRepo } from '../database/repositories.js';
+import { AutoSignalExecutor } from './AutoSignalExecutor.js';
 
 const makeSignal = (confidence: number, direction: 'long' | 'short' = 'long') => ({
   signalId: 'test',
@@ -49,11 +51,21 @@ const makeSignal = (confidence: number, direction: 'long' | 'short' = 'long') =>
   price: 0.6,
 });
 
+/** Make query return a valid active market so early guards pass */
+function mockValidMarket() {
+  (query as ReturnType<typeof vi.fn>).mockResolvedValue({
+    rows: [{ is_active: true, is_resolved: false, end_date: null }],
+  });
+}
+
 describe('AutoSignalExecutor — hysteresis thresholds', () => {
   let executor: AutoSignalExecutor;
 
   beforeEach(() => {
-    executor = new AutoSignalExecutor({ openThreshold: 0.43, exitThreshold: 0.25 });
+    vi.clearAllMocks();
+    mockValidMarket();
+    (paperPositionsRepo.getAll as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    executor = new AutoSignalExecutor({ openThreshold: 0.43, exitThreshold: 0.25, cooldownMs: 0 });
     executor.start();
   });
 

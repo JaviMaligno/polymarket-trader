@@ -245,6 +245,9 @@ export interface PaperTrade {
   rejection_reason?: string;
   best_bid?: number;
   best_ask?: number;
+  fill_source?: string;
+  snapshot_age_ms?: number | null;
+  available_depth?: number;
   execution_mode?: string;
 }
 
@@ -255,8 +258,9 @@ export const paperTradesRepo = {
        (time, market_id, token_id, side, requested_size, executed_size,
         requested_price, executed_price, slippage_pct, fee, value_usd,
         signal_id, signal_type, order_type, fill_type, rejection_reason,
-        best_bid, best_ask, execution_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        best_bid, best_ask, fill_source, snapshot_age_ms, available_depth,
+        execution_mode)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
        RETURNING *`,
       [
         trade.time,
@@ -277,6 +281,9 @@ export const paperTradesRepo = {
         trade.rejection_reason,
         trade.best_bid,
         trade.best_ask,
+        trade.fill_source,
+        trade.snapshot_age_ms ?? null,
+        trade.available_depth,
         trade.execution_mode ?? 'paper',
       ]
     );

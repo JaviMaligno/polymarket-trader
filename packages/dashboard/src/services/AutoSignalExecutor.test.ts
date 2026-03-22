@@ -27,6 +27,23 @@ vi.mock('./CircuitBreakerService.js', () => ({
   })),
 }));
 
+vi.mock('./OrderBookExecutionSimulator.js', () => ({
+  OrderBookExecutionSimulator: class {
+    simulateBuy = vi.fn().mockResolvedValue({
+      executed: true, executedPrice: 0.50, executedSize: 10,
+      slippagePct: 0.1, fee: 0.005, fillSource: 'estimated',
+      snapshotAgeMs: null, availableDepth: 0,
+      bestBid: null, bestAsk: null,
+    });
+    simulateSell = vi.fn().mockResolvedValue({
+      executed: true, executedPrice: 0.50, executedSize: 10,
+      slippagePct: 0.1, fee: 0.005, fillSource: 'estimated',
+      snapshotAgeMs: null, availableDepth: 0,
+      bestBid: null, bestAsk: null,
+    });
+  },
+}));
+
 import { query } from '../database/index.js';
 import { paperPositionsRepo } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
