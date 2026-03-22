@@ -27,16 +27,11 @@ import {
 import { Card, StatCard } from './Card';
 import { AutomationPanel } from './AutomationPanel';
 import { useWebSocket } from '../hooks/useWebSocket';
-import { formatCurrency, formatPercent, formatTime, cn, pnlColor } from '../lib/utils';
+import { formatCurrency, formatPercent, cn, pnlColor } from '../lib/utils';
 import * as api from '../lib/api';
 import type { DashboardState, Position, Alert, PaperAccount } from '../types/api';
 
 type TabId = 'overview' | 'automation';
-
-interface EquityCurvePoint {
-  time: string;
-  value: number;
-}
 
 interface SignalWeight {
   signal_type: string;
@@ -61,7 +56,7 @@ export function Dashboard() {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [state, setState] = useState<DashboardState | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
-  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [, setAlerts] = useState<Alert[]>([]);
   const [paperAccount, setPaperAccount] = useState<PaperAccount | null>(null);
   // equityCurve from portfolio_snapshots no longer used — reconstructed from trades
   const [signalWeights, setSignalWeights] = useState<SignalWeight[]>([]);
@@ -87,7 +82,7 @@ export function Dashboard() {
     }
   }, []);
 
-  const { isConnected } = useWebSocket({
+  useWebSocket({
     onMessage: handleMessage,
   });
 
@@ -422,7 +417,7 @@ export function Dashboard() {
                       border: '1px solid #374151',
                       borderRadius: '8px',
                     }}
-                    formatter={(value: number) => [formatCurrency(value), 'Equity']}
+                    formatter={(value: number | undefined) => [formatCurrency(value ?? 0), 'Equity']}
                     labelStyle={{ color: '#9ca3af' }}
                   />
                   <Area
