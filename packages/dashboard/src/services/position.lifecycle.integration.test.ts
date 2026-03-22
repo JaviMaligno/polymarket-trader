@@ -108,7 +108,7 @@ async function upsertPosition(
        avg_entry_price = EXCLUDED.avg_entry_price,
        current_price = EXCLUDED.current_price,
        unrealized_pnl = 0,
-       realized_pnl = CASE WHEN test_paper_positions.closed_at IS NOT NULL THEN test_paper_positions.realized_pnl ELSE 0 END,
+       realized_pnl = test_paper_positions.realized_pnl,
        closed_at = NULL,
        opened_at = EXCLUDED.opened_at,
        updated_at = NOW()`,

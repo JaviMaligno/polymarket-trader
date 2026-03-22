@@ -437,7 +437,7 @@ export class PolymarketService extends EventEmitter {
         FROM markets m
         WHERE m.is_active = true
           AND m.is_resolved = false
-          AND m.clob_token_id_yes IS NOT NULL
+          AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
           AND m.current_price_yes > $1
           AND m.current_price_yes < $2
           AND m.volume_24h >= $3

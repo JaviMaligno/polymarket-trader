@@ -56,6 +56,10 @@ These are rules that MUST hold. When the data violates one, you've found a bug â
 - Drawdown calculation must use equity (capital + position value), not capital alone
 - If capital is low but positions hold the value, that's not a real drawdown
 
+### Known PnL Gap (DO NOT flag as a new bug)
+
+There is a **historical PnL gap** of ~$5,500 between `paper_account.total_realized_pnl` and `SUM(paper_positions.realized_pnl WHERE closed_at IS NOT NULL)`. This gap is **known and expected** â€” it accumulated before PR #43 (merged 2026-03-22) fixed a bug where upserts on position re-opens overwrote `realized_pnl` with 0. The account-level PnL is correct; the position-level audit trail is incomplete for historical trades. The gap should NOT grow after 2026-03-22. If you observe the gap **increasing** from ~$5,500, THAT is a new bug worth investigating. If it stays stable or slowly shrinks (as old positions close), it's working as expected.
+
 ### Historical Bug Patterns (learn from these)
 - **Bypass bugs**: Services closing positions via direct SQL instead of PositionClosingService
 - **Upsert field resets**: ON CONFLICT upserts that don't reset all relevant fields (e.g., closed_at)
