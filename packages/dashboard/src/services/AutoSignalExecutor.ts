@@ -114,6 +114,10 @@ const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 const MAX_POSITIONS_PER_MARKET = 2;
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
+// Near-resolved price guard: block new opens when market is effectively decided
+// Configurable via env vars (defaults: 0.97 upper, 0.03 lower)
+const NEAR_RESOLVED_UPPER = parseFloat(process.env.EXECUTOR_NEAR_RESOLVED_UPPER || '0.97');
+const NEAR_RESOLVED_LOWER = parseFloat(process.env.EXECUTOR_NEAR_RESOLVED_LOWER || '0.03');
 
 interface TradeRecord {
   marketId: string;
@@ -263,7 +267,21 @@ export class AutoSignalExecutor extends EventEmitter {
         return { executed: false, reason: 'Market is already resolved' };
       }
 
-      // 0b. Near-resolution market protection
+      // 0b. Near-resolved price guard: block new opens when price signals market is decided
+      // Allows closes (selling existing positions) — only blocks new entries
+      if (signal.price >= NEAR_RESOLVED_UPPER || signal.price <= NEAR_RESOLVED_LOWER) {
+        // Check if this is a close of an OPEN position — allow those through
+        // getAll() only returns open positions (closed_at IS NULL)
+        const openPositions = await paperPositionsRepo.getAll();
+        const hasOpenPosition = openPositions.some(p => p.market_id === signal.marketId);
+        const isClose = signal.direction === 'short' && hasOpenPosition;
+        if (!isClose) {
+          console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Near-resolved price $${signal.price.toFixed(4)} (bounds: ${NEAR_RESOLVED_LOWER}-${NEAR_RESOLVED_UPPER})`);
+          return { executed: false, reason: `Near-resolved market: price $${signal.price.toFixed(4)} outside ${NEAR_RESOLVED_LOWER}-${NEAR_RESOLVED_UPPER} range` };
+        }
+      }
+
+      // 0c. Near-resolution market protection (time-based)
       if (market.end_date) {
         const hoursToResolution = (new Date(market.end_date).getTime() - Date.now()) / 3600000;
         if (hoursToResolution > 0 && hoursToResolution < NEAR_RESOLUTION_HOURS) {

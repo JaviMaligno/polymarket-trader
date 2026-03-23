@@ -251,6 +251,72 @@ jobs:
               2>&1 | tee claude-fix-output.log
           fi
 
+      - name: Auto-merge small daily-review PRs
+        if: always() && steps.gather.outputs.data_collected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [ ! -f claude-output.log ] && echo "No Claude output — skipping" && exit 0
+          PR_BRANCHES=$(grep -oP 'fix/daily-review-[a-z0-9-]+' claude-output.log | sort -u || true)
+          [ -z "$PR_BRANCHES" ] && echo "No PR branches — nothing to auto-merge" && exit 0
+
+          AUTOMERGE_MAX_FILES=2
+          AUTOMERGE_MAX_LINES=20
+
+          for branch in $PR_BRANCHES; do
+            PR_NUM=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number' 2>/dev/null || true)
+            [ -z "$PR_NUM" ] && echo "[$branch] No open PR — skipping" && continue
+
+            PR_DATA=$(gh pr view "$PR_NUM" --json files,additions,deletions,changedFiles,labels)
+            FILE_COUNT=$(echo "$PR_DATA" | jq '.changedFiles')
+            TOTAL=$(( $(echo "$PR_DATA" | jq '.additions') + $(echo "$PR_DATA" | jq '.deletions') ))
+            HAS_LABEL=$(echo "$PR_DATA" | jq '[.labels[].name] | index("daily-review") != null')
+            TOUCHES_PROTECTED=$(echo "$PR_DATA" | jq '[.files[].path] | any(startswith(".github/") or startswith("scripts/daily-review"))')
+
+            echo "PR #$PR_NUM ($branch): $FILE_COUNT files, $TOTAL lines, label=$HAS_LABEL, protected=$TOUCHES_PROTECTED"
+
+            if [ "$HAS_LABEL" != "true" ]; then
+              echo "  → Missing daily-review label — manual review required"
+              continue
+            fi
+
+            if [ "$TOUCHES_PROTECTED" = "true" ]; then
+              echo "  → Touches protected paths — manual review required"
+              continue
+            fi
+
+            if [ "$FILE_COUNT" -gt "$AUTOMERGE_MAX_FILES" ] || [ "$TOTAL" -gt "$AUTOMERGE_MAX_LINES" ]; then
+              echo "  → Exceeds size limits (max $AUTOMERGE_MAX_FILES files, $AUTOMERGE_MAX_LINES lines) — manual review"
+              continue
+            fi
+
+            # Final test gate before merge (unit + integration if touching DB/position code)
+            git fetch origin "$branch" 2>/dev/null || continue
+            git checkout "$branch" 2>/dev/null || continue
+            UNIT_OK=false
+            INT_OK=true
+
+            if pnpm test 2>&1 | tail -5 | grep -q "passed"; then
+              UNIT_OK=true
+            fi
+
+            if git diff origin/main --name-only | grep -qE "(repositor|Position|Signal|CircuitBreaker|StopLoss|Cleanup)"; then
+              if ! DATABASE_URL="postgres://test:test@localhost:5432/test_trading" \
+                 pnpm run test:integration 2>&1 | tail -5 | grep -q "passed"; then
+                INT_OK=false
+              fi
+            fi
+
+            if [ "$UNIT_OK" = "true" ] && [ "$INT_OK" = "true" ]; then
+              git checkout main 2>/dev/null
+              echo "  → All criteria met — auto-merging"
+              gh pr merge "$PR_NUM" --merge --delete-branch
+            else
+              git checkout main 2>/dev/null
+              echo "  → Tests failed — manual review required"
+            fi
+          done
+
       - name: Upload Claude logs
         if: always()
         uses: actions/upload-artifact@v4

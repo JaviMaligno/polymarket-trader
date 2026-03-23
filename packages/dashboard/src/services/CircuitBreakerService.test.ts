@@ -22,6 +22,8 @@ vi.mock('./StopLossService.js', () => ({
 vi.mock('./PositionClosingService.js', () => ({
   getPositionClosingService: vi.fn(() => ({
     close: vi.fn().mockResolvedValue({ executed: true, netPnl: -5, fee: 0.01 }),
+    on: vi.fn(),
+    off: vi.fn(),
   })),
 }));
 
@@ -81,6 +83,8 @@ describe('CircuitBreakerService', () => {
     vi.doMock('./PositionClosingService.js', () => ({
       getPositionClosingService: vi.fn(() => ({
         close: vi.fn().mockResolvedValue({ executed: true, netPnl: -5, fee: 0.01 }),
+        on: vi.fn(),
+        off: vi.fn(),
       })),
     }));
 

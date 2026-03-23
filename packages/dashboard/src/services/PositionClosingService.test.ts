@@ -267,6 +267,7 @@ describe('PositionClosingService', () => {
     expect(eventSpy).toHaveBeenCalledWith({
       marketId: 'market-abc',
       reason: 'stop_loss',
+      netPnl: expect.any(Number),
     });
   });
 
