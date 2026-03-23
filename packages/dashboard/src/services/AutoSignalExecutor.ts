@@ -98,7 +98,7 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   maxPositionSize: parseInt(process.env.EXECUTOR_MAX_POSITION_SIZE || '500', 10),
   maxOpenPositions: parseInt(process.env.EXECUTOR_MAX_OPEN_POSITIONS || '50', 10),
   maxDailyTrades: parseInt(process.env.EXECUTOR_MAX_DAILY_TRADES || '50', 10),
-  cooldownMs: 60000,
+  cooldownMs: parseInt(process.env.EXECUTOR_MARKET_COOLDOWN_MS || '300000', 10),
   feeRate: 0.001,
   // Smart price validation - configurable via environment variables
   // minPotentialROI: 0.15 means need at least 15% potential gain → rejects prices > ~0.87
