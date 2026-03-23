@@ -26,6 +26,7 @@ export interface CircuitBreakerConfig {
   initialCapital: number;       // Reference capital (default: 10000)
   cooldownMs: number;           // Cooldown before resuming (default: 30 min)
   autoReset: boolean;           // Whether to auto-reset capital (default: false)
+  maxConsecutiveLosses: number; // Halt after N consecutive losing closes (default: 8)
 }
 
 interface CircuitBreakerEvent {
@@ -43,6 +44,7 @@ const DEFAULT_CONFIG: CircuitBreakerConfig = {
   initialCapital: parseFloat(process.env.INITIAL_CAPITAL || '10000'),
   cooldownMs: 30 * 60 * 1000,              // 30 minutes cooldown
   autoReset: false,                         // Don't auto-reset, preserve state
+  maxConsecutiveLosses: parseInt(process.env.CB_MAX_CONSECUTIVE_LOSSES || '8', 10),
 };
 
 export class CircuitBreakerService extends EventEmitter {
@@ -54,6 +56,8 @@ export class CircuitBreakerService extends EventEmitter {
   private resetCount = 0;
   private lastResetTime: Date | null = null;
   private isHaltedInMemory = false;
+  private consecutiveLosses = 0;
+  private onPositionClosed: ((data: any) => void) | null = null;
 
   constructor(config?: Partial<CircuitBreakerConfig>) {
     super();
@@ -114,6 +118,27 @@ export class CircuitBreakerService extends EventEmitter {
     };
     stopLoss.on('positions:closed', this.onPositionsClosed);
 
+    // Track consecutive losses via PositionClosingService events
+    const closingService = getPositionClosingService();
+    this.onPositionClosed = ({ netPnl }: { marketId: string; reason: string; netPnl: number }) => {
+      if (netPnl < 0) {
+        this.consecutiveLosses++;
+        if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
+          console.log(`[CircuitBreaker] ${this.consecutiveLosses} consecutive losses — halting trading`);
+          this.haltTrading(`${this.consecutiveLosses} consecutive losing trades`)
+            .catch(err => console.error('[CircuitBreaker] Consecutive loss halt failed:', err));
+          this.consecutiveLosses = 0;
+          // Schedule cooldown end
+          setTimeout(() => {
+            this.resumeTrading().catch(err => console.error('[CircuitBreaker] Resume failed:', err));
+          }, this.config.cooldownMs);
+        }
+      } else {
+        this.consecutiveLosses = 0;
+      }
+    };
+    closingService.on('position:closed', this.onPositionClosed);
+
     // Fallback timer: safety net
     this.checkInterval = setInterval(() => {
       this.checkDrawdown().catch(err => {
@@ -138,6 +163,10 @@ export class CircuitBreakerService extends EventEmitter {
     if (this.onPositionsClosed) {
       getStopLossService().off('positions:closed', this.onPositionsClosed);
       this.onPositionsClosed = null;
+    }
+    if (this.onPositionClosed) {
+      getPositionClosingService().off('position:closed', this.onPositionClosed);
+      this.onPositionClosed = null;
     }
     if (this.checkInterval) {
       clearInterval(this.checkInterval);

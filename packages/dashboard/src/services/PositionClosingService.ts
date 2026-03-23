@@ -179,7 +179,7 @@ export class PositionClosingService extends EventEmitter {
     const pnlStr = netPnl >= 0 ? `+$${netPnl.toFixed(2)}` : `-$${Math.abs(netPnl).toFixed(2)}`;
     console.log(`[PositionClosingService] Closed position ${positionId} (${reason}) | ${side} ${size} @ exit=$${exitPrice.toFixed(4)} | PnL: ${pnlStr} | Fee: $${fee.toFixed(4)}`);
 
-    this.emit('position:closed', { marketId, reason });
+    this.emit('position:closed', { marketId, reason, netPnl });
 
     return { executed: true, netPnl, fee, tradeId };
   }
