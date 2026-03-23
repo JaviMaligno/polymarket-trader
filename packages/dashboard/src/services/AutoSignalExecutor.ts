@@ -270,9 +270,11 @@ export class AutoSignalExecutor extends EventEmitter {
       // 0b. Near-resolved price guard: block new opens when price signals market is decided
       // Allows closes (selling existing positions) — only blocks new entries
       if (signal.price >= NEAR_RESOLVED_UPPER || signal.price <= NEAR_RESOLVED_LOWER) {
-        // Check if this is a close of existing position — allow those through
-        const existingPos = await paperPositionsRepo.get(signal.marketId);
-        const isClose = signal.direction === 'short' && existingPos !== null;
+        // Check if this is a close of an OPEN position — allow those through
+        // getAll() only returns open positions (closed_at IS NULL)
+        const openPositions = await paperPositionsRepo.getAll();
+        const hasOpenPosition = openPositions.some(p => p.market_id === signal.marketId);
+        const isClose = signal.direction === 'short' && hasOpenPosition;
         if (!isClose) {
           console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Near-resolved price $${signal.price.toFixed(4)} (bounds: ${NEAR_RESOLVED_LOWER}-${NEAR_RESOLVED_UPPER})`);
           return { executed: false, reason: `Near-resolved market: price $${signal.price.toFixed(4)} outside ${NEAR_RESOLVED_LOWER}-${NEAR_RESOLVED_UPPER} range` };
