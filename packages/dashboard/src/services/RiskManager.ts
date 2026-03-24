@@ -174,7 +174,7 @@ export class RiskManager extends EventEmitter {
     }
 
     // Reset daily tracking if new day
-    this.checkDayReset();
+    await this.checkDayReset();
 
     try {
       // Get current account state

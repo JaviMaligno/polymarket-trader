@@ -252,7 +252,7 @@ export class PaperTradingService {
       const snapshot: PortfolioSnapshot = {
         time: new Date(),
         initial_capital: initialCapital,
-        current_capital: equity,
+        current_capital: currentCapital,
         available_capital: availableCapital,
         total_pnl: totalPnl,
         total_pnl_pct: totalPnlPct,
