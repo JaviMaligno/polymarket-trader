@@ -152,7 +152,19 @@ export class PaperTradingService {
         signal_type: signalType,
       };
 
-      await paperPositionsRepo.upsert(dbPosition);
+      // UPDATE existing open position in place (don't INSERT — would violate partial unique index)
+      await query(
+        `UPDATE paper_positions SET
+          size = $1, avg_entry_price = $2, current_price = $3,
+          unrealized_pnl = $4, unrealized_pnl_pct = $5,
+          signal_type = $6, updated_at = NOW()
+        WHERE market_id = $7 AND token_id = $8 AND closed_at IS NULL`,
+        [
+          dbPosition.size, dbPosition.avg_entry_price, dbPosition.current_price,
+          dbPosition.unrealized_pnl, dbPosition.unrealized_pnl_pct,
+          dbPosition.signal_type, dbPosition.market_id, dbPosition.token_id,
+        ]
+      );
     } catch (error) {
       console.error('Failed to update position:', error);
     }

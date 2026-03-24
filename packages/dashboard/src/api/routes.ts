@@ -1174,26 +1174,22 @@ export async function registerRoutes(
 
       if (side === 'buy') {
         if (existingPosition) {
-          // Average into existing position
+          // Average into existing position — UPDATE in place
           const currentSize = parseFloat(existingPosition.size);
           const currentAvg = parseFloat(existingPosition.avg_entry_price);
           const newSize = currentSize + size;
           const newAvg = (currentSize * currentAvg + size * price) / newSize;
 
-          await paperPositionsRepo.upsert({
-            market_id,
-            token_id,
-            side: 'long',
-            size: newSize,
-            avg_entry_price: newAvg,
-            current_price: price,
-            unrealized_pnl: 0,
-            opened_at: new Date(),
-            signal_type,
-          });
+          await query(
+            `UPDATE paper_positions SET
+              size = $1, avg_entry_price = $2, current_price = $3,
+              unrealized_pnl = 0, updated_at = NOW()
+            WHERE id = $4 AND closed_at IS NULL`,
+            [newSize, newAvg, price, existingPosition.id]
+          );
         } else {
           // Open new position
-          await paperPositionsRepo.upsert({
+          await paperPositionsRepo.insert({
             market_id,
             token_id,
             side: 'long',
@@ -1207,7 +1203,6 @@ export async function registerRoutes(
         }
       } else if (side === 'sell' && existingPosition) {
         // Partial close (full close handled above via PositionClosingService)
-        // TODO: Refactor partial closes to use PositionClosingService once it supports partial sizes
         const currentSize = parseFloat(existingPosition.size);
         const currentAvg = parseFloat(existingPosition.avg_entry_price);
         const pnl = (price - currentAvg) * Math.min(size, currentSize);
@@ -1225,19 +1220,14 @@ export async function registerRoutes(
           [pnl, isWin ? 1 : 0, isWin ? 0 : 1]
         );
 
-        // Reduce position
-        await paperPositionsRepo.upsert({
-          market_id,
-          token_id,
-          side: 'long',
-          size: currentSize - size,
-          avg_entry_price: currentAvg,
-          current_price: price,
-          unrealized_pnl: 0,
-          realized_pnl: pnl,
-          opened_at: new Date(),
-          signal_type,
-        });
+        // Reduce position size in place
+        await query(
+          `UPDATE paper_positions SET
+            size = $1, current_price = $2, realized_pnl = $3,
+            unrealized_pnl = 0, updated_at = NOW()
+          WHERE id = $4 AND closed_at IS NULL`,
+          [currentSize - size, price, pnl, existingPosition.id]
+        );
       }
 
       return reply.send({
