@@ -235,6 +235,40 @@ account_consistency=$(query_one "
   ) t;
 ")
 
+# 11b. Generalized invariant checks (PASS/FAIL)
+invariant_checks=$(query_one "
+  SELECT row_to_json(t) FROM (
+    SELECT
+      -- Cash flow crosscheck: account PnL vs actual trade flows
+      ABS(a.total_realized_pnl - COALESCE(flows.net_cash_plus_fees, 0)) < 1.0 AS pnl_matches_cashflows,
+      a.total_realized_pnl::float AS account_pnl,
+      COALESCE(flows.net_cash_plus_fees, 0)::float AS cashflow_pnl,
+      ABS(a.total_realized_pnl - COALESCE(flows.net_cash_plus_fees, 0))::float AS pnl_gap,
+      -- Available capital vs locked
+      ABS(a.available_capital - (a.current_capital - COALESCE(pos.open_cost, 0))) < 1.0 AS capital_lock_correct,
+      a.available_capital::float AS available,
+      a.current_capital::float AS current,
+      COALESCE(pos.open_cost, 0)::float AS open_cost,
+      -- Fee tracking
+      ABS(a.total_fees_paid - COALESCE(fees.actual_fees, 0)) < 1.0 AS fees_match,
+      a.total_fees_paid::float AS account_fees,
+      COALESCE(fees.actual_fees, 0)::float AS trade_fees
+    FROM paper_account a
+    LEFT JOIN (
+      SELECT SUM(CASE WHEN side = 'sell' THEN amount ELSE -amount END) + SUM(fee) AS net_cash_plus_fees
+      FROM paper_trades
+    ) flows ON true
+    LEFT JOIN (
+      SELECT SUM(size * avg_entry_price) AS open_cost
+      FROM paper_positions WHERE closed_at IS NULL
+    ) pos ON true
+    LEFT JOIN (
+      SELECT SUM(fee) AS actual_fees FROM paper_trades
+    ) fees ON true
+    LIMIT 1
+  ) t
+")
+
 # 12. Price freshness
 price_freshness=$(query_one "
   SELECT row_to_json(t) FROM (
@@ -367,6 +401,39 @@ if [ "$resource_usage" != "[]" ]; then
   ]' 2>/dev/null || echo "[]")
 fi
 
+# 18c. Container restart counts and OOM events
+container_health="{}"
+if command -v docker &>/dev/null; then
+  restart_json="[]"
+  for cid in $(docker ps -q 2>/dev/null); do
+    cinfo=$(docker inspect --format='{"name":"{{.Name}}","restart_count":{{.RestartCount}},"started_at":"{{.State.StartedAt}}"}' "$cid" 2>/dev/null || echo "")
+    if [ -n "$cinfo" ]; then
+      restart_json=$(echo "$restart_json" | jq --argjson item "$cinfo" '. + [$item]' 2>/dev/null || echo "$restart_json")
+    fi
+  done
+
+  oom_events=$(dmesg 2>/dev/null | grep -ci 'oom\|killed process' || echo "0")
+
+  container_health=$(jq -n \
+    --argjson restarts "$restart_json" \
+    --argjson oom_count "$oom_events" \
+    '{"restarts": $restarts, "oom_kills_in_dmesg": $oom_count}' 2>/dev/null || echo '{"restarts":[],"oom_kills_in_dmesg":0}')
+fi
+
+# 18d. Database security (auth failure count from TimescaleDB logs)
+db_security="{}"
+if command -v docker &>/dev/null; then
+  fatal_count=$(docker logs polymarket-timescaledb --since 24h 2>&1 | grep -c "FATAL" 2>/dev/null || echo "0")
+  db_security=$(jq -n --argjson fatal_count "$fatal_count" '{"fatal_auth_failures_24h": $fatal_count}' 2>/dev/null || echo '{"fatal_auth_failures_24h":0}')
+fi
+
+# 18e. Disk usage
+disk_usage="{}"
+disk_pct=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %' || echo "0")
+docker_size=$(du -sm /var/lib/docker/ 2>/dev/null | cut -f1 || echo "0")
+disk_usage=$(jq -n --argjson pct "$disk_pct" --argjson docker_mb "$docker_size" \
+  '{"root_usage_pct": $pct, "docker_size_mb": $docker_mb}' 2>/dev/null || echo '{"root_usage_pct":0,"docker_size_mb":0}')
+
 # 19. Error logs from containers
 get_container_errors() {
   local pattern="$1"
@@ -409,6 +476,7 @@ jq -n \
   --argjson zombie_positions "$zombie_positions" \
   --argjson orphaned_buys "$orphaned_buys" \
   --argjson account_consistency "$account_consistency" \
+  --argjson invariant_checks "$invariant_checks" \
   --argjson price_freshness "$price_freshness" \
   --argjson signal_freshness "$signal_freshness" \
   --argjson optimization_runs "$optimization_runs" \
@@ -417,6 +485,9 @@ jq -n \
   --argjson containers "$containers" \
   --argjson resource_usage "$resource_usage" \
   --argjson cpu_alerts "$cpu_alerts" \
+  --argjson container_health "$container_health" \
+  --argjson db_security "$db_security" \
+  --argjson disk_usage "$disk_usage" \
   --argjson error_logs "$error_logs" \
   '{
     generated_at: $ts,
@@ -431,6 +502,7 @@ jq -n \
     zombie_positions: $zombie_positions,
     orphaned_buys: $orphaned_buys,
     account_consistency: $account_consistency,
+    invariant_checks: $invariant_checks,
     price_freshness: $price_freshness,
     signal_freshness: $signal_freshness,
     optimization_runs: $optimization_runs,
@@ -439,5 +511,8 @@ jq -n \
     containers: $containers,
     resource_usage: $resource_usage,
     cpu_alerts: $cpu_alerts,
+    container_health: $container_health,
+    db_security: $db_security,
+    disk_usage: $disk_usage,
     error_logs: $error_logs
   }'
