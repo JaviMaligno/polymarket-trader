@@ -95,6 +95,19 @@ export class CircuitBreakerService extends EventEmitter {
       console.error('[CircuitBreaker] Failed to create trading_config table:', error);
     }
 
+    // Load consecutive loss counter from DB
+    try {
+      const result = await query<{ value: string }>(
+        `SELECT value FROM trading_config WHERE key = 'consecutive_losses'`
+      );
+      if (result.rows[0]) {
+        this.consecutiveLosses = parseInt(result.rows[0].value, 10) || 0;
+        console.log(`[CircuitBreaker] Loaded consecutive losses from DB: ${this.consecutiveLosses}`);
+      }
+    } catch (err) {
+      // Non-critical — start with 0
+    }
+
     this.isRunning = true;
     console.log(`[CircuitBreaker] Started (fallback interval: ${this.config.checkIntervalMs / 1000}s, max drawdown: ${this.config.maxDrawdownPct}%)`);
 
@@ -123,6 +136,12 @@ export class CircuitBreakerService extends EventEmitter {
     this.onPositionClosed = ({ netPnl }: { marketId: string; reason: string; netPnl: number }) => {
       if (netPnl < 0) {
         this.consecutiveLosses++;
+        query(
+          `INSERT INTO trading_config (key, value, description, updated_at)
+           VALUES ('consecutive_losses', $1, 'Consecutive losing trades counter', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [String(this.consecutiveLosses)]
+        ).catch(() => {}); // fire-and-forget, non-critical
         if (this.consecutiveLosses >= this.config.maxConsecutiveLosses) {
           console.log(`[CircuitBreaker] ${this.consecutiveLosses} consecutive losses — halting trading`);
           this.haltTrading(`${this.consecutiveLosses} consecutive losing trades`)
@@ -135,6 +154,12 @@ export class CircuitBreakerService extends EventEmitter {
         }
       } else {
         this.consecutiveLosses = 0;
+        query(
+          `INSERT INTO trading_config (key, value, description, updated_at)
+           VALUES ('consecutive_losses', $1, 'Consecutive losing trades counter', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+          [String(this.consecutiveLosses)]
+        ).catch(() => {}); // fire-and-forget, non-critical
       }
     };
     closingService.on('position:closed', this.onPositionClosed);

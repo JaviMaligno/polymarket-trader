@@ -227,6 +227,9 @@ async function main(): Promise<void> {
           const weightMap: Record<string, string> = {
             'combiner.momentumWeight': 'momentum',
             'combiner.meanReversionWeight': 'mean_reversion',
+            'combiner.ofiWeight': 'ofi',
+            'combiner.mlofiWeight': 'mlofi',
+            'combiner.hawkesWeight': 'hawkes',
           };
           for (const [paramKey, signalType] of Object.entries(weightMap)) {
             const w = params[paramKey];
