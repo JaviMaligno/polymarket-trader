@@ -292,6 +292,30 @@ Thresholds are guidance, not hard rules. Apply judgment:
 
 **Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure. But you must PROVE it's expected behavior with evidence, not assume it.
 
+## Invariant Checks (NEW)
+
+The `invariant_checks` section contains automated PASS/FAIL checks:
+
+- `pnl_matches_cashflows` (boolean): If `false`, account PnL diverges from actual trade cash flows — indicates phantom PnL or accounting bug. **Always flag as CRITICAL.**
+- `capital_lock_correct` (boolean): If `false`, available_capital doesn't match current_capital minus open position costs — indicates capital tracking bug.
+- `fees_match` (boolean): If `false`, account fee tracking diverges from actual trade fees — investigate fee handling code.
+
+The `pnl_gap` field shows the exact dollar difference for investigation.
+
+## Infrastructure Monitoring (NEW)
+
+### container_health
+- `oom_kills_in_dmesg > 0`: Kernel OOM killer active — identify which container and recommend memory increase. **Flag as HIGH.**
+- Any `restart_count > 0`: Container crashed — investigate logs for root cause.
+
+### db_security
+- `fatal_auth_failures_24h > 100`: Possible brute force attack on database port. **Flag as CRITICAL.**
+- `fatal_auth_failures_24h > 1000`: Active, sustained attack. **Flag as CRITICAL — immediate action required.**
+
+### disk_usage
+- `root_usage_pct > 85`: Disk filling up — investigate and clean.
+- `docker_size_mb > 20000`: Docker consuming excessive space.
+
 ## Investigation Rule
 
 Every anomaly (metric out of range, zero where >0 expected, discrepancy in numbers) requires at least ONE SQL query or log check before classifying severity. Report the query result as evidence in the issue. Without evidence, severity is **"Unknown — requires manual investigation"** with a specific next step the human can take.
