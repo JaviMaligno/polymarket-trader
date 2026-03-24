@@ -336,32 +336,14 @@ export interface PaperPosition {
 }
 
 export const paperPositionsRepo = {
-  async upsert(position: PaperPosition): Promise<void> {
+  async insert(position: PaperPosition): Promise<void> {
     await query(
       `INSERT INTO paper_positions
        (market_id, token_id, side, size, avg_entry_price, current_price,
         unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
         opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry,
         execution_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-       ON CONFLICT (market_id, token_id) DO UPDATE SET
-         current_price = EXCLUDED.current_price,
-         unrealized_pnl = EXCLUDED.unrealized_pnl,
-         unrealized_pnl_pct = EXCLUDED.unrealized_pnl_pct,
-         realized_pnl = paper_positions.realized_pnl,
-         size = EXCLUDED.size,
-         side = EXCLUDED.side,
-         closed_at = NULL,
-         opened_at = EXCLUDED.opened_at,
-         avg_entry_price = EXCLUDED.avg_entry_price,
-         signal_type = EXCLUDED.signal_type,
-         metadata = EXCLUDED.metadata,
-         stop_loss = EXCLUDED.stop_loss,
-         take_profit = EXCLUDED.take_profit,
-         market_score_at_entry = COALESCE(paper_positions.market_score_at_entry, EXCLUDED.market_score_at_entry),
-         score_dimensions_at_entry = COALESCE(paper_positions.score_dimensions_at_entry, EXCLUDED.score_dimensions_at_entry),
-         execution_mode = EXCLUDED.execution_mode,
-         updated_at = NOW()`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
       [
         position.market_id,
         position.token_id,
@@ -384,6 +366,82 @@ export const paperPositionsRepo = {
     );
   },
 
+  /**
+   * @deprecated Use insert() for new code. This alias exists for backward
+   * compatibility with routes.ts and PaperTradingService.ts.
+   */
+  async upsert(position: PaperPosition): Promise<void> {
+    return this.insert(position);
+  },
+
+  /**
+   * Open a position atomically: check for duplicates, debit account, and
+   * insert position — all inside a single serializable transaction.
+   * Returns { opened: false, reason } if a position is already open or
+   * capital is insufficient. Rolls back on any failure.
+   */
+  async openPositionAtomically(
+    position: PaperPosition,
+    cost: number,
+    fee: number,
+  ): Promise<{ opened: boolean; reason?: string }> {
+    try {
+      return await transaction(async (client: PoolClient) => {
+        // Lock any existing open position for this token
+        const existing = await client.query(
+          `SELECT id FROM paper_positions
+           WHERE market_id = $1 AND token_id = $2 AND closed_at IS NULL
+           FOR UPDATE`,
+          [position.market_id, position.token_id]
+        );
+        if (existing.rows.length > 0) {
+          return { opened: false, reason: 'Position already open for this token' };
+        }
+        // Debit account atomically
+        const acctResult = await client.query(
+          `UPDATE paper_account SET
+            current_capital = current_capital - $1,
+            available_capital = available_capital - $1,
+            total_fees_paid = total_fees_paid + $2,
+            total_trades = total_trades + 1,
+            updated_at = NOW()
+          WHERE id = 1
+          RETURNING available_capital`,
+          [cost + fee, fee]
+        );
+        const newAvailable = parseFloat(acctResult.rows[0]?.available_capital ?? '0');
+        if (newAvailable < 0) {
+          throw new Error(`Insufficient capital: available would be $${newAvailable.toFixed(2)}`);
+        }
+        // Insert position (realized_pnl always 0 for new positions)
+        await client.query(
+          `INSERT INTO paper_positions
+           (market_id, token_id, side, size, avg_entry_price, current_price,
+            unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
+            opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry,
+            execution_mode)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+          [
+            position.market_id, position.token_id, position.side, position.size,
+            position.avg_entry_price, position.current_price,
+            position.unrealized_pnl ?? 0, position.unrealized_pnl_pct ?? 0,
+            0, position.stop_loss, position.take_profit, position.opened_at,
+            position.signal_type, JSON.stringify(position.metadata ?? {}),
+            position.market_score_at_entry ?? null,
+            position.score_dimensions_at_entry != null ? JSON.stringify(position.score_dimensions_at_entry) : null,
+            position.execution_mode ?? 'paper',
+          ]
+        );
+        return { opened: true };
+      });
+    } catch (error: any) {
+      if (error.code === '23505') {
+        return { opened: false, reason: 'Position already open (unique constraint)' };
+      }
+      throw error;
+    }
+  },
+
   async getAll(): Promise<PaperPosition[]> {
     // Only return open positions (not closed)
     const result = await query<PaperPosition>(
@@ -394,7 +452,7 @@ export const paperPositionsRepo = {
 
   async get(marketId: string): Promise<PaperPosition | null> {
     const result = await query<PaperPosition>(
-      'SELECT * FROM paper_positions WHERE market_id = $1',
+      'SELECT * FROM paper_positions WHERE market_id = $1 AND closed_at IS NULL',
       [marketId]
     );
     return result.rows[0] ?? null;

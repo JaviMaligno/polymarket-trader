@@ -247,6 +247,31 @@ describe('PositionClosingService', () => {
     expect(result.reason).toContain('transaction failed');
   });
 
+  it('should write absolute realized_pnl (not additive) to the position', async () => {
+    // Verify the SQL uses "realized_pnl = $1" not "realized_pnl = COALESCE(...) + $1"
+    const params: ClosePositionParams = {
+      positionId: 10,
+      marketId: 'market-abs',
+      tokenId: 'token-yes',
+      side: 'long',
+      size: 100,
+      entryPrice: 0.40,
+      exitPrice: 0.60,
+      reason: 'signal',
+    };
+
+    await service.close(params);
+
+    // First query in the transaction is the position UPDATE
+    const posUpdateSql = mockClient.query.mock.calls[0][0] as string;
+    // Should be absolute assignment, not additive
+    expect(posUpdateSql).toContain('realized_pnl = $1');
+    expect(posUpdateSql).not.toContain('COALESCE(realized_pnl');
+    // netPnl should be the first parameter
+    const posUpdateParams = mockClient.query.mock.calls[0][1] as number[];
+    expect(posUpdateParams[0]).toBeCloseTo(19.94, 4);
+  });
+
   it('should emit position:closed event with marketId and reason after successful close', async () => {
     const params: ClosePositionParams = {
       positionId: 1,

@@ -7,7 +7,12 @@ vi.mock('../database/index.js', () => ({
 
 vi.mock('../database/repositories.js', () => ({
   paperTradesRepo: { create: vi.fn() },
-  paperPositionsRepo: { getAll: vi.fn(), upsert: vi.fn() },
+  paperPositionsRepo: {
+    getAll: vi.fn(),
+    insert: vi.fn(),
+    upsert: vi.fn(),
+    openPositionAtomically: vi.fn().mockResolvedValue({ opened: true }),
+  },
   signalPredictionsRepo: { create: vi.fn() },
   signalWeightsRepo: { get: vi.fn() },
 }));
@@ -25,6 +30,10 @@ vi.mock('./CircuitBreakerService.js', () => ({
   getCircuitBreakerService: vi.fn(() => ({
     isTradingHalted: vi.fn(() => false),
   })),
+}));
+
+vi.mock('./ExecutionRouter.js', () => ({
+  getExecutionRouter: vi.fn(() => null),
 }));
 
 vi.mock('./OrderBookExecutionSimulator.js', () => ({

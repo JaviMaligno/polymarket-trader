@@ -114,7 +114,7 @@ export class PositionClosingService extends EventEmitter {
         const posResult = await client.query(
           `UPDATE paper_positions SET
             closed_at = NOW(),
-            realized_pnl = COALESCE(realized_pnl, 0) + $1,
+            realized_pnl = $1,
             current_price = $2,
             size = 0
           WHERE id = $3 AND closed_at IS NULL`,
