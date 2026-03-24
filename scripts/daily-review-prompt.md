@@ -296,21 +296,22 @@ Thresholds are guidance, not hard rules. Apply judgment:
 
 The `invariant_checks` section contains automated PASS/FAIL checks:
 
-- `pnl_matches_cashflows` (boolean): If `false`, account PnL diverges from actual trade cash flows — indicates phantom PnL or accounting bug. **Always flag as CRITICAL.**
-- `capital_lock_correct` (boolean): If `false`, available_capital doesn't match current_capital minus open position costs — indicates capital tracking bug.
-- `fees_match` (boolean): If `false`, account fee tracking diverges from actual trade fees — investigate fee handling code.
+- `capital_matches_cashflows` (boolean): If `false`, current_capital minus initial_capital diverges from net cash flow of all trades — indicates phantom PnL or accounting bug. **Always flag as CRITICAL.**
+- `capital_lock_correct` (boolean): If `false`, available_capital doesn't match current_capital minus open position costs — indicates capital tracking bug. **Flag as HIGH.**
+- `fees_match` (boolean): If `false`, account fee tracking diverges from actual trade fees. **Flag as HIGH** and investigate fee handling code.
 
-The `pnl_gap` field shows the exact dollar difference for investigation.
+The `cashflow_gap` field shows the exact dollar difference for investigation.
 
 ## Infrastructure Monitoring (NEW)
 
 ### container_health
-- `oom_kills_in_dmesg > 0`: Kernel OOM killer active — identify which container and recommend memory increase. **Flag as HIGH.**
+- Any container with `oom_killed: true`: Container was killed by OOM — recommend memory increase. **Flag as HIGH.**
 - Any `restart_count > 0`: Container crashed — investigate logs for root cause.
 
 ### db_security
-- `fatal_auth_failures_24h > 100`: Possible brute force attack on database port. **Flag as CRITICAL.**
-- `fatal_auth_failures_24h > 1000`: Active, sustained attack. **Flag as CRITICAL — immediate action required.**
+- `auth_failures_24h > 100`: Possible brute force attack on database port. **Flag as CRITICAL.**
+- `auth_failures_24h > 1000`: Active, sustained attack. **Flag as CRITICAL — immediate action required.**
+- `fatal_log_lines_24h`: Total FATAL lines (includes auth failures + other errors like config issues, connection limits).
 
 ### disk_usage
 - `root_usage_pct > 85`: Disk filling up — investigate and clean.

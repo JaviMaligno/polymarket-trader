@@ -239,11 +239,12 @@ account_consistency=$(query_one "
 invariant_checks=$(query_one "
   SELECT row_to_json(t) FROM (
     SELECT
-      -- Cash flow crosscheck: account PnL vs actual trade flows
-      ABS(a.total_realized_pnl - COALESCE(flows.net_cash_plus_fees, 0)) < 1.0 AS pnl_matches_cashflows,
-      a.total_realized_pnl::float AS account_pnl,
-      COALESCE(flows.net_cash_plus_fees, 0)::float AS cashflow_pnl,
-      ABS(a.total_realized_pnl - COALESCE(flows.net_cash_plus_fees, 0))::float AS pnl_gap,
+      -- Cash flow crosscheck: net cash from trades should equal capital change
+      -- Buy: capital -= (value_usd + fee). Sell: capital += (value_usd - fee).
+      ABS((a.current_capital - a.initial_capital) - COALESCE(flows.net_cash_flow, 0)) < 1.0 AS capital_matches_cashflows,
+      (a.current_capital - a.initial_capital)::float AS capital_change,
+      COALESCE(flows.net_cash_flow, 0)::float AS net_cash_flow,
+      ABS((a.current_capital - a.initial_capital) - COALESCE(flows.net_cash_flow, 0))::float AS cashflow_gap,
       -- Available capital vs locked
       ABS(a.available_capital - (a.current_capital - COALESCE(pos.open_cost, 0))) < 1.0 AS capital_lock_correct,
       a.available_capital::float AS available,
@@ -255,7 +256,7 @@ invariant_checks=$(query_one "
       COALESCE(fees.actual_fees, 0)::float AS trade_fees
     FROM paper_account a
     LEFT JOIN (
-      SELECT SUM(CASE WHEN side = 'sell' THEN amount ELSE -amount END) + SUM(fee) AS net_cash_plus_fees
+      SELECT SUM(CASE WHEN side = 'sell' THEN value_usd - fee ELSE -(value_usd + fee) END) AS net_cash_flow
       FROM paper_trades
     ) flows ON true
     LEFT JOIN (
@@ -404,15 +405,10 @@ fi
 # 18c. Container restart counts and OOM events
 container_health="{}"
 if command -v docker &>/dev/null; then
-  restart_json="[]"
-  for cid in $(docker ps -q 2>/dev/null); do
-    cinfo=$(docker inspect --format='{"name":"{{.Name}}","restart_count":{{.RestartCount}},"started_at":"{{.State.StartedAt}}"}' "$cid" 2>/dev/null || echo "")
-    if [ -n "$cinfo" ]; then
-      restart_json=$(echo "$restart_json" | jq --argjson item "$cinfo" '. + [$item]' 2>/dev/null || echo "$restart_json")
-    fi
-  done
+  restart_json=$(docker inspect --format='{"name":"{{.Name}}","restart_count":{{.RestartCount}},"started_at":"{{.State.StartedAt}}","oom_killed":{{.State.OOMKilled}}}' $(docker ps -q) 2>/dev/null | jq -s '.' 2>/dev/null || echo "[]")
 
-  oom_events=$(dmesg 2>/dev/null | grep -ci 'oom\|killed process' || echo "0")
+  oom_events=$(docker inspect --format='{{.State.OOMKilled}}' $(docker ps -q) 2>/dev/null | grep -c "true" || true)
+  oom_events=${oom_events:-0}
 
   container_health=$(jq -n \
     --argjson restarts "$restart_json" \
@@ -423,14 +419,20 @@ fi
 # 18d. Database security (auth failure count from TimescaleDB logs)
 db_security="{}"
 if command -v docker &>/dev/null; then
-  fatal_count=$(docker logs polymarket-timescaledb --since 24h 2>&1 | grep -c "FATAL" 2>/dev/null || echo "0")
-  db_security=$(jq -n --argjson fatal_count "$fatal_count" '{"fatal_auth_failures_24h": $fatal_count}' 2>/dev/null || echo '{"fatal_auth_failures_24h":0}')
+  fatal_count=$(docker logs polymarket-timescaledb --since 24h 2>&1 | grep -c "FATAL" || true)
+  fatal_count=${fatal_count:-0}
+  auth_fail_count=$(docker logs polymarket-timescaledb --since 24h 2>&1 | grep -c "FATAL.*password authentication failed\|FATAL.*no pg_hba.conf entry" || true)
+  auth_fail_count=${auth_fail_count:-0}
+  db_security=$(jq -n --argjson fatal_count "$fatal_count" --argjson auth_failures "$auth_fail_count" \
+    '{"fatal_log_lines_24h": $fatal_count, "auth_failures_24h": $auth_failures}' 2>/dev/null || echo '{"fatal_log_lines_24h":0,"auth_failures_24h":0}')
 fi
 
 # 18e. Disk usage
 disk_usage="{}"
-disk_pct=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %' || echo "0")
-docker_size=$(du -sm /var/lib/docker/ 2>/dev/null | cut -f1 || echo "0")
+disk_pct=$(df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %' || true)
+disk_pct=${disk_pct:-0}
+docker_size=$(sudo du -sm /var/lib/docker/ 2>/dev/null | cut -f1 || true)
+docker_size=${docker_size:-0}
 disk_usage=$(jq -n --argjson pct "$disk_pct" --argjson docker_mb "$docker_size" \
   '{"root_usage_pct": $pct, "docker_size_mb": $docker_mb}' 2>/dev/null || echo '{"root_usage_pct":0,"docker_size_mb":0}')
 
