@@ -1,6 +1,6 @@
 # Docker Compose for Google Cloud e2-micro VM
 # Optimized for 1GB RAM total (TimescaleDB + 2 services + overhead)
-# Memory budget: TimescaleDB 350M + Data Collector 60M + Dashboard 180M = 590M
+# Memory budget: TimescaleDB 350M + Data Collector 150M + Dashboard 180M = 680M
 # NOTE: Optimizer runs on Render (polymarket-optimizer-server.onrender.com)
 #
 # Usage:
@@ -22,7 +22,7 @@ services:
       - timescaledb_data:/var/lib/postgresql/data
       - ./packages/data-collector/src/database/init:/docker-entrypoint-initdb.d
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     # Tune PostgreSQL for low memory (1GB VM shared with other services)
     command:
       - "postgres"
@@ -88,9 +88,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 60M
+          memory: 150M
         reservations:
-          memory: 40M
+          memory: 60M
     logging:
       driver: "json-file"
       options:
