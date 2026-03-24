@@ -638,22 +638,9 @@ export class AutoSignalExecutor extends EventEmitter {
         execution_mode: executionMode,
       });
 
-      // Update paper account - subtract cost
-      await query(
-        `UPDATE paper_account SET
-          current_capital = current_capital - $1,
-          available_capital = available_capital - $1,
-          total_fees_paid = total_fees_paid + $2,
-          total_trades = total_trades + 1,
-          updated_at = NOW()
-        WHERE id = 1`,
-        [actualValue + actualFee, actualFee]
-      );
-
-      // Create position - CRITICAL: if this fails, we need to reverse the trade
-      // Set side based on signal direction: 'long' for Yes token, 'short' for No token
-      try {
-        await paperPositionsRepo.upsert({
+      // Open position atomically: check + debit + insert in one transaction
+      const openResult = await paperPositionsRepo.openPositionAtomically(
+        {
           market_id: signal.marketId,
           token_id: signal.tokenId,
           side: signal.direction === 'long' ? 'long' : 'short',
@@ -666,26 +653,19 @@ export class AutoSignalExecutor extends EventEmitter {
           market_score_at_entry: marketScoreAtEntry,
           score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
           execution_mode: executionMode,
-        });
-      } catch (positionError) {
-        // Position creation failed - reverse the account update and delete the trade
-        console.error('Position creation failed, reversing trade:', positionError);
+        },
+        actualValue,
+        actualFee,
+      );
+
+      if (!openResult.opened) {
+        // Position already exists or insufficient capital — delete the trade record
         try {
-          await query(
-            `UPDATE paper_account SET
-              current_capital = current_capital + $1,
-              available_capital = available_capital + $1,
-              total_fees_paid = total_fees_paid - $2,
-              total_trades = total_trades - 1,
-              updated_at = NOW()
-            WHERE id = 1`,
-            [actualValue + actualFee, actualFee]
-          );
           await query('DELETE FROM paper_trades WHERE id = $1', [trade.id]);
-        } catch (reverseError) {
-          console.error('Failed to reverse trade after position error:', reverseError);
+        } catch (delError) {
+          console.error('Failed to delete orphaned trade:', delError);
         }
-        return { executed: false, reason: `Position creation failed: ${positionError}` };
+        return { executed: false, reason: openResult.reason || 'Position open failed' };
       }
 
       // Track the trade
