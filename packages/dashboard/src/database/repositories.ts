@@ -559,8 +559,8 @@ export const portfolioSnapshotsRepo = {
   },
 
   async getEquityCurve(days = 30): Promise<Array<{ time: Date; value: number }>> {
-    const result = await query<{ time: Date; current_capital: number }>(
-      `SELECT time, current_capital
+    const result = await query<{ time: Date; equity: number }>(
+      `SELECT time, (current_capital + COALESCE(total_exposure, 0)) as equity
        FROM portfolio_snapshots
        WHERE time > NOW() - INTERVAL '1 day' * $1
        ORDER BY time ASC`,
@@ -568,7 +568,7 @@ export const portfolioSnapshotsRepo = {
     );
     return result.rows.map((row) => ({
       time: row.time,
-      value: parseFloat(row.current_capital as unknown as string),
+      value: parseFloat(row.equity as unknown as string),
     }));
   },
 

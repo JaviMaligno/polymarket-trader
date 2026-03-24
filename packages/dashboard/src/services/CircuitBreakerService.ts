@@ -147,6 +147,12 @@ export class CircuitBreakerService extends EventEmitter {
           this.haltTrading(`${this.consecutiveLosses} consecutive losing trades`)
             .catch(err => console.error('[CircuitBreaker] Consecutive loss halt failed:', err));
           this.consecutiveLosses = 0;
+          query(
+            `INSERT INTO trading_config (key, value, description, updated_at)
+             VALUES ('consecutive_losses', $1, 'Consecutive losing trades counter', NOW())
+             ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
+            [String(this.consecutiveLosses)]
+          ).catch(() => {}); // persist reset to 0 so restart doesn't re-trigger halt
           // Schedule cooldown end
           setTimeout(() => {
             this.resumeTrading().catch(err => console.error('[CircuitBreaker] Resume failed:', err));
