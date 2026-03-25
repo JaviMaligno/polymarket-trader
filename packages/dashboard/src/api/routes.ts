@@ -1153,24 +1153,21 @@ export async function registerRoutes(
         best_ask,
       });
 
-      // Update paper account capital
-      const newCapital = side === 'buy'
-        ? parseFloat(account.current_capital) - totalCost
-        : parseFloat(account.current_capital) + orderValue - fee;
-
-      const newAvailable = side === 'buy'
-        ? availableCapital - totalCost
-        : availableCapital + orderValue - fee;
-
-      await query(
+      // Update paper account capital using atomic SQL increments to avoid
+      // read-modify-write races. For buy: deduct cost+fee; for sell: add proceeds.
+      const capitalDelta = side === 'buy' ? -totalCost : orderValue - fee;
+      const capitalUpdateResult = await query<{ current_capital: string; available_capital: string }>(
         `UPDATE paper_account SET
-          current_capital = $1,
-          available_capital = $2,
-          total_fees_paid = total_fees_paid + $3,
+          current_capital = current_capital + $1,
+          available_capital = available_capital + $1,
+          total_fees_paid = total_fees_paid + $2,
           updated_at = NOW()
-        WHERE id = 1`,
-        [newCapital, newAvailable, fee]
+        WHERE id = 1
+        RETURNING current_capital, available_capital`,
+        [capitalDelta, fee]
       );
+      const newCapital = parseFloat(capitalUpdateResult.rows[0]?.current_capital ?? '0');
+      const newAvailable = parseFloat(capitalUpdateResult.rows[0]?.available_capital ?? '0');
 
       if (side === 'buy') {
         if (existingPosition) {
