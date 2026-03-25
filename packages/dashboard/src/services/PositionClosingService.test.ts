@@ -247,8 +247,9 @@ describe('PositionClosingService', () => {
     expect(result.reason).toContain('transaction failed');
   });
 
-  it('should write absolute realized_pnl (not additive) to the position', async () => {
-    // Verify the SQL uses "realized_pnl = $1" not "realized_pnl = COALESCE(...) + $1"
+  it('should write cumulative realized_pnl (additive across reopens) to the position', async () => {
+    // Verify the SQL uses "realized_pnl = COALESCE(realized_pnl, 0) + $1"
+    // so that close → reopen → close accumulates PnL from both closes on the position row.
     const params: ClosePositionParams = {
       positionId: 10,
       marketId: 'market-abs',
@@ -264,9 +265,8 @@ describe('PositionClosingService', () => {
 
     // First query in the transaction is the position UPDATE
     const posUpdateSql = mockClient.query.mock.calls[0][0] as string;
-    // Should be absolute assignment, not additive
-    expect(posUpdateSql).toContain('realized_pnl = $1');
-    expect(posUpdateSql).not.toContain('COALESCE(realized_pnl');
+    // Should be cumulative (additive), not absolute assignment
+    expect(posUpdateSql).toContain('COALESCE(realized_pnl, 0) + $1');
     // netPnl should be the first parameter
     const posUpdateParams = mockClient.query.mock.calls[0][1] as number[];
     expect(posUpdateParams[0]).toBeCloseTo(19.94, 4);
