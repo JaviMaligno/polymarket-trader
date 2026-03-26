@@ -1227,7 +1227,7 @@ export async function registerRoutes(
         // Reduce position size in place
         await query(
           `UPDATE paper_positions SET
-            size = $1, current_price = $2, realized_pnl = $3,
+            size = $1, current_price = $2, realized_pnl = COALESCE(realized_pnl, 0) + $3,
             unrealized_pnl = 0, updated_at = NOW()
           WHERE id = $4 AND closed_at IS NULL`,
           [currentSize - size, price, pnl, existingPosition.id]
