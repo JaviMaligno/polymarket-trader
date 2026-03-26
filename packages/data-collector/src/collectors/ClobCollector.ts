@@ -571,7 +571,7 @@ export class ClobCollector {
     // Get tracked markets ordered by score
     const marketsResult = await query(
       `
-      SELECT id, clob_token_id_yes, clob_token_id_no
+      SELECT id, clob_token_id_yes
       FROM markets
       WHERE tracking_status IN ('warming', 'active', 'cooling')
         AND clob_token_id_yes IS NOT NULL
@@ -596,17 +596,6 @@ export class ClobCollector {
         );
         totalInserted += yesResult.inserted;
         totalSkipped += yesResult.skipped;
-
-        // Sync NO token if exists
-        if (market.clob_token_id_no) {
-          const noResult = await this.syncPriceHistoryToDb(
-            market.id,
-            market.clob_token_id_no,
-            60
-          );
-          totalInserted += noResult.inserted;
-          totalSkipped += noResult.skipped;
-        }
 
       } catch (error) {
         logger.error({ error, marketId: market.id }, 'Error syncing market price history');

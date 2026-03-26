@@ -576,14 +576,16 @@ export class PolymarketService extends EventEmitter {
             this.prices.set(`${marketId}:${price.tokenId}`, price);
             this.emit('price', price);
 
-            // Collect for data collector
-            priceUpdates.push({
-              marketId: price.marketId,
-              tokenId: price.tokenId,
-              price: price.price,
-              bid: price.bid,
-              ask: price.ask,
-            });
+            // Only record Yes token prices to price_history (No = 1 - Yes, redundant)
+            if (updatedMarket.outcomes[i] === 'Yes') {
+              priceUpdates.push({
+                marketId: price.marketId,
+                tokenId: price.tokenId,
+                price: price.price,
+                bid: price.bid,
+                ask: price.ask,
+              });
+            }
           }
         }
       } catch (error) {

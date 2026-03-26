@@ -255,7 +255,8 @@ export class SignalLearningService extends EventEmitter {
             sp.market_id,
             sp.direction,
             sp.price_at_signal,
-            m.id as gamma_id
+            m.id as gamma_id,
+            m.clob_token_id_yes
           FROM signal_predictions sp
           JOIN markets m ON sp.market_id = m.id OR sp.market_id = m.condition_id
           WHERE sp.resolved_at IS NULL
@@ -263,12 +264,13 @@ export class SignalLearningService extends EventEmitter {
           LIMIT 100
         ),
         latest_prices AS (
-          SELECT DISTINCT ON (market_id)
-            market_id,
-            close as current_price
-          FROM price_history
-          WHERE time > NOW() - INTERVAL '24 hours'
-          ORDER BY market_id, time DESC
+          SELECT DISTINCT ON (ph.market_id)
+            ph.market_id,
+            ph.close as current_price,
+            ph.token_id
+          FROM price_history ph
+          WHERE ph.time > NOW() - INTERVAL '24 hours'
+          ORDER BY ph.market_id, ph.time DESC
         )
         SELECT
           ep.pred_id,
@@ -277,7 +279,7 @@ export class SignalLearningService extends EventEmitter {
           ep.price_at_signal,
           lp.current_price
         FROM eligible_predictions ep
-        JOIN latest_prices lp ON ep.gamma_id = lp.market_id
+        JOIN latest_prices lp ON ep.gamma_id = lp.market_id AND lp.token_id = ep.clob_token_id_yes
       `);
 
       let resolved = 0;
