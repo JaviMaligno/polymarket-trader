@@ -126,11 +126,15 @@ export class PositionClosingService extends EventEmitter {
           return { alreadyClosed: true };
         }
 
-        // UPDATE paper_account: return proceeds, track fees and stats
+        // UPDATE paper_account: return proceeds, track fees and stats.
+        // current_capital increases by proceeds (cash returned).
+        // available_capital increases by proceeds + cost (releases the position lock
+        // that was set in openPositionAtomically, restoring available = current).
+        const cost = entryPrice * size;
         await client.query(
           `UPDATE paper_account SET
             current_capital = current_capital + $1,
-            available_capital = available_capital + $1,
+            available_capital = available_capital + $1 + $4,
             total_fees_paid = total_fees_paid + $2,
             total_trades = total_trades + 1,
             total_realized_pnl = total_realized_pnl + $3,
@@ -138,7 +142,7 @@ export class PositionClosingService extends EventEmitter {
             losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
             updated_at = NOW()
           WHERE id = 1`,
-          [proceeds, fee, netPnl]
+          [proceeds, fee, netPnl, cost]
         );
 
         return { alreadyClosed: false };

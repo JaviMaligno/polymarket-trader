@@ -1155,16 +1155,23 @@ export async function registerRoutes(
 
       // Update paper account capital using atomic SQL increments to avoid
       // read-modify-write races. For buy: deduct cost+fee; for sell: add proceeds.
+      // available_capital tracks liquid capital = current_capital - locked_in_positions:
+      //   buy:  available also decrements by the position cost (lock), so delta = capitalDelta - orderValue
+      //   sell: available also increments by the released cost basis, so delta = capitalDelta + costReleased
       const capitalDelta = side === 'buy' ? -totalCost : orderValue - fee;
+      const costReleased = side === 'sell' && existingPosition
+        ? Math.min(size, parseFloat(existingPosition.size)) * parseFloat(existingPosition.avg_entry_price)
+        : 0;
+      const availableDelta = side === 'buy' ? capitalDelta - orderValue : capitalDelta + costReleased;
       const capitalUpdateResult = await query<{ current_capital: string; available_capital: string }>(
         `UPDATE paper_account SET
           current_capital = current_capital + $1,
-          available_capital = available_capital + $1,
-          total_fees_paid = total_fees_paid + $2,
+          available_capital = available_capital + $2,
+          total_fees_paid = total_fees_paid + $3,
           updated_at = NOW()
         WHERE id = 1
         RETURNING current_capital, available_capital`,
-        [capitalDelta, fee]
+        [capitalDelta, availableDelta, fee]
       );
       const newCapital = parseFloat(capitalUpdateResult.rows[0]?.current_capital ?? '0');
       const newAvailable = parseFloat(capitalUpdateResult.rows[0]?.available_capital ?? '0');
