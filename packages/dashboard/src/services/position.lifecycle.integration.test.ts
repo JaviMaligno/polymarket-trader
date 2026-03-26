@@ -145,10 +145,13 @@ async function closePosition(
     return { executed: false, netPnl: 0 };
   }
 
+  // Mirrors PositionClosingService: current_capital += proceeds,
+  // available_capital += proceeds + cost (releases the position lock).
+  const cost = entryPrice * size;
   await client.query(
     `UPDATE test_paper_account SET
       current_capital = current_capital + $1,
-      available_capital = available_capital + $1,
+      available_capital = available_capital + $1 + $4,
       total_fees_paid = total_fees_paid + $2,
       total_trades = total_trades + 1,
       total_realized_pnl = total_realized_pnl + $3,
@@ -156,7 +159,7 @@ async function closePosition(
       losing_trades = losing_trades + CASE WHEN $3 < 0 THEN 1 ELSE 0 END,
       updated_at = NOW()
     WHERE id = 1`,
-    [proceeds, fee, netPnl]
+    [proceeds, fee, netPnl, cost]
   );
 
   return { executed: true, netPnl };
@@ -171,10 +174,12 @@ async function openWithAccountUpdate(
   const orderValue = p.size * p.price;
   const fee = orderValue * feeRate;
 
+  // Mirrors openPositionAtomically: current_capital decrements by cost+fee,
+  // available_capital decrements by 2×cost+fee (also locks the position cost basis).
   await client.query(
     `UPDATE test_paper_account SET
       current_capital = current_capital - $1,
-      available_capital = available_capital - $1,
+      available_capital = available_capital - $1 - ($1 - $2),
       total_fees_paid = total_fees_paid + $2,
       total_trades = total_trades + 1,
       updated_at = NOW()
@@ -452,5 +457,39 @@ describe.skipIf(!hasDb)('Position Lifecycle Integration', () => {
     expect(pos.closed_at).toBeNull();     // position still open
     expect(parseFloat(pos.size)).toBe(100);
     expect(await getZombieCount(client)).toBe(0);
+  });
+
+  // ── Invariant 5: capital_lock_correct ─────────────────────────────────────
+
+  it('capital_lock_correct: available_capital = current_capital - open_position_cost while position is open', async () => {
+    const price = 0.5;
+    const size = 100;
+    const feeRate = 0.001;
+    const cost = size * price;          // 50
+    const fee = cost * feeRate;         // 0.05
+    const totalCost = cost + fee;       // 50.05
+
+    await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size, price });
+
+    const account = await getAccount(client);
+    const current = parseFloat(account.current_capital);
+    const available = parseFloat(account.available_capital);
+
+    // Verify: available = current - cost (position cost basis locked)
+    expect(available).toBeCloseTo(current - cost, 4);
+
+    // current decremented by cost+fee
+    expect(current).toBeCloseTo(10000 - totalCost, 4);
+    // available decremented by 2*cost+fee
+    expect(available).toBeCloseTo(10000 - 2 * cost - fee, 4);
+
+    // After close, available should equal current (lock released)
+    const pos = await getPositionRow(client, 'm1', 't1');
+    await closePosition(client, pos.id, 0.6, size, price);
+
+    const accountAfter = await getAccount(client);
+    expect(parseFloat(accountAfter.available_capital)).toBeCloseTo(
+      parseFloat(accountAfter.current_capital), 4
+    );
   });
 });

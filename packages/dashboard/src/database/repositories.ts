@@ -397,11 +397,14 @@ export const paperPositionsRepo = {
         if (existing.rows.length > 0) {
           return { opened: false, reason: 'Position already open for this token' };
         }
-        // Debit account atomically
+        // Debit account atomically.
+        // current_capital tracks actual cash flow (decrements by cost+fee).
+        // available_capital tracks liquid capital = current_capital - locked_in_positions,
+        // so it also decrements by the position cost basis on top of the cash outflow.
         const acctResult = await client.query(
           `UPDATE paper_account SET
             current_capital = current_capital - $1,
-            available_capital = available_capital - $1,
+            available_capital = available_capital - $1 - ($1 - $2),
             total_fees_paid = total_fees_paid + $2,
             total_trades = total_trades + 1,
             updated_at = NOW()
