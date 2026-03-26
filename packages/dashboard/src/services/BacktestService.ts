@@ -325,17 +325,22 @@ export class BacktestService extends EventEmitter {
 
       if (marketIds && marketIds.length > 0) {
         topMarketsQuery = `
-          SELECT market_id FROM price_history
-          WHERE time >= $1 AND time <= $2 AND market_id = ANY($3)
-          GROUP BY market_id HAVING COUNT(*) >= 35
+          SELECT ph.market_id FROM price_history ph
+          JOIN markets m ON ph.market_id = m.id
+          WHERE ph.time >= $1 AND ph.time <= $2
+            AND ph.market_id = ANY($3)
+            AND ph.token_id = m.clob_token_id_yes
+          GROUP BY ph.market_id HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
         `;
         topMarketsParams = [startDate, endDate, marketIds];
       } else {
         topMarketsQuery = `
-          SELECT market_id FROM price_history
-          WHERE time >= $1 AND time <= $2
-          GROUP BY market_id HAVING COUNT(*) >= 35
+          SELECT ph.market_id FROM price_history ph
+          JOIN markets m ON ph.market_id = m.id
+          WHERE ph.time >= $1 AND ph.time <= $2
+            AND ph.token_id = m.clob_token_id_yes
+          GROUP BY ph.market_id HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
         `;
         topMarketsParams = [startDate, endDate];
@@ -358,22 +363,24 @@ export class BacktestService extends EventEmitter {
 
       console.log(`[BacktestService] Selected ${selectedMarkets.length} markets with sufficient data`);
 
-      // Fetch all bars for selected markets
+      // Fetch all bars for selected markets (Yes token only to avoid mixing Yes/No prices)
       const priceQuery = `
         SELECT
-          time,
-          market_id,
-          token_id,
-          open,
-          high,
-          low,
-          close,
-          volume,
-          COALESCE(trade_count, 1) as trade_count
-        FROM price_history
-        WHERE time >= $1 AND time <= $2
-          AND market_id = ANY($3)
-        ORDER BY time ASC
+          ph.time,
+          ph.market_id,
+          ph.token_id,
+          ph.open,
+          ph.high,
+          ph.low,
+          ph.close,
+          ph.volume,
+          COALESCE(ph.trade_count, 1) as trade_count
+        FROM price_history ph
+        JOIN markets m ON ph.market_id = m.id
+        WHERE ph.time >= $1 AND ph.time <= $2
+          AND ph.market_id = ANY($3)
+          AND ph.token_id = m.clob_token_id_yes
+        ORDER BY ph.time ASC
       `;
 
       const priceResult = await query(priceQuery, [startDate, endDate, selectedMarkets]);

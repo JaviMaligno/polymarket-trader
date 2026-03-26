@@ -448,7 +448,8 @@ export class SignalEngine extends EventEmitter {
     try {
       // Get price history from database
       // market.id is always the Gamma market ID (set in PolymarketService.ts)
-      // which matches price_history.market_id directly — no JOIN needed
+      // which matches price_history.market_id directly — no JOIN needed.
+      // Filter by token_id = Yes token to avoid mixing Yes/No prices.
       const priceHistory = await query<{
         time: Date;
         open: number;
@@ -462,10 +463,10 @@ export class SignalEngine extends EventEmitter {
       }>(
         `SELECT time, open, high, low, close, volume, bid, ask, source
          FROM price_history
-         WHERE market_id = $1
+         WHERE market_id = $1 AND token_id = $2
          ORDER BY time DESC
          LIMIT 100`,
-        [market.id]
+        [market.id, market.tokenIdYes]
       );
 
       if (priceHistory.rows.length < this.config.minPriceBars) {

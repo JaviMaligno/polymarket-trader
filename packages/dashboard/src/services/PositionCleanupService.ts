@@ -136,12 +136,14 @@ export class PositionCleanupService extends EventEmitter {
           m.is_resolved,
           m.resolution_outcome,
           m.question,
-          ph.close as latest_price
+          -- For SHORT positions, price_history only has Yes token data
+          -- No token price = 1 - Yes token price
+          CASE WHEN pp.side = 'short' THEN 1 - ph.close ELSE ph.close END as latest_price
         FROM paper_positions pp
         LEFT JOIN markets m ON pp.market_id = m.id OR pp.market_id = m.condition_id
         LEFT JOIN LATERAL (
           SELECT close FROM price_history
-          WHERE token_id = pp.token_id
+          WHERE token_id = COALESCE(m.clob_token_id_yes, pp.token_id)
           ORDER BY time DESC LIMIT 1
         ) ph ON true
         WHERE pp.closed_at IS NULL
