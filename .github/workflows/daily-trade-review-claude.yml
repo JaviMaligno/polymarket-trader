@@ -254,7 +254,10 @@ jobs:
       - name: Auto-merge small daily-review PRs
         if: always() && steps.gather.outputs.data_collected == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
+          # Use a PAT instead of github.token so the merge push triggers
+          # downstream workflows (deploy). GitHub's security policy blocks
+          # GITHUB_TOKEN-originated pushes from firing on:push workflows.
+          GH_TOKEN: ${{ secrets.MERGE_PAT }}
         run: |
           [ ! -f claude-output.log ] && echo "No Claude output — skipping" && exit 0
           PR_BRANCHES=$(grep -oP 'fix/daily-review-[a-z0-9-]+' claude-output.log | sort -u || true)
