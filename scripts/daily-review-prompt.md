@@ -58,7 +58,22 @@ These are rules that MUST hold. When the data violates one, you've found a bug �
 
 ### Known PnL Gap (DO NOT flag as a new bug)
 
-There is a **historical PnL gap** of ~$5,500 between `paper_account.total_realized_pnl` and `SUM(paper_positions.realized_pnl WHERE closed_at IS NOT NULL)`. This gap is **known and expected** — it accumulated before PR #43 (merged 2026-03-22) fixed a bug where upserts on position re-opens overwrote `realized_pnl` with 0. The account-level PnL is correct; the position-level audit trail is incomplete for historical trades. The gap should NOT grow after 2026-03-22. If you observe the gap **increasing** from ~$5,500, THAT is a new bug worth investigating. If it stays stable or slowly shrinks (as old positions close), it's working as expected.
+There is a **historical PnL gap** between `paper_account.total_realized_pnl` and `SUM(paper_positions.realized_pnl WHERE closed_at IS NOT NULL)`. This gap is **known and expected** — it accumulated before PR #43 (merged 2026-03-22) and additional fixes in PR #49 (merged 2026-03-25) that fixed bugs where upserts on position re-opens overwrote `realized_pnl`. The gap should NOT grow after 2026-03-25. If you observe the gap **increasing**, THAT is a new bug worth investigating.
+
+### Account Reset History (DO NOT flag resets as drawdowns)
+
+The paper account has been reset multiple times to correct accounting bugs. **A reset is NOT a trading loss.** If you see a large drop in `peak_equity` → `current_capital` that coincides with a known reset date, it is an accounting correction, not a drawdown.
+
+Known resets:
+- **2026-03-26**: Price inversion reset. `price_history` stored both Yes AND No token prices from `api` and `collector` sources, corrupting all signals and producing phantom PnL (~$3.5k reported, all unreliable). Cleaned No token rows + reset to $10,000.
+- **2026-03-24**: Phantom PnL reset. System reported $19k gains but real cash profit was ~$426. Reset via cash flow recalculation. Peak went from ~$30k to ~$11k. This is NOT a 63% drawdown.
+- **2026-03-12**: Reset to $10,000 from $6,287 (37% real drawdown from bugs). Phase 2 risk fixes.
+- **2026-03-10**: Reset to $10,000. Data corruption from DELETE bug.
+
+**How to distinguish a reset from a real drawdown:**
+1. Check `circuit_breaker_log` — if the CB triggered at a drawdown % that makes no sense given recent trading volume, it's likely post-reset
+2. If `peak_equity` is much higher than any realistic trading could produce from `initial_capital`, the peak is from a pre-reset phantom period
+3. After a reset, `peak_equity` in the DB may still reflect the old phantom peak — flag this as "peak_equity needs updating" rather than "massive drawdown"
 
 ### Historical Bug Patterns (learn from these)
 - **Bypass bugs**: Services closing positions via direct SQL instead of PositionClosingService
@@ -273,6 +288,106 @@ Table format:
 | #N | What was actually broken | What was changed | Specific evidence |
 ```
 
+## Data Quality Invariants (NEW)
+
+These checks validate that the data feeding the system is correct. Price bugs silently corrupt ALL downstream metrics (PnL, win rate, drawdown).
+
+### price_history must contain only Yes token prices
+Per CLAUDE.md: "price_history: Only stores Yes token prices. No token price = 1 - Yes price."
+
+**Mandatory check** — run every review:
+```sql
+-- Detect price inversions: same market, two prices that sum to ~1.0 within 60 seconds
+SELECT ph1.market_id, m.question,
+  ph1.time AS t1, ph1.close AS p1, ph1.source AS src1,
+  ph2.time AS t2, ph2.close AS p2, ph2.source AS src2,
+  ABS(ph1.close + ph2.close - 1.0) AS sum_deviation
+FROM price_history ph1
+JOIN price_history ph2 ON ph1.market_id = ph2.market_id
+  AND ph2.time BETWEEN ph1.time AND ph1.time + INTERVAL '60 seconds'
+  AND ph2.time > ph1.time
+JOIN markets m ON ph1.market_id = m.condition_id
+WHERE ph1.time > NOW() - INTERVAL '6 hours'
+  AND ABS(ph1.close + ph2.close - 1.0) < 0.05
+LIMIT 10;
+```
+If ANY rows return: **CRITICAL** — the system is storing both Yes and No token prices. This makes ALL PnL unreliable. Track down which data source (`api` vs `snapshot`) is injecting the wrong prices, and which collector code path is responsible.
+
+### Entry/exit price sanity on closed positions
+```sql
+-- Positions where exit price is suspiciously close to (1 - entry price) → price inversion
+SELECT pp.market_id, m.question, pp.side, pp.avg_entry_price, pp.current_price,
+  pp.realized_pnl, pp.signal_type, pp.closed_at,
+  ABS(pp.avg_entry_price + pp.current_price - 1.0) AS inversion_score
+FROM paper_positions pp
+JOIN markets m ON pp.market_id = m.condition_id
+WHERE pp.closed_at > NOW() - INTERVAL '24 hours'
+  AND ABS(pp.avg_entry_price + pp.current_price - 1.0) < 0.10
+ORDER BY ABS(pp.realized_pnl) DESC
+LIMIT 10;
+```
+If `inversion_score < 0.10` for multiple positions: the system is entering at the Yes price and exiting at the No price (or vice versa). This is a **data bug**, not a trading loss. Flag as **CRITICAL**.
+
+## Trading Anomaly Investigation (NEW)
+
+### Consecutive losses — MUST investigate, not just report
+
+When `consecutive_losses >= 5`, do NOT just say "Warning: 7 consecutive losses". Run:
+
+```sql
+-- Get the actual losing trades with entry/exit prices
+SELECT pp.market_id, m.question, pp.side, pp.avg_entry_price, pp.current_price,
+  pp.realized_pnl, pp.signal_type, pp.closed_at
+FROM paper_positions pp
+JOIN markets m ON pp.market_id = m.condition_id
+WHERE pp.closed_at > NOW() - INTERVAL '48 hours' AND pp.realized_pnl < 0
+ORDER BY pp.closed_at DESC
+LIMIT 20;
+```
+
+Then classify:
+1. **Price inversion** — entry + exit ≈ 1.0 → data bug (see Data Quality Invariants)
+2. **Stop-loss cascade** — all signal_type = 'stop_loss' in same time window → check if one bad market triggered a chain
+3. **Signal quality degradation** — losses spread across different markets/signals → check if optimization weights are stale
+4. **Normal variance** — small losses ($1-5), mixed markets → acceptable, report as Info
+
+**Never classify a loss streak without checking the entry/exit prices for inversions first.**
+
+## Recurring Error Investigation (NEW)
+
+### "Known issue" is not an excuse to skip investigation
+
+When you see a recurring error (Optuna 500s, connection timeouts, optimization failures):
+1. Check if there is an **open issue** tracking it: `gh issue list --state open --search "<error keyword>"`
+2. If no open issue exists → you MUST investigate the root cause and create one
+3. If an open issue exists → check if the error count is **increasing** compared to previous reviews
+4. Never write "recurring known issue, not new" without citing the issue number that tracks it
+
+### Optimizer health check (mandatory)
+```sql
+-- Check when optimization last succeeded
+SELECT id, created_at, score, iterations FROM optimization_runs
+ORDER BY created_at DESC LIMIT 5;
+```
+If last successful optimization is >7 days old → **HIGH** — the system is running on stale parameters. Investigate why the optimizer is failing (check logs for connection errors, 500s, etc.)
+
+## Operational Health (NEW)
+
+### CI/CD pipeline status
+If you deploy manually (via `docker cp`, `scp`, etc.) because CI/CD didn't trigger:
+- That itself is a bug. Investigate WHY CI/CD didn't trigger.
+- Check: `gh run list --workflow=deploy.yml --limit 5` (or whatever the deploy workflow is named)
+- If last successful deploy is >48h old and there have been merges since → **HIGH**
+- Document the root cause in the issue, even if you can't fix it (the daily review workflow is read-only per safety rules)
+
+### Service connectivity matrix
+If ANY external service shows errors (Optuna, Polymarket API, etc.), verify actual connectivity:
+```bash
+# From VM: can dashboard reach Optuna?
+docker exec polymarket-dashboard-api wget -q -O- --timeout=5 http://OPTIMIZER_URL/health 2>&1 || echo "UNREACHABLE"
+```
+Don't assume a service is reachable just because it was reachable last week.
+
 ## Alert Guidance — Context-Aware Severity
 
 Thresholds are guidance, not hard rules. Apply judgment:
@@ -280,7 +395,7 @@ Thresholds are guidance, not hard rules. Apply judgment:
 | Condition | Default | Context override |
 |-----------|---------|-----------------|
 | Drawdown > 10% | Critical | — |
-| 5+ consecutive losses | Warning | — |
+| 5+ consecutive losses | **MUST investigate** | See Trading Anomaly Investigation section — classify root cause before assigning severity |
 | Daily PnL < -$200 | Critical | — |
 | Container down | Critical | — |
 | Memory > 85% | Warning | — |
@@ -327,6 +442,10 @@ Examples of adequate investigation (not exhaustive — apply the same rigor to a
 - High trade count → check for duplicate trades in same market within the same minute
 - Container restarts → check for OOM kill in `docker inspect` or `dmesg`
 - Connection timeouts → check if DB, Polymarket API, or Optuna — each has different implications
+- Consecutive losses → check entry/exit prices for inversions (entry + exit ≈ 1.0 = data bug, not trading loss)
+- Recurring 500 errors → verify actual connectivity from the calling container, not just "known issue"
+- Manual deploy needed → investigate why CI/CD didn't trigger (check workflow runs, merge actor, token permissions)
+- Large PnL swings → verify price_history contains only Yes token prices; check if both Yes and No are being stored
 
 ## Language Rule
 
