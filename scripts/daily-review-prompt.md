@@ -175,7 +175,9 @@ ORDER BY market_score DESC LIMIT 20;
 Create a GitHub Issue with label "daily-review". Do NOT close it afterward:
 
 ```bash
-gh issue create --title "TITLE" --body-file report.md --label "daily-review"
+ISSUE_URL=$(gh issue create --title "TITLE" --body-file report.md --label "daily-review")
+ISSUE_NUMBER=${ISSUE_URL##*/}
+echo "Created issue #$ISSUE_NUMBER"
 ```
 
 The issue should have:
@@ -224,7 +226,7 @@ PR body must include:
 - **Root Cause**: What you found, how you found it (queries, code analysis), and why it happens
 - **Changes**: What you changed and why each change is necessary
 - **VM Verification**: Results table (filled after testing)
-- `Related to #<issue-number>` (NEVER use `Fixes #N` or `Closes #N` — the issue must stay open)
+- `Related to #$ISSUE_NUMBER` (NEVER use `Fixes #N` or `Closes #N` — the issue must stay open)
 
 ### 4c. Deploy to VM and verify
 ```bash
