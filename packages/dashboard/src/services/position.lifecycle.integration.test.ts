@@ -165,6 +165,66 @@ async function closePosition(
   return { executed: true, netPnl };
 }
 
+async function partialClosePositionManually(
+  client: pg.PoolClient,
+  positionId: number,
+  exitPrice: number,
+  size: number,
+  feeRate = 0.001
+): Promise<{ executed: boolean; pnl: number }> {
+  const positionResult = await client.query(
+    'SELECT * FROM test_paper_positions WHERE id = $1 AND closed_at IS NULL',
+    [positionId]
+  );
+
+  const position = positionResult.rows[0];
+  if (!position) {
+    return { executed: false, pnl: 0 };
+  }
+
+  const currentSize = parseFloat(position.size);
+  const currentAvg = parseFloat(position.avg_entry_price);
+  const executedSize = Math.min(size, currentSize);
+  const orderValue = executedSize * exitPrice;
+  const fee = orderValue * feeRate;
+  const capitalDelta = orderValue - fee;
+  const costReleased = executedSize * currentAvg;
+  const availableDelta = capitalDelta + costReleased;
+  const pnl = (exitPrice - currentAvg) * executedSize;
+  const isWin = pnl > 0;
+
+  await client.query(
+    `UPDATE test_paper_account SET
+      current_capital = current_capital + $1,
+      available_capital = available_capital + $2,
+      total_fees_paid = total_fees_paid + $3,
+      total_realized_pnl = total_realized_pnl + $4,
+      winning_trades = winning_trades + $5,
+      losing_trades = losing_trades + $6,
+      total_trades = total_trades + 1,
+      updated_at = NOW()
+    WHERE id = 1`,
+    [capitalDelta, availableDelta, fee, pnl, isWin ? 1 : 0, isWin ? 0 : 1]
+  );
+
+  const updateResult = await client.query(
+    `UPDATE test_paper_positions SET
+      size = $1,
+      current_price = $2,
+      realized_pnl = COALESCE(realized_pnl, 0) + $3,
+      unrealized_pnl = 0,
+      updated_at = NOW()
+    WHERE id = $4 AND closed_at IS NULL`,
+    [currentSize - executedSize, exitPrice, pnl, positionId]
+  );
+
+  if (updateResult.rowCount === 0) {
+    return { executed: false, pnl: 0 };
+  }
+
+  return { executed: true, pnl };
+}
+
 async function openWithAccountUpdate(
   client: pg.PoolClient,
   p: { market_id: string; token_id: string; size: number; price: number; side?: string },
@@ -335,6 +395,24 @@ describe.skipIf(!hasDb)('Position Lifecycle Integration', () => {
     const afterClose = await getAccount(client);
     expect(parseFloat(afterClose.total_realized_pnl)).toBeLessThan(0);
     expect(parseInt(afterClose.losing_trades)).toBe(1);
+  });
+
+  it('manual partial close accumulates realized_pnl across consecutive sells', async () => {
+    await openWithAccountUpdate(client, { market_id: 'm1', token_id: 't1', size: 100, price: 0.5 });
+    const pos = await getPositionRow(client, 'm1', 't1');
+
+    const firstClose = await partialClosePositionManually(client, pos.id, 0.6, 40);
+    const secondClose = await partialClosePositionManually(client, pos.id, 0.7, 30);
+
+    expect(firstClose.executed).toBe(true);
+    expect(secondClose.executed).toBe(true);
+
+    const account = await getAccount(client);
+    const position = await getPositionRow(client, 'm1', 't1');
+
+    expect(parseFloat(position.size)).toBeCloseTo(30, 4);
+    expect(parseFloat(position.realized_pnl)).toBeCloseTo(firstClose.pnl + secondClose.pnl, 4);
+    expect(parseFloat(account.total_realized_pnl)).toBeCloseTo(firstClose.pnl + secondClose.pnl, 4);
   });
 
   it('capital invariant: initial = current + open_position_costs + fees after full cycle', async () => {
