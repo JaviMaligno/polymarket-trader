@@ -17,7 +17,7 @@ Analyze the trading system's health, investigate anomalies, and implement well-u
    - Read source code to understand how a broken metric is computed
    - Cross-reference data sections (if buys >> sells, why? if PnL doesn't match capital, where did the money go?)
 6. **Implement fixes** only after you understand the root cause
-7. **Create outputs** — issue, email, Slack (if critical)
+7. **Create outputs** — GitHub issue (notifications are sent by workflow)
 
 **You have full access to investigate.** You can SSH to the VM, run SQL, read code, check git history. Use these tools when the dashboard data raises questions. Do NOT just report "unexplained $X gap" — find where the money went.
 
@@ -168,11 +168,11 @@ ORDER BY market_score DESC LIMIT 20;
 ```
 - If ALL active markets are in 50/50 (0.45–0.55) or extreme (<0.05 or >0.95) ranges → rotation is stuck on untradeable markets, not filtering working correctly. Flag as **Critical**.
 
-## Step 3: Generate Outputs
+## Step 3: Generate Outputs (MANDATORY — do this BEFORE Step 4)
 
 ### 3a. GitHub Issue
 
-Create a GitHub Issue with label "daily-review":
+Create a GitHub Issue with label "daily-review". Do NOT close it afterward:
 
 ```bash
 gh issue create --title "TITLE" --body-file report.md --label "daily-review"
@@ -186,29 +186,9 @@ The issue should have:
 - **Recommendations** ranked by impact
 - **Risk Assessment**: what could go wrong in the next 24h
 
-### 3b. Email
+### 3b. Email and Slack
 
-Write an HTML email summary to `email.html`:
-- Alerts (if any)
-- Key metrics
-- Top 3 findings
-- Link to GitHub Issue
-
-```bash
-node scripts/send-review-email.js email.html
-```
-
-If nodemailer is not available, skip email and note it in the issue.
-
-### 3c. Slack Alert (critical only)
-
-Only for CRITICAL issues (system down, extreme losses, containers crashed):
-
-```bash
-curl -sf -X POST -H "Content-Type: application/json" \
-  -d '{"text":"ALERT_TEXT"}' \
-  "$SLACK_WEBHOOK_URL"
-```
+Do NOT send email or Slack notifications yourself. The workflow handles that automatically after your step using `format-review.js` and `send-review-email.js`. Focus on creating the issue and implementing fixes.
 
 ## Step 4: Implement Fixes as PRs
 
@@ -220,8 +200,13 @@ curl -sf -X POST -H "Content-Type: application/json" \
 - **Maximum 3 PRs per run** — fewer, deeper fixes over many shallow ones
 - **Include your investigation** in the PR body — show queries you ran, what you found, why the fix is correct
 - **Test the invariants** after your fix — don't just check "containers healthy"
+- **Do NOT merge PRs yourself** — leave them open for human review. The auto-merge step in the workflow will handle small PRs that meet the criteria.
+- **Do NOT use `Fixes #N` or `Closes #N`** in commit messages or PR bodies — the daily review issue must stay open for tracking. Use `Related to #N` instead.
 
 ### 4a. Create branch and implement
+
+**Branch naming is mandatory** — the auto-merge step only processes branches matching `fix/daily-review-*`. Any other name will be ignored by auto-merge.
+
 ```bash
 git checkout -b fix/daily-review-YYYY-MM-DD-<slug>
 # ... make changes ...
@@ -239,7 +224,7 @@ PR body must include:
 - **Root Cause**: What you found, how you found it (queries, code analysis), and why it happens
 - **Changes**: What you changed and why each change is necessary
 - **VM Verification**: Results table (filled after testing)
-- `Related to #<issue-number>`
+- `Related to #<issue-number>` (NEVER use `Fixes #N` or `Closes #N` — the issue must stay open)
 
 ### 4c. Deploy to VM and verify
 ```bash
@@ -505,5 +490,8 @@ Integration tests run against isolated test tables (`test_paper_*`) and are safe
 - **No changing credentials or secrets**
 - **No modifying `.github/workflows/daily-trade-review-claude.yml`** (the review workflow itself)
 - **No force push to main**
+- **No merging PRs** — do NOT run `gh pr merge`. Leave PRs open for human review or auto-merge.
+- **No closing issues** — do NOT run `gh issue close`. The daily review issue must stay open.
+- **No `Fixes #N` / `Closes #N`** in commits or PR bodies — GitHub auto-closes issues on merge. Use `Related to #N`.
 - **Always rollback VM to main** after each PR verification
 - **Maximum 3 PRs per run** — document remaining fixes in the issue for manual follow-up

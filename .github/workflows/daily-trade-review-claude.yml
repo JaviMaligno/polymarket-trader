@@ -119,10 +119,6 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
-          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-          GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
         run: |
           {
@@ -136,7 +132,7 @@ jobs:
             cat test-results.txt
             echo "==========================="
             echo ""
-            echo "IMPORTANT: Create the GitHub Issue, implement fixes as PRs (deploy to VM to verify each, then rollback to main), send the email (using node scripts/send-review-email.js), and send Slack alert if needed."
+            echo "IMPORTANT: Create the GitHub Issue and implement fixes as PRs (deploy to VM to verify each, then rollback to main). Do NOT send email or Slack — the workflow handles notifications automatically."
             echo "When done, output a single line: REVIEW_COMPLETE"
           } | claude --model claude-sonnet-4-6 \
             --print \
@@ -144,6 +140,35 @@ jobs:
             --max-turns 100 \
             --dangerously-skip-permissions \
             2>&1 | tee claude-output.log
+
+      - name: Send notifications
+        if: always() && steps.gather.outputs.data_collected == 'true'
+        env:
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          # Restore notifier scripts from the triggering commit before exposing secrets.
+          git restore --source "${GITHUB_SHA}" -- scripts/format-review.js scripts/send-review-email.js
+
+          # Generate email.html and slack.json from review data
+          node scripts/format-review.js review-data.json
+
+          # Send email
+          if [ -f email.html ]; then
+            ISSUE_TITLE=$(grep -oP '(?<=--title ")[^"]+' claude-output.log 2>/dev/null | head -1 || true)
+            SUBJECT="${ISSUE_TITLE:-Polymarket Daily Review — $(date -u +%Y-%m-%d)}"
+            node scripts/send-review-email.js email.html "$SUBJECT" && echo "Email sent" || echo "::warning::Email send failed"
+          else
+            echo "::warning::No email.html generated — skipping email"
+          fi
+
+          # Send Slack alert if critical alerts detected
+          if [ -f slack.json ] && [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+            curl -sf --connect-timeout 10 --max-time 30 -X POST -H "Content-Type: application/json" \
+              -d @slack.json "$SLACK_WEBHOOK_URL" && echo "Slack alert sent" || echo "::warning::Slack send failed"
+          fi
 
       - name: Capture Claude session ID
         id: capture_session
