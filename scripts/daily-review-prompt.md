@@ -17,7 +17,7 @@ Analyze the trading system's health, investigate anomalies, and implement well-u
    - Read source code to understand how a broken metric is computed
    - Cross-reference data sections (if buys >> sells, why? if PnL doesn't match capital, where did the money go?)
 6. **Implement fixes** only after you understand the root cause
-7. **Create outputs** — issue, email, Slack (if critical)
+7. **Create outputs** — GitHub issue (notifications are sent by workflow)
 
 **You have full access to investigate.** You can SSH to the VM, run SQL, read code, check git history. Use these tools when the dashboard data raises questions. Do NOT just report "unexplained $X gap" — find where the money went.
 
@@ -172,7 +172,7 @@ ORDER BY market_score DESC LIMIT 20;
 
 ### 3a. GitHub Issue
 
-Create a GitHub Issue with label "daily-review". **Do NOT close it afterwards.**
+Create a GitHub Issue with label "daily-review". Do NOT close it afterward:
 
 ```bash
 gh issue create --title "TITLE" --body-file report.md --label "daily-review"
@@ -188,7 +188,7 @@ The issue should have:
 
 ### 3b. Email and Slack
 
-You do NOT need to send email or Slack notifications — the workflow handles this automatically after your step using `format-review.js` and `send-review-email.js`. Just focus on creating the issue and implementing fixes.
+Do NOT send email or Slack notifications yourself. The workflow handles that automatically after your step using `format-review.js` and `send-review-email.js`. Focus on creating the issue and implementing fixes.
 
 ## Step 4: Implement Fixes as PRs
 

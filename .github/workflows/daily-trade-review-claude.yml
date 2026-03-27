@@ -149,6 +149,9 @@ jobs:
           GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          # Restore notifier scripts from the triggering commit before exposing secrets.
+          git restore --source "${GITHUB_SHA}" -- scripts/format-review.js scripts/send-review-email.js
+
           # Generate email.html and slack.json from review data
           node scripts/format-review.js review-data.json
 
@@ -163,7 +166,7 @@ jobs:
 
           # Send Slack alert if critical alerts detected
           if [ -f slack.json ] && [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
-            curl -sf -X POST -H "Content-Type: application/json" \
+            curl -sf --connect-timeout 10 --max-time 30 -X POST -H "Content-Type: application/json" \
               -d @slack.json "$SLACK_WEBHOOK_URL" && echo "Slack alert sent" || echo "::warning::Slack send failed"
           fi
 
