@@ -170,9 +170,6 @@ ORDER BY market_score DESC LIMIT 20;
 
 ## Step 3: Generate Outputs (MANDATORY — do this BEFORE Step 4)
 
-All three outputs (issue, email, slack) must be generated before implementing any fixes.
-The workflow has a fallback notification step, but you should still generate these yourself.
-
 ### 3a. GitHub Issue
 
 Create a GitHub Issue with label "daily-review". **Do NOT close it afterwards.**
@@ -189,32 +186,9 @@ The issue should have:
 - **Recommendations** ranked by impact
 - **Risk Assessment**: what could go wrong in the next 24h
 
-### 3b. Email (MANDATORY)
+### 3b. Email and Slack
 
-Write an HTML email summary to `email.html` and send it. This is critical — the user relies on the email notification.
-
-- Alerts (if any)
-- Key metrics
-- Top 3 findings
-- Link to GitHub Issue
-
-```bash
-node scripts/send-review-email.js email.html
-```
-
-**Verify the email was sent** — if `send-review-email.js` fails or nodemailer is unavailable, note the error in the issue.
-
-If nodemailer is not available, skip email and note it in the issue.
-
-### 3c. Slack Alert (critical only)
-
-Only for CRITICAL issues (system down, extreme losses, containers crashed):
-
-```bash
-curl -sf -X POST -H "Content-Type: application/json" \
-  -d '{"text":"ALERT_TEXT"}' \
-  "$SLACK_WEBHOOK_URL"
-```
+You do NOT need to send email or Slack notifications — the workflow handles this automatically after your step using `format-review.js` and `send-review-email.js`. Just focus on creating the issue and implementing fixes.
 
 ## Step 4: Implement Fixes as PRs
 
