@@ -712,7 +712,15 @@ export class AutoSignalExecutor extends EventEmitter {
     // CRITICAL: Get the correct exit price from price_history (fresh data from data-collector)
     // price_history only stores Yes token prices, so for SHORT positions (No token),
     // we look up the Yes token via the markets table and compute No price = 1 - Yes price
-    let exitPrice = signal.price;
+    //
+    // Fallback priority:
+    //   1. price_history (freshest)
+    //   2. position.current_price (last known price for this token — correct direction)
+    //   3. signal.price (LAST RESORT: may be wrong direction, e.g. No price for a Yes position)
+    const positionCurrentPrice = position.current_price != null ? Number(position.current_price) : null;
+    let exitPrice = positionCurrentPrice != null && positionCurrentPrice > 0
+      ? positionCurrentPrice
+      : signal.price;
     try {
       const isShort = position.side === 'short';
       const priceResult = await query<{ close: string; price_age_seconds: string }>(
@@ -736,7 +744,7 @@ export class AutoSignalExecutor extends EventEmitter {
         }
       }
     } catch (error) {
-      console.warn('[AutoExecutor] Failed to get price_history price for exit, using signal price:', error);
+      console.warn('[AutoExecutor] Failed to get price_history price for exit, using position.current_price:', error);
     }
 
     // Note: No price drop sanity check — in prediction markets, a token can
