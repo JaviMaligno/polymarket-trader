@@ -145,6 +145,36 @@ jobs:
             --dangerously-skip-permissions \
             2>&1 | tee claude-output.log
 
+      - name: Send notifications (fallback)
+        if: steps.gather.outputs.data_collected == 'true'
+        env:
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          # Generate email.html and slack.json from review data (if Claude didn't)
+          if [ ! -f email.html ]; then
+            echo "Claude did not generate email.html — generating from review-data.json"
+            node scripts/format-review.js review-data.json
+          fi
+
+          # Send email
+          if [ -f email.html ]; then
+            # Build subject from the GitHub issue title if available
+            ISSUE_TITLE=$(grep -oP '(?<=--title ")[^"]+' claude-output.log 2>/dev/null | head -1 || true)
+            SUBJECT="${ISSUE_TITLE:-Polymarket Daily Review — $(date -u +%Y-%m-%d)}"
+            node scripts/send-review-email.js email.html "$SUBJECT" && echo "Email sent" || echo "::warning::Email send failed"
+          else
+            echo "::warning::No email.html found — skipping email"
+          fi
+
+          # Send Slack alert if critical alerts detected
+          if [ -f slack.json ] && [ -n "${SLACK_WEBHOOK_URL:-}" ]; then
+            curl -sf -X POST -H "Content-Type: application/json" \
+              -d @slack.json "$SLACK_WEBHOOK_URL" && echo "Slack alert sent" || echo "::warning::Slack send failed"
+          fi
+
       - name: Capture Claude session ID
         id: capture_session
         if: always()
