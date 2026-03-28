@@ -68,6 +68,47 @@ describe('MarketRotator', () => {
       expect(result).toHaveLength(0);
     });
 
+    it('force-demotes extreme-price active market (price >0.95) even with high score', () => {
+      const active = [
+        makeMarket({ id: 'near-resolved', market_score: 0.90, tracking_status: 'active', current_price_yes: 0.98, has_open_positions: false }),
+        makeMarket({ id: 'near-resolved-low', market_score: 0.88, tracking_status: 'active', current_price_yes: 0.002, has_open_positions: false }),
+        makeMarket({ id: 'tradeable', market_score: 0.80, tracking_status: 'active', current_price_yes: 0.50, has_open_positions: false }),
+      ];
+      const candidates = [
+        makeMarket({ id: 'cand', market_score: 0.70, tracking_status: 'cold' }),
+      ];
+      const result = rotator.selectDemotions(active, candidates);
+      const ids = result.map(m => m.id);
+      expect(ids).toContain('near-resolved');
+      expect(ids).toContain('near-resolved-low');
+      expect(ids).not.toContain('tradeable');
+    });
+
+    it('force-demotes extreme-price market even when no candidates exist', () => {
+      const active = [
+        makeMarket({ id: 'extreme', market_score: 0.90, tracking_status: 'active', current_price_yes: 0.97, has_open_positions: false }),
+      ];
+      const result = rotator.selectDemotions(active, []);
+      expect(result.map(m => m.id)).toContain('extreme');
+    });
+
+    it('does NOT force-demote extreme-price market with open positions', () => {
+      const active = [
+        makeMarket({ id: 'extreme-pos', market_score: 0.90, tracking_status: 'active', current_price_yes: 0.99, has_open_positions: true }),
+      ];
+      const result = rotator.selectDemotions(active, []);
+      expect(result).toHaveLength(0);
+    });
+
+    it('treats null current_price_yes as non-extreme (safe default)', () => {
+      const active = [
+        makeMarket({ id: 'null-price', market_score: 0.90, tracking_status: 'active', current_price_yes: null, has_open_positions: false }),
+      ];
+      // Null price should NOT be force-demoted (we don't know if it's extreme)
+      const result = rotator.selectDemotions(active, []);
+      expect(result).toHaveLength(0);
+    });
+
     it('applies hysteresis — only demotes if score < worstCandidateScore * 0.60', () => {
       // Candidate score = 0.50, threshold = 0.50 * 0.60 = 0.30
       // Active score = 0.29 → below threshold → demote
@@ -159,6 +200,40 @@ describe('MarketRotator', () => {
       ];
       const result = rotator.selectPromotions(warming);
       expect(result.map(m => m.id)).toContain('exact');
+    });
+
+    it('does NOT promote warming market with extreme Yes price (>0.95)', () => {
+      const warming = [
+        makeMarket({ id: 'near-yes', market_score: 0.80, tracking_status: 'warming', bars_24h: 5, current_price_yes: 0.97 }),
+      ];
+      const result = rotator.selectPromotions(warming);
+      expect(result).toHaveLength(0);
+    });
+
+    it('does NOT promote warming market with extreme No price (Yes <0.05)', () => {
+      const warming = [
+        makeMarket({ id: 'near-no', market_score: 0.80, tracking_status: 'warming', bars_24h: 5, current_price_yes: 0.003 }),
+      ];
+      const result = rotator.selectPromotions(warming);
+      expect(result).toHaveLength(0);
+    });
+
+    it('promotes warming market at price boundary (exactly 0.05 and 0.95)', () => {
+      const warming = [
+        makeMarket({ id: 'lo-boundary', market_score: 0.60, tracking_status: 'warming', bars_24h: 5, current_price_yes: 0.05 }),
+        makeMarket({ id: 'hi-boundary', market_score: 0.60, tracking_status: 'warming', bars_24h: 5, current_price_yes: 0.95 }),
+      ];
+      const result = rotator.selectPromotions(warming);
+      expect(result.map(m => m.id)).toContain('lo-boundary');
+      expect(result.map(m => m.id)).toContain('hi-boundary');
+    });
+
+    it('promotes warming market with null price (no price data yet)', () => {
+      const warming = [
+        makeMarket({ id: 'no-price', market_score: 0.60, tracking_status: 'warming', bars_24h: 5, current_price_yes: null }),
+      ];
+      const result = rotator.selectPromotions(warming);
+      expect(result.map(m => m.id)).toContain('no-price');
     });
   });
 

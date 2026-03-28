@@ -56,20 +56,38 @@ export class MarketRotator {
   }
 
   /**
+   * Returns true if a market's current price is in the extreme range
+   * (near-resolved markets with Yes price <5% or >95%).
+   * These markets are untradeable and should not occupy active slots.
+   */
+  private isExtremePrice(m: MarketRow): boolean {
+    if (m.current_price_yes === null) return false;
+    return m.current_price_yes < 0.05 || m.current_price_yes > 0.95;
+  }
+
+  /**
    * Select active markets to demote. Only demotes markets with no open
    * positions whose score falls below the hysteresis threshold relative
-   * to the best waiting candidate. Returns worst-first, capped at
-   * maxRotationsPerHour.
+   * to the best waiting candidate. Extreme-price markets (Yes <5% or >95%)
+   * are always eligible for demotion regardless of score. Returns worst-first,
+   * capped at maxRotationsPerHour.
    */
   selectDemotions(active: MarketRow[], candidates: MarketRow[]): MarketRow[] {
-    if (candidates.length === 0) return [];
+    // Extreme-price markets are force-demoted even without candidates
+    const extremeEligible = active.filter(m => !m.has_open_positions && this.isExtremePrice(m));
+
+    if (candidates.length === 0) {
+      return extremeEligible
+        .sort((a, b) => a.market_score - b.market_score)
+        .slice(0, this.config.maxRotationsPerHour);
+    }
 
     // Best candidate score (candidates are expected sorted desc, but be safe)
     const bestCandidateScore = Math.max(...candidates.map(c => c.market_score));
     const threshold = bestCandidateScore * this.config.hysteresisRatio;
 
     const eligible = active
-      .filter(m => !m.has_open_positions && m.market_score < threshold)
+      .filter(m => !m.has_open_positions && (this.isExtremePrice(m) || m.market_score < threshold))
       .sort((a, b) => a.market_score - b.market_score); // worst first
 
     return eligible.slice(0, this.config.maxRotationsPerHour);
@@ -77,11 +95,16 @@ export class MarketRotator {
 
   /**
    * Select warming markets ready for promotion to active.
-   * Requires sufficient price bars and a score above the minimum.
+   * Requires sufficient price bars, a score above the minimum, and a
+   * non-extreme Yes price (5%–95%). Near-resolved markets are excluded
+   * to prevent them from filling active tracking slots.
    */
   selectPromotions(warming: MarketRow[]): MarketRow[] {
     return warming.filter(
-      m => m.bars_24h >= this.config.warmingPromotionBars && m.market_score >= MIN_CANDIDATE_SCORE
+      m =>
+        m.bars_24h >= this.config.warmingPromotionBars &&
+        m.market_score >= MIN_CANDIDATE_SCORE &&
+        !this.isExtremePrice(m)
     );
   }
 
