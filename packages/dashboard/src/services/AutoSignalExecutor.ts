@@ -714,15 +714,23 @@ export class AutoSignalExecutor extends EventEmitter {
     // we look up the Yes token via the markets table and compute No price = 1 - Yes price
     //
     // Fallback priority:
-    //   1. price_history (freshest)
+    //   1. price_history (freshest, with correct SHORT inversion)
     //   2. position.current_price (last known price for this token — correct direction)
-    //   3. signal.price (LAST RESORT: may be wrong direction, e.g. No price for a Yes position)
+    //   3. signal.price corrected for position side (signal.price is for the SIGNAL's token,
+    //      which may differ from the POSITION's token when a SHORT signal closes a LONG)
+    const isShort = position.side === 'short';
     const positionCurrentPrice = position.current_price != null ? Number(position.current_price) : null;
+
+    // signal.price is from the signal's perspective: SHORT signal has No price, LONG signal has Yes price.
+    // The position needs its OWN token's price: LONG needs Yes price, SHORT needs No price.
+    // When signal direction != position side, signal.price is for the WRONG token → invert it.
+    const signalMatchesPosition = (signal.direction === 'long') === (position.side === 'long');
+    const correctedSignalPrice = signalMatchesPosition ? signal.price : 1 - signal.price;
+
     let exitPrice = positionCurrentPrice != null && positionCurrentPrice > 0
       ? positionCurrentPrice
-      : signal.price;
+      : correctedSignalPrice;
     try {
-      const isShort = position.side === 'short';
       const priceResult = await query<{ close: string; price_age_seconds: string }>(
         `SELECT ph.close, EXTRACT(EPOCH FROM (NOW() - ph.time)) as price_age_seconds
          FROM markets m
