@@ -32,6 +32,7 @@ export interface ClosePositionParams {
   entryPrice: number;
   exitPrice: number;
   reason: CloseReason;
+  openedAt?: Date;
   signalId?: string;
   predictionId?: string;
   execution_mode?: string;
@@ -99,7 +100,25 @@ export class PositionClosingService extends EventEmitter {
       return { executed: false, netPnl: 0, fee: 0, reason: 'invalid exit price' };
     }
 
-    // 2. Compute financials
+    // 2. Defense in depth: detect inverted exit prices
+    // If entry + exit ≈ 1.0 AND the position was held briefly, the exit price is almost
+    // certainly from the complementary token (e.g., Yes price used for a No token position).
+    // Legitimate market reversals (buy at 0.40, sell at 0.60) are allowed because they
+    // have longer hold times. Without openedAt, only block extremely tight inversions.
+    const inversionScore = Math.abs(entryPrice + exitPrice - 1.0);
+    const holdMs = params.openedAt ? Date.now() - params.openedAt.getTime() : null;
+    const isShortHold = holdMs !== null && holdMs < 30 * 60 * 1000; // < 30 min
+
+    if (inversionScore < 0.02 && isShortHold) {
+      console.error(
+        `[PositionClosingService] BLOCKED: inverted exit price for position ${positionId}. ` +
+        `entry=${entryPrice}, exit=${exitPrice}, sum=${(entryPrice + exitPrice).toFixed(4)}, ` +
+        `hold=${Math.round((holdMs || 0) / 1000)}s. Refusing to close with phantom PnL.`
+      );
+      return { executed: false, netPnl: 0, fee: 0, reason: 'inverted exit price detected' };
+    }
+
+    // 3. Compute financials
     const exitValue = size * exitPrice;
     const fee = exitValue * this.config.feeRate;
     const grossPnl = (exitPrice - entryPrice) * size;

@@ -21,6 +21,7 @@ import {
   type PaperPosition,
 } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
+import { getTokenPrice } from './PriceService.js';
 import { getCircuitBreakerService } from './CircuitBreakerService.js';
 import { getExecutionRouter } from './ExecutionRouter.js';
 import { OrderBookExecutionSimulator, type SimulationResult } from './OrderBookExecutionSimulator.js';
@@ -709,21 +710,9 @@ export class AutoSignalExecutor extends EventEmitter {
     const shares = Number(position.size);
     const entryPrice = Number(position.avg_entry_price);
 
-    // CRITICAL: Get the correct exit price from price_history (fresh data from data-collector)
-    // price_history only stores Yes token prices, so for SHORT positions (No token),
-    // we look up the Yes token via the markets table and compute No price = 1 - Yes price
-    //
-    // Fallback priority:
-    //   1. price_history (freshest, with correct SHORT inversion)
-    //   2. position.current_price (last known price for this token — correct direction)
-    //   3. signal.price corrected for position side (signal.price is for the SIGNAL's token,
-    //      which may differ from the POSITION's token when a SHORT signal closes a LONG)
-    const isShort = position.side === 'short';
+    // Exit price lookup via centralized PriceService (single source of truth for Yes/No inversion).
+    // Fallback chain: getTokenPrice() → position.current_price → corrected signal.price
     const positionCurrentPrice = position.current_price != null ? Number(position.current_price) : null;
-
-    // signal.price is from the signal's perspective: SHORT signal has No price, LONG signal has Yes price.
-    // The position needs its OWN token's price: LONG needs Yes price, SHORT needs No price.
-    // When signal direction != position side, signal.price is for the WRONG token → invert it.
     const signalMatchesPosition = (signal.direction === 'long') === (position.side === 'long');
     const correctedSignalPrice = signalMatchesPosition ? signal.price : 1 - signal.price;
 
@@ -731,28 +720,12 @@ export class AutoSignalExecutor extends EventEmitter {
       ? positionCurrentPrice
       : correctedSignalPrice;
     try {
-      const priceResult = await query<{ close: string; price_age_seconds: string }>(
-        `SELECT ph.close, EXTRACT(EPOCH FROM (NOW() - ph.time)) as price_age_seconds
-         FROM markets m
-         JOIN LATERAL (
-           SELECT close, time FROM price_history
-           WHERE token_id = m.clob_token_id_yes
-           ORDER BY time DESC LIMIT 1
-         ) ph ON true
-         WHERE m.id = $1
-         LIMIT 1`,
-        [position.market_id]
-      );
-      if (priceResult.rows[0]) {
-        const yesPrice = parseFloat(priceResult.rows[0].close);
-        const latestPrice = isShort ? 1 - yesPrice : yesPrice;
-        // Use price_history price if valid (even if stale — better than signal.price)
-        if (latestPrice > 0 && !isNaN(latestPrice)) {
-          exitPrice = latestPrice;
-        }
+      const freshPrice = await getTokenPrice(position.market_id, position.side as 'long' | 'short');
+      if (freshPrice != null && freshPrice > 0) {
+        exitPrice = freshPrice;
       }
     } catch (error) {
-      console.warn('[AutoExecutor] Failed to get price_history price for exit, using position.current_price:', error);
+      console.warn('[AutoExecutor] PriceService failed for exit, using fallback:', error);
     }
 
     // Note: No price drop sanity check — in prediction markets, a token can
@@ -816,6 +789,7 @@ export class AutoSignalExecutor extends EventEmitter {
       entryPrice,
       exitPrice,
       reason: 'signal',
+      openedAt: position.opened_at ? new Date(position.opened_at) : undefined,
       signalId: signal.signalId,
       predictionId: prediction?.id?.toString(),
       execution_mode: executionMode,

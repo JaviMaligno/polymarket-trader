@@ -310,6 +310,52 @@ describe('PositionClosingService', () => {
     expect(eventSpy).not.toHaveBeenCalled();
   });
 
+  describe('inversion guard', () => {
+    it('should block close when entry+exit≈1.0 and short hold time', async () => {
+      const result = await service.close({
+        positionId: 20, marketId: 'm1', tokenId: 't1', side: 'long',
+        size: 100, entryPrice: 0.27, exitPrice: 0.74,
+        reason: 'signal',
+        openedAt: new Date(Date.now() - 60_000), // 1 min ago
+      });
+      expect(result.executed).toBe(false);
+      expect(result.reason).toContain('inverted exit price');
+    });
+
+    it('should allow close when entry+exit≈1.0 but long hold time', async () => {
+      vi.mocked(transaction).mockResolvedValue({ alreadyClosed: false });
+      const result = await service.close({
+        positionId: 21, marketId: 'm1', tokenId: 't1', side: 'long',
+        size: 100, entryPrice: 0.40, exitPrice: 0.60,
+        reason: 'signal',
+        openedAt: new Date(Date.now() - 2 * 60 * 60_000), // 2 hours ago
+      });
+      expect(result.executed).toBe(true);
+    });
+
+    it('should allow close when entry+exit≈1.0 and no openedAt provided', async () => {
+      vi.mocked(transaction).mockResolvedValue({ alreadyClosed: false });
+      const result = await service.close({
+        positionId: 22, marketId: 'm1', tokenId: 't1', side: 'long',
+        size: 100, entryPrice: 0.40, exitPrice: 0.60,
+        reason: 'signal',
+        // no openedAt — cannot determine hold time, allow through
+      });
+      expect(result.executed).toBe(true);
+    });
+
+    it('should allow close when prices do not sum to ~1.0 regardless of hold time', async () => {
+      vi.mocked(transaction).mockResolvedValue({ alreadyClosed: false });
+      const result = await service.close({
+        positionId: 23, marketId: 'm1', tokenId: 't1', side: 'long',
+        size: 100, entryPrice: 0.30, exitPrice: 0.50,
+        reason: 'signal',
+        openedAt: new Date(Date.now() - 30_000), // 30 seconds
+      });
+      expect(result.executed).toBe(true);
+    });
+  });
+
   describe('singleton', () => {
     it('should return the same instance from getPositionClosingService', () => {
       const instance1 = getPositionClosingService();
