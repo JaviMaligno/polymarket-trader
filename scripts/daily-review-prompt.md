@@ -102,6 +102,21 @@ gh issue list --state closed --label daily-review --limit 5
 - If an existing PR partially fixes something, note it in your issue and build on it rather than duplicating
 - Reference related past issues in your analysis for historical context (e.g., "This is the same accounting gap pattern seen in #17")
 
+## Step 0b: Verify Recent Fixes
+
+Check if any PRs were merged since the last review:
+
+```bash
+gh pr list --state merged --label daily-review --limit 5 --json number,title,mergedAt
+```
+
+For each PR merged in the last 48h:
+1. Read its description to understand what it fixed
+2. Check if the fix is effective by running the relevant verification (SQL query, log check, etc.)
+3. Report in the issue: "PR #N (merged YYYY-MM-DD): [EFFECTIVE|INEFFECTIVE] — evidence: [query result]"
+
+If a fix is **ineffective**, flag as HIGH and investigate why.
+
 ## Step 1: Read the Data
 
 Read `review-data.json` in the current directory. It contains 19 sections of trading data gathered from the VM.
@@ -167,6 +182,19 @@ FROM markets WHERE tracking_status = 'active'
 ORDER BY market_score DESC LIMIT 20;
 ```
 - If ALL active markets are in 50/50 (0.45–0.55) or extreme (<0.05 or >0.95) ranges → rotation is stuck on untradeable markets, not filtering working correctly. Flag as **Critical**.
+
+### Cross-Review Trending (mandatory if review_history has 2+ entries)
+
+The `review_history` section contains metrics from previous daily reviews. Compare today vs recent days:
+
+- **Capital trajectory**: Growing, flat, or declining?
+- **DB timeout count**: Persistent (same count multiple days) or transient?
+- **Signal count trend**: Increasing, decreasing, or volatile?
+- **Zombie count**: Should always be 0. If increasing, a new bug is creating zombies.
+
+**If a metric has been bad for 2+ consecutive days**, escalate severity by one level and prefix with `[PERSISTENT]`.
+
+**If a metric improved after a PR was merged**, note: "Fix in PR #N appears effective (metric improved from X to Y)."
 
 ## Step 3: Generate Outputs (MANDATORY — do this BEFORE Step 4)
 
@@ -391,6 +419,18 @@ Thresholds are guidance, not hard rules. Apply judgment:
 | Markets filtered by 50/50 | Only **Info** if verified | Must be verified by SQL query showing actual prices. Never assume without evidence. |
 | CPU spike | Warning/Info | Warning if sustained >10min; Info if brief <2min |
 | Capital discrepancy | **Always investigate** | Never dismiss as "unexplained" |
+
+### Persistent Issue Escalation
+
+When `review_history` shows the same problem for 2+ consecutive days:
+- **Escalate severity by one level** (Info→Warning, Warning→High, High→Critical)
+- **Prefix alert with `[PERSISTENT - N days]`**
+- **Require an action**: either create a fix PR or explain why the issue can't be fixed automatically
+
+Never write "recurring known issue" without:
+1. Citing the issue number that tracks it
+2. Stating how many consecutive days it has persisted
+3. Proposing a concrete next step
 
 **Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure. But you must PROVE it's expected behavior with evidence, not assume it.
 

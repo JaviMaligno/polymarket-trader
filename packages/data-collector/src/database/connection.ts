@@ -20,6 +20,8 @@ export function getPool(): Pool {
       max: maxConnections,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 10000,
+      keepAlive: true,
+      keepAliveInitialDelayMillis: 10000,
       // Configure SSL for cloud databases
       // rejectUnauthorized: false allows connections to databases with self-signed certs
       ssl: isCloudDb ? { rejectUnauthorized: false } : undefined,

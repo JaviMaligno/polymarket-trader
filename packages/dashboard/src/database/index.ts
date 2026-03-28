@@ -70,6 +70,8 @@ export function initializeDatabase(config?: DatabaseConfig): pg.Pool {
     max: config?.max ?? parseInt(process.env.DB_POOL_MAX || '5', 10),
     idleTimeoutMillis: config?.idleTimeoutMillis ?? 30000,
     connectionTimeoutMillis: config?.connectionTimeoutMillis ?? 10000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
   });
 
   // Log connection events

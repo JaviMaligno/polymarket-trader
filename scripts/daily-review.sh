@@ -20,6 +20,7 @@ if ! docker exec polymarket-timescaledb pg_isready -U polymarket -d polymarket_t
 fi
 
 PSQL="docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading -t -A"
+HISTORY_FILE="/home/Usuario/polymarket-trader/review-history.json"
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -236,7 +237,15 @@ account_consistency=$(query_one "
 ")
 
 # 11b. Generalized invariant checks (PASS/FAIL)
+# Uses reset epoch (last circuit breaker trigger or known reset date) to only
+# sum trades after the last account reset, avoiding pre-reset history noise.
 invariant_checks=$(query_one "
+  WITH reset_epoch AS (
+    SELECT COALESCE(
+      (SELECT MAX(timestamp) FROM circuit_breaker_log),
+      '2026-03-26T00:00:00Z'::timestamptz
+    ) AS ts
+  )
   SELECT row_to_json(t) FROM (
     SELECT
       -- Cash flow crosscheck: net cash from trades should equal capital change
@@ -258,6 +267,7 @@ invariant_checks=$(query_one "
     LEFT JOIN (
       SELECT SUM(CASE WHEN side = 'sell' THEN value_usd - fee ELSE -(value_usd + fee) END) AS net_cash_flow
       FROM paper_trades
+      WHERE time >= (SELECT ts FROM reset_epoch)
     ) flows ON true
     LEFT JOIN (
       SELECT SUM(size * avg_entry_price) AS open_cost
@@ -265,6 +275,7 @@ invariant_checks=$(query_one "
     ) pos ON true
     LEFT JOIN (
       SELECT SUM(fee) AS actual_fees FROM paper_trades
+      WHERE time >= (SELECT ts FROM reset_epoch)
     ) fees ON true
     LIMIT 1
   ) t
@@ -463,6 +474,34 @@ error_logs=$(jq -n \
   --argjson collector "$collector_errors" \
   '{"dashboard_api": $dashboard, "data_collector": $collector}' 2>/dev/null || echo '{"dashboard_api":[],"data_collector":[]}')
 
+# ── save review history ──────────────────────────────────────────────────────
+
+HISTORY_ENTRY=$(cat <<HISTEOF
+{
+  "date": "$(date -u +%Y-%m-%d)",
+  "capital": $(echo "$account" | jq '.current_capital // 0'),
+  "realized_pnl": $(echo "$account" | jq '.total_realized_pnl // 0'),
+  "drawdown_pct": $(echo "$account" | jq '.max_drawdown // 0'),
+  "open_positions": $(echo "$open_positions" | jq 'length'),
+  "trades_24h": $(echo "$trades_summary" | jq '.total_trades // 0'),
+  "signals_1h": $(echo "$signal_freshness" | jq '.count_last_hour // 0'),
+  "db_timeout_errors": $(echo "$error_logs" | jq '[.dashboard_api[]?, .data_collector[]? | select(test("timeout exceeded"))] | length' 2>/dev/null || echo 0),
+  "zombie_count": $(echo "$zombie_positions" | jq '.count // 0')
+}
+HISTEOF
+)
+
+# Append to history (keep last 30 days)
+if [ -f "$HISTORY_FILE" ]; then
+  THIRTY_DAYS_AGO=$(date -u -d '30 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-30d +%Y-%m-%d 2>/dev/null || echo "1970-01-01")
+  cat "$HISTORY_FILE" | jq --argjson new "$HISTORY_ENTRY" --arg cutoff "$THIRTY_DAYS_AGO" \
+    '[.[] | select(.date >= $cutoff)] + [$new]' \
+    > "${HISTORY_FILE}.tmp" && mv "${HISTORY_FILE}.tmp" "$HISTORY_FILE"
+else
+  echo "[$HISTORY_ENTRY]" > "$HISTORY_FILE"
+fi
+echo "Saved review history entry" >&2
+
 # ── assemble final JSON ─────────────────────────────────────────────────────
 
 jq -n \
@@ -491,6 +530,7 @@ jq -n \
   --argjson db_security "$db_security" \
   --argjson disk_usage "$disk_usage" \
   --argjson error_logs "$error_logs" \
+  --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
     account: $account,
@@ -516,5 +556,6 @@ jq -n \
     container_health: $container_health,
     db_security: $db_security,
     disk_usage: $disk_usage,
-    error_logs: $error_logs
+    error_logs: $error_logs,
+    review_history: $review_history
   }'
