@@ -65,6 +65,7 @@ There is a **historical PnL gap** between `paper_account.total_realized_pnl` and
 The paper account has been reset multiple times to correct accounting bugs. **A reset is NOT a trading loss.** If you see a large drop in `peak_equity` → `current_capital` that coincides with a known reset date, it is an accounting correction, not a drawdown.
 
 Known resets:
+- **2026-03-28** (latest): Exit price inversion. `signal.price` fallback used wrong token's price when DB timed out. 261 inverted trade pairs, $13,478 phantom PnL. Fix: PriceService + inversion guard. Reset to $10,000. **Use `2026-03-28` as LAST_RESET_DATE.**
 - **2026-03-26**: Price inversion reset. `price_history` stored both Yes AND No token prices from `api` and `collector` sources, corrupting all signals and producing phantom PnL (~$3.5k reported, all unreliable). Cleaned No token rows + reset to $10,000.
 - **2026-03-24**: Phantom PnL reset. System reported $19k gains but real cash profit was ~$426. Reset via cash flow recalculation. Peak went from ~$30k to ~$11k. This is NOT a 63% drawdown.
 - **2026-03-12**: Reset to $10,000 from $6,287 (37% real drawdown from bugs). Phase 2 risk fixes.
@@ -433,6 +434,28 @@ Never write "recurring known issue" without:
 3. Proposing a concrete next step
 
 **Key principle**: Distinguish expected behavior from actual problems. Safety filters working correctly is not a failure. But you must PROVE it's expected behavior with evidence, not assume it.
+
+## Real vs Phantom PnL Check (MANDATORY)
+
+Run this query EVERY review to separate real PnL from phantom PnL caused by price inversions:
+
+```sql
+SELECT COUNT(*) AS total_closed,
+  COUNT(*) FILTER (WHERE ABS(avg_entry_price + current_price - 1.0) < 0.05
+    AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800) AS inverted_count,
+  ROUND(SUM(realized_pnl)::numeric, 2) AS reported_pnl,
+  ROUND(SUM(realized_pnl) FILTER (WHERE ABS(avg_entry_price + current_price - 1.0) < 0.05
+    AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800)::numeric, 2) AS phantom_pnl,
+  ROUND(SUM(realized_pnl) FILTER (WHERE NOT (ABS(avg_entry_price + current_price - 1.0) < 0.05
+    AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800))::numeric, 2) AS real_pnl
+FROM paper_positions WHERE closed_at >= '<LAST_RESET_DATE>' AND realized_pnl IS NOT NULL;
+```
+
+Replace `<LAST_RESET_DATE>` with the date from "Account Reset History" section below.
+
+**Report in the issue header:** "Real PnL: $X (Y% of reported $Z). Inverted positions: N."
+
+**If inverted_count > 0 after 2026-03-28 (PriceService fix):** Flag as **CRITICAL regression** — the price inversion bug has resurfaced. Investigate which code path is producing inverted exits.
 
 ## Invariant Checks (NEW)
 
