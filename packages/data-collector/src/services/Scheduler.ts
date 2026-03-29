@@ -40,7 +40,10 @@ export class Scheduler {
     this.defineJob('sync-markets', '17 * * * *', this.syncMarkets.bind(this));      // Hourly at :17
     this.defineJob('sync-events', '47 */2 * * *', this.syncEvents.bind(this));     // Every 2h at :47
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
-    this.defineJob('sync-price-history', '*/5 * * * *', this.syncPriceHistory.bind(this));  // Every 5min (aligned with signal interval)
+    // DISABLED: CLOB /prices-history returns complementary (No) prices for Yes tokens.
+    // Snapshots from syncPrices() are the only reliable price source.
+    // See: docs/plans/2026-03-28-centralized-price-service-design.md
+    // this.defineJob('sync-price-history', '*/5 * * * *', this.syncPriceHistory.bind(this));
     this.defineJob('sync-orderbooks', '*/10 * * * *', this.syncOrderBooks.bind(this));  // Order book snapshots every 10 min
     this.defineJob('sync-trades', '*/5 * * * *', this.syncTrades.bind(this));  // Real trades every 5 min
     this.defineJob('log-stats', '*/5 * * * *', this.logStats.bind(this));
@@ -164,7 +167,8 @@ export class Scheduler {
           await this.syncPrices();
           break;
         case 'sync-price-history':
-          await this.syncPriceHistory();
+          // DISABLED: see job registration comment
+          // await this.syncPriceHistory();
           break;
         case 'sync-orderbooks':
           await this.syncOrderBooks();
@@ -240,8 +244,8 @@ export class Scheduler {
       // Update current prices
       await this.withTimeout(this.syncPrices(), 60_000, 'Initial sync-prices');
 
-      // Start historical price sync
-      await this.withTimeout(this.syncPriceHistory(), 120_000, 'Initial sync-price-history');
+      // DISABLED: CLOB /prices-history returns inverted prices (see sync-price-history comment above)
+      // await this.withTimeout(this.syncPriceHistory(), 120_000, 'Initial sync-price-history');
 
       // Sync order books
       await this.withTimeout(this.syncOrderBooks(), 60_000, 'Initial sync-orderbooks');
