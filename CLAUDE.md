@@ -102,7 +102,7 @@ Rules that MUST hold. When data violates one, there's a bug.
 ### Capital Accounting
 - `current_capital + SUM(open position costs) ≈ initial_capital + total_realized_pnl - total_fees`
 - `paper_account.total_realized_pnl` must equal `SUM(realized_pnl)` from all closed positions
-- **Known historical gap**: ~$5,500 gap exists from before PR #43 (2026-03-22) where upserts on re-opens overwrote position `realized_pnl`. Account-level PnL is correct; position-level is incomplete for pre-fix trades. Gap should NOT grow after 2026-03-22.
+- **Known historical gap**: Pre-reset trade data exists in DB. Last reset: 2026-03-29 (reset #6, CLOB API inverted prices). Use `WHERE created_at >= '2026-03-29'` for post-reset trade analysis.
 
 ### Historical Bug Patterns
 - Services bypassing PositionClosingService with direct SQL
