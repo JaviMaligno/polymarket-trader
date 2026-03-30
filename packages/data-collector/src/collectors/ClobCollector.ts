@@ -499,14 +499,19 @@ export class ClobCollector {
         ]
       );
 
-      // Also update market's current prices
+      // Also update market's current prices — only update current_price_yes when this
+      // is the Yes token, and current_price_no when this is the No token.
+      // Previously this always wrote midPrice to current_price_yes regardless of
+      // which token was being synced, causing the No token's mid-price (≈1-yesPrice)
+      // to overwrite current_price_yes and trigger phantom inversions in price_history.
       await query(
         `
         UPDATE markets SET
           best_bid = COALESCE($1, best_bid),
           best_ask = COALESCE($2, best_ask),
           spread = COALESCE($3, spread),
-          current_price_yes = COALESCE($4, current_price_yes),
+          current_price_yes = CASE WHEN clob_token_id_yes = $5 THEN COALESCE($4, current_price_yes) ELSE current_price_yes END,
+          current_price_no  = CASE WHEN clob_token_id_no  = $5 THEN COALESCE($4, current_price_no)  ELSE current_price_no  END,
           updated_at = NOW()
         WHERE clob_token_id_yes = $5 OR clob_token_id_no = $5
         `,
