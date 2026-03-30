@@ -65,7 +65,8 @@ There is a **historical PnL gap** between `paper_account.total_realized_pnl` and
 The paper account has been reset multiple times to correct accounting bugs. **A reset is NOT a trading loss.** If you see a large drop in `peak_equity` → `current_capital` that coincides with a known reset date, it is an accounting correction, not a drawdown.
 
 Known resets:
-- **2026-03-29** (latest): CLOB `/prices-history` API returns complementary (No) prices for Yes token. 153k corrupted `api` rows deleted. Disabled sync-price-history, snapshots only. Reset to $10,000. **Use `2026-03-29` as LAST_RESET_DATE.**
+- **2026-03-30** (latest): syncOrderBookToDb wrote No token midPrice to current_price_yes, corrupting snapshots. PR #64 fix merged. 94/183 positions inverted. Reset to $10,000. **Use `2026-03-30` as LAST_RESET_DATE.**
+- **2026-03-29**: CLOB `/prices-history` API returns complementary (No) prices for Yes token. 153k corrupted `api` rows deleted. Disabled sync-price-history, snapshots only. Reset to $10,000.
 - **2026-03-28**: Exit price inversion. `signal.price` fallback used wrong token's price when DB timed out. 261 inverted trade pairs, $13,478 phantom PnL. Fix: PriceService + inversion guard. Reset to $10,000.
 - **2026-03-26**: Price inversion reset. `price_history` stored both Yes AND No token prices from `api` and `collector` sources, corrupting all signals and producing phantom PnL (~$3.5k reported, all unreliable). Cleaned No token rows + reset to $10,000.
 - **2026-03-24**: Phantom PnL reset. System reported $19k gains but real cash profit was ~$426. Reset via cash flow recalculation. Peak went from ~$30k to ~$11k. This is NOT a 63% drawdown.
@@ -449,7 +450,7 @@ SELECT COUNT(*) AS total_closed,
     AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800)::numeric, 2) AS phantom_pnl,
   ROUND(SUM(realized_pnl) FILTER (WHERE NOT (ABS(avg_entry_price + current_price - 1.0) < 0.05
     AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800))::numeric, 2) AS real_pnl
-FROM paper_positions WHERE closed_at >= '<LAST_RESET_DATE>' AND realized_pnl IS NOT NULL;
+FROM paper_positions WHERE closed_at >= '2026-03-30' AND realized_pnl IS NOT NULL;
 ```
 
 Replace `<LAST_RESET_DATE>` with the date from "Account Reset History" section below.

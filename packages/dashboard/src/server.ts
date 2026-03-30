@@ -150,6 +150,46 @@ async function main(): Promise<void> {
       console.log(`Database connected (latency: ${dbHealth.latency}ms)`);
       // Ensure market_type column exists (added for adaptive market expansion)
       await query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type VARCHAR(20)').catch(() => {});
+
+      // Configure autovacuum for markets table to prevent long-running locks
+      await query(`
+        ALTER TABLE markets SET (
+          autovacuum_vacuum_scale_factor = 0.1,
+          autovacuum_analyze_scale_factor = 0.05,
+          autovacuum_vacuum_cost_delay = 5
+        )
+      `).catch(() => {});
+
+      // Create function to cancel autovacuum blocking queries for >30 minutes
+      await query(`
+        CREATE OR REPLACE FUNCTION cancel_blocking_autovacuum()
+        RETURNS void AS $fn$
+        DECLARE
+          r RECORD;
+        BEGIN
+          FOR r IN
+            SELECT pid FROM pg_stat_activity
+            WHERE query LIKE 'autovacuum:%'
+              AND state = 'active'
+              AND wait_event_type = 'Lock'
+              AND NOW() - query_start > INTERVAL '30 minutes'
+          LOOP
+            PERFORM pg_cancel_backend(r.pid);
+            RAISE NOTICE 'Cancelled blocking autovacuum pid %', r.pid;
+          END LOOP;
+        END;
+        $fn$ LANGUAGE plpgsql
+      `).catch(() => {});
+
+      // Check for blocking autovacuum every 15 minutes
+      setInterval(async () => {
+        try {
+          const result = await query('SELECT cancel_blocking_autovacuum()');
+          // Only log if there was something to cancel (function raises NOTICE)
+        } catch {
+          // Function may not exist yet on first run
+        }
+      }, 15 * 60 * 1000);
     } else {
       console.error('Database connection failed:', dbHealth.error);
       console.log('Continuing without database - some features will be disabled');

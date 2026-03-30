@@ -474,6 +474,24 @@ error_logs=$(jq -n \
   --argjson collector "$collector_errors" \
   '{"dashboard_api": $dashboard, "data_collector": $collector}' 2>/dev/null || echo '{"dashboard_api":[],"data_collector":[]}')
 
+# 20. Real PnL check (separate real from phantom/inverted positions)
+# Uses LAST_RESET_DATE from the prompt's Account Reset History section
+real_pnl_check=$(query_one "
+  SELECT row_to_json(t) FROM (
+    SELECT
+      COUNT(*)::float AS total_closed,
+      COUNT(*) FILTER (WHERE ABS(avg_entry_price + current_price - 1.0) < 0.05
+        AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800)::float AS inverted_count,
+      ROUND(SUM(realized_pnl)::numeric, 2)::float AS reported_pnl,
+      ROUND(SUM(realized_pnl) FILTER (WHERE ABS(avg_entry_price + current_price - 1.0) < 0.05
+        AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800)::numeric, 2)::float AS phantom_pnl,
+      ROUND(SUM(realized_pnl) FILTER (WHERE NOT (ABS(avg_entry_price + current_price - 1.0) < 0.05
+        AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800))::numeric, 2)::float AS real_pnl
+    FROM paper_positions
+    WHERE closed_at >= '2026-03-30' AND realized_pnl IS NOT NULL
+  ) t;
+")
+
 # ── save review history ──────────────────────────────────────────────────────
 
 HISTORY_ENTRY=$(cat <<HISTEOF
@@ -530,6 +548,7 @@ jq -n \
   --argjson db_security "$db_security" \
   --argjson disk_usage "$disk_usage" \
   --argjson error_logs "$error_logs" \
+  --argjson real_pnl_check "$real_pnl_check" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -557,5 +576,6 @@ jq -n \
     db_security: $db_security,
     disk_usage: $disk_usage,
     error_logs: $error_logs,
+    real_pnl_check: $real_pnl_check,
     review_history: $review_history
   }'

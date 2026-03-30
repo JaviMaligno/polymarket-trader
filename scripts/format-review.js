@@ -104,6 +104,7 @@ const signalWeights = Array.isArray(data.signal_weights) ? data.signal_weights :
 const consecutiveLosses = data.consecutive_losses || null;
 const containers = Array.isArray(data.containers) ? data.containers : [];
 const errorLogs = data.error_logs || {};
+const realPnlCheck = data.real_pnl_check || null;
 const generatedAt = data.generated_at || new Date().toISOString();
 
 // ── Detect alerts ───────────────────────────────────────────────────────────
@@ -149,6 +150,14 @@ if (dailyRealizedPnl < -200) {
 const zombieCount = zombiePositions ? (zombiePositions.count || 0) : 0;
 if (zombieCount > 0) {
   alerts.push({ level: 'warning', message: `${zombieCount} zombie positions (size=0, not closed)` });
+}
+
+// Inverted positions detected (price inversion bug)
+if (realPnlCheck && realPnlCheck.inverted_count > 0) {
+  const pct = realPnlCheck.total_closed > 0
+    ? ((realPnlCheck.inverted_count / realPnlCheck.total_closed) * 100).toFixed(1)
+    : '?';
+  alerts.push({ level: 'critical', message: `${fmt(realPnlCheck.inverted_count, 0)} inverted positions (${pct}% of ${fmt(realPnlCheck.total_closed, 0)} closed). Real PnL: ${fmtUsd(realPnlCheck.real_pnl)} of reported ${fmtUsd(realPnlCheck.reported_pnl)}` });
 }
 
 // Resource usage — high memory alert (VM has only 1GB RAM)
@@ -229,6 +238,23 @@ function buildMarkdown() {
     ln(`*Account data unavailable.*`);
   }
   ln();
+
+  // Real PnL Check
+  if (realPnlCheck) {
+    ln(`## Real PnL (post-reset)`);
+    ln();
+    const realPct = realPnlCheck.reported_pnl !== 0
+      ? ((realPnlCheck.real_pnl / realPnlCheck.reported_pnl) * 100).toFixed(1)
+      : 'N/A';
+    ln(`| Metric | Value |`);
+    ln(`|--------|-------|`);
+    ln(`| Total Closed | ${fmt(realPnlCheck.total_closed, 0)} |`);
+    ln(`| Inverted | ${fmt(realPnlCheck.inverted_count, 0)} |`);
+    ln(`| Reported PnL | ${fmtUsd(realPnlCheck.reported_pnl)} |`);
+    ln(`| **Real PnL** | **${fmtUsd(realPnlCheck.real_pnl)}** (${realPct}%) |`);
+    ln(`| Phantom PnL | ${fmtUsd(realPnlCheck.phantom_pnl)} |`);
+    ln();
+  }
 
   // Trades 24h
   ln(`## Trades (24h)`);
@@ -493,6 +519,22 @@ function buildEmailHtml() {
     p('</table>');
   } else {
     p('<p><em>Account data unavailable.</em></p>');
+  }
+
+  // Real PnL Check
+  if (realPnlCheck) {
+    p('<h2>Real PnL (post-reset)</h2>');
+    const hasInversions = realPnlCheck.inverted_count > 0;
+    const realPct = realPnlCheck.reported_pnl !== 0
+      ? ((realPnlCheck.real_pnl / realPnlCheck.reported_pnl) * 100).toFixed(1)
+      : 'N/A';
+    p('<table>');
+    p(`<tr><td>Total Closed</td><td>${escapeHtml(fmt(realPnlCheck.total_closed, 0))}</td></tr>`);
+    p(`<tr><td>Inverted</td><td${hasInversions ? ' class="negative"' : ''}>${escapeHtml(fmt(realPnlCheck.inverted_count, 0))}</td></tr>`);
+    p(`<tr><td>Reported PnL</td><td>${escapeHtml(fmtUsd(realPnlCheck.reported_pnl))}</td></tr>`);
+    p(`<tr><td><strong>Real PnL</strong></td><td><strong>${escapeHtml(fmtUsd(realPnlCheck.real_pnl))} (${escapeHtml(realPct)}%)</strong></td></tr>`);
+    p(`<tr><td>Phantom PnL</td><td class="negative">${escapeHtml(fmtUsd(realPnlCheck.phantom_pnl))}</td></tr>`);
+    p('</table>');
   }
 
   // Trades 24h
