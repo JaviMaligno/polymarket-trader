@@ -124,6 +124,7 @@ export class PositionCleanupService extends EventEmitter {
         resolution_outcome: string | null;
         question: string | null;
         latest_price: string | null;
+        opened_at: Date | null;
       }>(`
         SELECT
           pp.id,
@@ -132,6 +133,7 @@ export class PositionCleanupService extends EventEmitter {
           pp.side,
           pp.size,
           pp.avg_entry_price,
+          pp.opened_at,
           m.is_active,
           m.is_resolved,
           m.resolution_outcome,
@@ -196,7 +198,7 @@ export class PositionCleanupService extends EventEmitter {
         const pnl = exitValue - invested;
 
         // Close the position
-        await this.closePosition(pos.id, pos.market_id, pos.token_id, pos.side as 'long' | 'short', size, entryPrice, exitPrice, reason);
+        await this.closePosition(pos.id, pos.market_id, pos.token_id, pos.side as 'long' | 'short', size, entryPrice, exitPrice, reason, pos.opened_at ? new Date(pos.opened_at) : undefined);
 
         result.positionsClosed++;
         result.capitalRecovered += exitValue;
@@ -238,7 +240,8 @@ export class PositionCleanupService extends EventEmitter {
     size: number,
     entryPrice: number,
     exitPrice: number,
-    reason: 'inactive' | 'resolved'
+    reason: 'inactive' | 'resolved',
+    openedAt?: Date
   ): Promise<void> {
     await getPositionClosingService().close({
       positionId,
@@ -249,6 +252,7 @@ export class PositionCleanupService extends EventEmitter {
       entryPrice,
       exitPrice,
       reason: reason === 'inactive' ? 'cleanup_inactive' : 'cleanup_resolved',
+      openedAt,
     });
   }
 

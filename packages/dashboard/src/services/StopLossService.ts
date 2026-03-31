@@ -246,7 +246,8 @@ export class StopLossService extends EventEmitter {
             size,
             entryPrice,
             currentPrice,
-            'stop_loss'
+            'stop_loss',
+            pos.opened_at ? new Date(pos.opened_at) : undefined
           );
 
           result.positionsClosed++;
@@ -276,7 +277,8 @@ export class StopLossService extends EventEmitter {
             size,
             entryPrice,
             currentPrice,
-            'take_profit'
+            'take_profit',
+            pos.opened_at ? new Date(pos.opened_at) : undefined
           );
 
           result.positionsClosed++;
@@ -309,7 +311,8 @@ export class StopLossService extends EventEmitter {
               size,
               entryPrice,
               currentPrice,
-              'time_exit'
+              'time_exit',
+              pos.opened_at ? new Date(pos.opened_at) : undefined
             );
 
             result.positionsClosed++;
@@ -363,7 +366,8 @@ export class StopLossService extends EventEmitter {
     size: number,
     entryPrice: number,
     exitPrice: number,
-    reason: 'stop_loss' | 'take_profit' | 'time_exit'
+    reason: 'stop_loss' | 'take_profit' | 'time_exit',
+    openedAt?: Date
   ): Promise<{ pnl: number }> {
     const result = await getPositionClosingService().close({
       positionId,
@@ -374,6 +378,7 @@ export class StopLossService extends EventEmitter {
       entryPrice,
       exitPrice,
       reason,
+      openedAt,
     });
 
     if (result.executed) {
