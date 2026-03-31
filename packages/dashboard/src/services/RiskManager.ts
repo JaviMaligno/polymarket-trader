@@ -190,6 +190,15 @@ export class RiskManager extends EventEmitter {
 
       const initialCapital = parseFloat(accountResult.rows[0].initial_capital);
       const currentCapital = parseFloat(accountResult.rows[0].current_capital);
+      const dbPeakEquity = parseFloat(accountResult.rows[0].peak_equity);
+
+      // Sync in-memory peak with DB: if the DB value is lower, a reset occurred externally
+      // (e.g. scripts/reset-account.js or the API reset endpoint). Without this sync,
+      // the stale in-memory peak causes phantom drawdowns to be written back to the DB.
+      if (dbPeakEquity < this.peakEquity) {
+        console.log(`[RiskManager] Account reset detected: lowering in-memory peak from $${this.peakEquity.toFixed(2)} to $${dbPeakEquity.toFixed(2)}`);
+        this.peakEquity = dbPeakEquity;
+      }
 
       // Get positions for exposure calculation (needed before peak update)
       const positions = await paperPositionsRepo.getAll();
