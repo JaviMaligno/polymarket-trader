@@ -19,7 +19,6 @@ import type { SignalResult } from './AutoSignalExecutor.js';
 
 // Import from signals package
 import {
-  MomentumSignal,
   MeanReversionSignal,
   OrderFlowImbalanceSignal,
   MultiLevelOFISignal,
@@ -144,7 +143,9 @@ export class SignalEngine extends EventEmitter {
    */
   private initializeSignals(): void {
     // Core signals
-    this.signals.set('momentum', new MomentumSignal());
+    // NOTE: MomentumSignal removed — empirically anti-correlated at all timescales
+    // (5min to 24h) in prediction markets. Autocorrelation is negative (-0.38 to -0.41),
+    // meaning momentum systematically predicts the wrong direction.
     this.signals.set('mean_reversion', new MeanReversionSignal());
 
     // Microstructure signals (order flow analysis)

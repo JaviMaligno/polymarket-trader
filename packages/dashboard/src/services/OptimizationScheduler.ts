@@ -59,13 +59,14 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
  * Only the 8 most impactful parameters
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
-  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
-  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
-  { name: 'combiner.momentumWeight', type: 'float', low: 0.2, high: 1.5 },
-  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.2, high: 1.5 },
+  { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
+  { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
+  { name: 'combiner.meanReversionWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
-  { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
 ];
 
@@ -691,17 +692,24 @@ export class OptimizationScheduler {
 
     // Apply optimized signal weights to database
     const WEIGHT_PARAM_MAP: Record<string, string> = {
-      'combiner.momentumWeight': 'momentum',
       'combiner.meanReversionWeight': 'mean_reversion',
+      'combiner.ofiWeight': 'ofi',
+      'combiner.mlofiWeight': 'mlofi',
+      'combiner.hawkesWeight': 'hawkes',
+      'combiner.volumeAnomalyWeight': 'volume_anomaly',
+      'combiner.spreadCompressionWeight': 'spread_compression',
+      'combiner.crossMarketCorrWeight': 'cross_market_corr',
+      'combiner.priceDivergenceWeight': 'price_divergence',
+      'combiner.attentionSpikeWeight': 'attention_spike',
+      'combiner.newsSentimentWeight': 'news_sentiment',
     };
 
-    const MIN_WEIGHT = 0.05;
-    const MAX_WEIGHT = 0.95;
+    const MAX_WEIGHT = 3.0;
 
     for (const [paramKey, signalType] of Object.entries(WEIGHT_PARAM_MAP)) {
       const rawWeight = result.params[paramKey];
       if (rawWeight !== undefined && rawWeight !== null) {
-        const weight = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Number(rawWeight)));
+        const weight = Math.max(0, Math.min(MAX_WEIGHT, Number(rawWeight)));
 
         try {
           await signalWeightsRepo.update(signalType, weight, `optimization-${new Date().toISOString().slice(0, 10)}`);

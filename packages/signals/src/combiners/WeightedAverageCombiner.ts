@@ -36,10 +36,10 @@ interface WeightedAverageParams {
  */
 /** Default signal weights per market type */
 const DEFAULT_TYPE_WEIGHTS: Record<string, Record<string, number>> = {
-  crypto_intraday: { momentum: 0.3, mean_reversion: 0.1, ofi: 0.5, mlofi: 0.5, hawkes: 0.4 },
-  crypto_daily:    { momentum: 0.4, mean_reversion: 0.3, ofi: 0.4, mlofi: 0.4, hawkes: 0.3 },
-  event_short:     { momentum: 0.5, mean_reversion: 0.5, ofi: 0.2, mlofi: 0.2, hawkes: 0.2 },
-  event_long:      { momentum: 0.5, mean_reversion: 0.5, ofi: 0.1, mlofi: 0.1, hawkes: 0.1 },
+  crypto_intraday: { mean_reversion: 0.3, ofi: 0.5, mlofi: 0.5, hawkes: 0.4 },
+  crypto_daily:    { mean_reversion: 0.5, ofi: 0.4, mlofi: 0.4, hawkes: 0.3 },
+  event_short:     { mean_reversion: 0.6, ofi: 0.3, mlofi: 0.3, hawkes: 0.2 },
+  event_long:      { mean_reversion: 0.6, ofi: 0.2, mlofi: 0.2, hawkes: 0.1 },
 };
 
 export class WeightedAverageCombiner implements ISignalCombiner {

@@ -70,20 +70,84 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
     description: 'Only trade signals in this direction',
   },
   {
-    name: 'combiner.momentumWeight',
-    type: 'float',
-    low: 0.0,
-    high: 3.0,
-    category: 'combiner',
-    description: 'Weight for momentum signals',
-  },
-  {
     name: 'combiner.meanReversionWeight',
     type: 'float',
     low: 0.0,
     high: 3.0,
     category: 'combiner',
     description: 'Weight for mean reversion signals',
+  },
+  {
+    name: 'combiner.ofiWeight',
+    type: 'float',
+    low: 0.0,
+    high: 3.0,
+    category: 'combiner',
+    description: 'Weight for order flow imbalance signals',
+  },
+  {
+    name: 'combiner.mlofiWeight',
+    type: 'float',
+    low: 0.0,
+    high: 3.0,
+    category: 'combiner',
+    description: 'Weight for multi-level OFI signals',
+  },
+  {
+    name: 'combiner.hawkesWeight',
+    type: 'float',
+    low: 0.0,
+    high: 3.0,
+    category: 'combiner',
+    description: 'Weight for Hawkes process signals',
+  },
+  {
+    name: 'combiner.volumeAnomalyWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for volume anomaly signals',
+  },
+  {
+    name: 'combiner.spreadCompressionWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for spread compression signals',
+  },
+  {
+    name: 'combiner.crossMarketCorrWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for cross-market correlation signals',
+  },
+  {
+    name: 'combiner.priceDivergenceWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for price divergence signals',
+  },
+  {
+    name: 'combiner.attentionSpikeWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for attention spike signals',
+  },
+  {
+    name: 'combiner.newsSentimentWeight',
+    type: 'float',
+    low: 0.0,
+    high: 2.0,
+    category: 'combiner',
+    description: 'Weight for news sentiment signals',
   },
   {
     name: 'combiner.conflictResolution',
@@ -196,73 +260,8 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
     description: 'Lookback period for volatility calculation',
   },
 
-  // ============================================
-  // MOMENTUM SIGNAL PARAMETERS
-  // ============================================
-  {
-    name: 'momentum.rsiPeriod',
-    type: 'int',
-    low: 5,
-    high: 28,
-    category: 'momentum',
-    description: 'RSI calculation period',
-  },
-  {
-    name: 'momentum.rsiOverbought',
-    type: 'float',
-    low: 60.0,
-    high: 90.0,
-    category: 'momentum',
-    description: 'RSI overbought threshold',
-  },
-  {
-    name: 'momentum.rsiOversold',
-    type: 'float',
-    low: 10.0,
-    high: 40.0,
-    category: 'momentum',
-    description: 'RSI oversold threshold',
-  },
-  {
-    name: 'momentum.macdFast',
-    type: 'int',
-    low: 6,
-    high: 18,
-    category: 'momentum',
-    description: 'MACD fast EMA period',
-  },
-  {
-    name: 'momentum.macdSlow',
-    type: 'int',
-    low: 18,
-    high: 35,
-    category: 'momentum',
-    description: 'MACD slow EMA period',
-  },
-  {
-    name: 'momentum.macdSignal',
-    type: 'int',
-    low: 5,
-    high: 15,
-    category: 'momentum',
-    description: 'MACD signal line period',
-  },
-  {
-    name: 'momentum.trendLookback',
-    type: 'int',
-    low: 10,
-    high: 50,
-    category: 'momentum',
-    description: 'Trend direction lookback period',
-  },
-  {
-    name: 'momentum.minTrendStrength',
-    type: 'float',
-    low: 0.0,
-    high: 0.3,
-    category: 'momentum',
-    description: 'Minimum trend strength to trade',
-  },
+  // NOTE: Momentum parameters removed — empirically anti-correlated at all
+  // timescales (5min-24h) in prediction markets (autocorrelation -0.38 to -0.41).
 
   // ============================================
   // MEAN REVERSION SIGNAL PARAMETERS
@@ -425,9 +424,12 @@ export const MINIMAL_PARAMETER_SPACE: ParameterDefinition[] =
       'combiner.minCombinedConfidence',
       'combiner.minCombinedStrength',
       'combiner.onlyDirection',
+      'combiner.meanReversionWeight',
+      'combiner.ofiWeight',
+      'combiner.mlofiWeight',
+      'combiner.hawkesWeight',
       'risk.maxPositionSizePct',
       'risk.maxPositions',
-      'momentum.rsiPeriod',
       'meanReversion.bollingerPeriod',
       'meanReversion.zScoreThreshold',
     ].includes(p.name)
@@ -441,7 +443,6 @@ export type ParameterCategory =
   | 'combiner'
   | 'risk'
   | 'sizing'
-  | 'momentum'
   | 'meanReversion'
   | 'marketFilters'
   | 'timing'
@@ -718,21 +719,19 @@ export function createImportanceBasedParameterSpace(
  */
 export const LEAN_PARAMETER_SPACE: ParameterDefinition[] = FULL_PARAMETER_SPACE.filter(p =>
   [
-    // Combiner (most impactful: signal thresholds)
+    // Combiner (most impactful: signal thresholds + weights)
     'combiner.minCombinedConfidence',
     'combiner.minCombinedStrength',
-    'combiner.momentumWeight',
     'combiner.meanReversionWeight',
+    'combiner.ofiWeight',
+    'combiner.mlofiWeight',
+    'combiner.hawkesWeight',
     'combiner.conflictResolution',
     // Risk (position sizing is critical)
     'risk.maxPositionSizePct',
     'risk.stopLossPct',
     'risk.takeProfitPct',
     'risk.maxPositions',
-    // Momentum (core signal params)
-    'momentum.rsiPeriod',
-    'momentum.rsiOverbought',
-    'momentum.rsiOversold',
     // Mean Reversion (core params)
     'meanReversion.bollingerPeriod',
     'meanReversion.zScoreThreshold',
