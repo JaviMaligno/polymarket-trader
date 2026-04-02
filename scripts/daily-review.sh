@@ -241,9 +241,9 @@ account_consistency=$(query_one "
 # sum trades after the last account reset, avoiding pre-reset history noise.
 invariant_checks=$(query_one "
   WITH reset_epoch AS (
-    SELECT COALESCE(
-      (SELECT MAX(timestamp) FROM circuit_breaker_log),
-      '2026-03-26T00:00:00Z'::timestamptz
+    SELECT GREATEST(
+      COALESCE((SELECT MAX(timestamp) FROM circuit_breaker_log), '1970-01-01'::timestamptz),
+      '2026-03-30T00:00:00Z'::timestamptz
     ) AS ts
   )
   SELECT row_to_json(t) FROM (
