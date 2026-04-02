@@ -488,7 +488,7 @@ real_pnl_check=$(query_one "
       ROUND(SUM(realized_pnl) FILTER (WHERE NOT (ABS(avg_entry_price + current_price - 1.0) < 0.05
         AND EXTRACT(EPOCH FROM (closed_at - opened_at)) < 1800))::numeric, 2)::float AS real_pnl
     FROM paper_positions
-    WHERE closed_at >= '2026-03-30' AND realized_pnl IS NOT NULL
+    WHERE closed_at >= '2026-03-31' AND realized_pnl IS NOT NULL
   ) t;
 ")
 
