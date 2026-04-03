@@ -1277,6 +1277,7 @@ export async function registerRoutes(
           total_trades = 0,
           winning_trades = 0,
           losing_trades = 0,
+          last_reset_at = NOW(),
           updated_at = NOW()
         WHERE id = 1`
       );

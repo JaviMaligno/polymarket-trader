@@ -237,13 +237,14 @@ account_consistency=$(query_one "
 ")
 
 # 11b. Generalized invariant checks (PASS/FAIL)
-# Uses reset epoch (last circuit breaker trigger or known reset date) to only
-# sum trades after the last account reset, avoiding pre-reset history noise.
+# Uses last_reset_at from paper_account as the epoch so that pre-reset trades
+# (e.g. from the 2026-03-30 No-token corruption incident) are excluded from the
+# cashflow and fee cross-checks, preventing false-positive CRITICAL alerts.
 invariant_checks=$(query_one "
   WITH reset_epoch AS (
-    SELECT GREATEST(
-      COALESCE((SELECT MAX(timestamp) FROM circuit_breaker_log), '1970-01-01'::timestamptz),
-      '2026-03-30T00:00:00Z'::timestamptz
+    SELECT COALESCE(
+      (SELECT last_reset_at FROM paper_account LIMIT 1),
+      '2026-03-30T17:30:00Z'::timestamptz
     ) AS ts
   )
   SELECT row_to_json(t) FROM (
