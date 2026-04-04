@@ -615,6 +615,32 @@ export class AutoSignalExecutor extends EventEmitter {
       const actualFee = sim.fee;
       const actualValue = actualShares * actualPrice;
 
+      // Open position atomically: check + debit + insert in one transaction
+      // Must happen BEFORE recording the trade to avoid orphaned buy records
+      // if the position open fails (e.g., duplicate or insufficient capital).
+      const openResult = await paperPositionsRepo.openPositionAtomically(
+        {
+          market_id: signal.marketId,
+          token_id: signal.tokenId,
+          side: signal.direction === 'long' ? 'long' : 'short',
+          size: actualShares,
+          avg_entry_price: actualPrice,
+          current_price: actualPrice,
+          unrealized_pnl: 0,
+          opened_at: new Date(),
+          signal_type: signal.signalId,
+          market_score_at_entry: marketScoreAtEntry,
+          score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
+          execution_mode: executionMode,
+        },
+        actualValue,
+        actualFee,
+      );
+
+      if (!openResult.opened) {
+        return { executed: false, reason: openResult.reason || 'Position open failed' };
+      }
+
       const trade = await paperTradesRepo.create({
         time: new Date(),
         market_id: signal.marketId,
@@ -638,36 +664,6 @@ export class AutoSignalExecutor extends EventEmitter {
         available_depth: sim.availableDepth,
         execution_mode: executionMode,
       });
-
-      // Open position atomically: check + debit + insert in one transaction
-      const openResult = await paperPositionsRepo.openPositionAtomically(
-        {
-          market_id: signal.marketId,
-          token_id: signal.tokenId,
-          side: signal.direction === 'long' ? 'long' : 'short',
-          size: actualShares,
-          avg_entry_price: actualPrice,
-          current_price: actualPrice,
-          unrealized_pnl: 0,
-          opened_at: new Date(),
-          signal_type: signal.signalId,
-          market_score_at_entry: marketScoreAtEntry,
-          score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
-          execution_mode: executionMode,
-        },
-        actualValue,
-        actualFee,
-      );
-
-      if (!openResult.opened) {
-        // Position already exists or insufficient capital — delete the trade record
-        try {
-          await query('DELETE FROM paper_trades WHERE id = $1', [trade.id]);
-        } catch (delError) {
-          console.error('Failed to delete orphaned trade:', delError);
-        }
-        return { executed: false, reason: openResult.reason || 'Position open failed' };
-      }
 
       // Track the trade
       this.recentTrades.push({ marketId: signal.marketId, timestamp: Date.now() });

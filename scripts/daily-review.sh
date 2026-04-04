@@ -184,6 +184,7 @@ recently_closed=$(query_json "
       p.side,
       p.avg_entry_price::float,
       p.realized_pnl::float,
+      p.signal_type,
       p.opened_at,
       p.closed_at
     FROM paper_positions p
