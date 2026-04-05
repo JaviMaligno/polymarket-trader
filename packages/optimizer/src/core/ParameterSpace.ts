@@ -70,6 +70,14 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
     description: 'Only trade signals in this direction',
   },
   {
+    name: 'combiner.momentumWeight',
+    type: 'float',
+    low: -1.5,
+    high: 1.5,
+    category: 'combiner',
+    description: 'Weight for momentum signals (negative = contrarian)',
+  },
+  {
     name: 'combiner.meanReversionWeight',
     type: 'float',
     low: 0.0,
@@ -424,6 +432,7 @@ export const MINIMAL_PARAMETER_SPACE: ParameterDefinition[] =
       'combiner.minCombinedConfidence',
       'combiner.minCombinedStrength',
       'combiner.onlyDirection',
+      'combiner.momentumWeight',
       'combiner.meanReversionWeight',
       'combiner.ofiWeight',
       'combiner.mlofiWeight',
@@ -722,6 +731,7 @@ export const LEAN_PARAMETER_SPACE: ParameterDefinition[] = FULL_PARAMETER_SPACE.
     // Combiner (most impactful: signal thresholds + weights)
     'combiner.minCombinedConfidence',
     'combiner.minCombinedStrength',
+    'combiner.momentumWeight',
     'combiner.meanReversionWeight',
     'combiner.ofiWeight',
     'combiner.mlofiWeight',

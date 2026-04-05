@@ -67,26 +67,27 @@ export class MarketScorer {
    *   [0.05, 0.15)       → ramp 0→1
    *   [0.15, 0.40]       → 1.0 (optimal low)
    *   (0.40, 0.45]       → ramp 1→0
-   *   (0.45, 0.55)       → 0   (50/50 dead zone)
-   *   [0.55, 0.60)       → ramp 0→1
-   *   [0.60, 0.85]       → 1.0 (optimal high)
-   *   (0.85, 0.95]       → ramp 1→0
-   *   (0.95, 1.00]       → 0   (near-certain Yes)
+   *   [0.05, 0.15)       → 0.5  (extreme low — contrarian momentum)
+   *   [0.15, 0.30)       → ramp 0.5→1.0
+   *   [0.30, 0.70]       → 1.0  (balanced — maximum uncertainty)
+   *   (0.70, 0.85]       → ramp 1.0→0.5
+   *   (0.85, 0.95]       → 0.5  (extreme high — contrarian momentum)
+   *   (0.95, 1.00]       → 0    (near-certain Yes)
    */
   static tradeabilityScore(price: number | null): number {
     if (price === null) return 0;
     if (price < 0.05 || price > 0.95) return 0;
-    if (price >= 0.45 && price <= 0.55) return 0;
 
-    // Lower half
-    if (price >= 0.05 && price < 0.15) return clamp01(lerp(price, 0.05, 0.15, 0, 1));
-    if (price >= 0.15 && price <= 0.40) return 1.0;
-    if (price > 0.40 && price < 0.45) return clamp01(lerp(price, 0.40, 0.45, 1, 0));
-
-    // Upper half (symmetric)
-    if (price > 0.55 && price < 0.60) return clamp01(lerp(price, 0.55, 0.60, 0, 1));
-    if (price >= 0.60 && price <= 0.85) return 1.0;
-    if (price > 0.85 && price <= 0.95) return clamp01(lerp(price, 0.85, 0.95, 1, 0));
+    // Extreme low — tradeable with contrarian strategy
+    if (price >= 0.05 && price < 0.15) return 0.5;
+    // Ramp from moderate to balanced
+    if (price >= 0.15 && price < 0.30) return clamp01(lerp(price, 0.15, 0.30, 0.5, 1.0));
+    // Balanced zone — maximum tradeability
+    if (price >= 0.30 && price <= 0.70) return 1.0;
+    // Ramp from balanced to moderate
+    if (price > 0.70 && price <= 0.85) return clamp01(lerp(price, 0.70, 0.85, 1.0, 0.5));
+    // Extreme high — tradeable with contrarian strategy
+    if (price > 0.85 && price <= 0.95) return 0.5;
 
     return 0;
   }

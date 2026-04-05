@@ -19,6 +19,7 @@ import type { SignalResult } from './AutoSignalExecutor.js';
 
 // Import from signals package
 import {
+  MomentumSignal,
   MeanReversionSignal,
   OrderFlowImbalanceSignal,
   MultiLevelOFISignal,
@@ -143,9 +144,9 @@ export class SignalEngine extends EventEmitter {
    */
   private initializeSignals(): void {
     // Core signals
-    // NOTE: MomentumSignal removed — empirically anti-correlated at all timescales
-    // (5min to 24h) in prediction markets. Autocorrelation is negative (-0.38 to -0.41),
-    // meaning momentum systematically predicts the wrong direction.
+    // Momentum used as CONTRARIAN signal (negative weight) — empirically anti-correlated
+    // at all timescales (autocorrelation -0.38 to -0.41). Negative weight inverts direction.
+    this.signals.set('momentum', new MomentumSignal());
     this.signals.set('mean_reversion', new MeanReversionSignal());
 
     // Microstructure signals (order flow analysis)
@@ -300,11 +301,8 @@ export class SignalEngine extends EventEmitter {
         return false;
       }
 
-      // Filter 4: Skip 50/50 markets (no edge, fees make EV negative)
-      if (price >= FIFTY_FIFTY_MIN && price <= FIFTY_FIFTY_MAX) {
-        fiftyFiftyCount++;
-        return false;
-      }
+      // NOTE: 50/50 filter removed — balanced markets (40-60%) have strongest
+      // mean-reversion signal (autocorrelation -0.41 at 30min). Let signals decide.
 
       return true;
     });

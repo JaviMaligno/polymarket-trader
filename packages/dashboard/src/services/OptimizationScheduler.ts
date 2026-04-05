@@ -61,6 +61,7 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
+  { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
   { name: 'combiner.meanReversionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
@@ -692,6 +693,7 @@ export class OptimizationScheduler {
 
     // Apply optimized signal weights to database
     const WEIGHT_PARAM_MAP: Record<string, string> = {
+      'combiner.momentumWeight': 'momentum',
       'combiner.meanReversionWeight': 'mean_reversion',
       'combiner.ofiWeight': 'ofi',
       'combiner.mlofiWeight': 'mlofi',
