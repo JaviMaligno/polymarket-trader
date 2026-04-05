@@ -811,7 +811,7 @@ export class OptimizationScheduler {
         new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
         new Date(),
         best ? JSON.stringify(best.params) : null,
-        best?.sharpe || null,
+        best?.sharpe ?? null,
         results.length,
         runStartedAt,
       ]);
