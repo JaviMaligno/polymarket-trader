@@ -111,7 +111,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
         weight: this.getSignalWeight(s, now, marketType),
         timeDecay: this.calculateTimeDecay(s, now),
       }))
-      .filter(s => s.weight > 0 && s.timeDecay > 0);
+      .filter(s => s.weight !== 0 && s.timeDecay > 0);
 
     if (validSignals.length === 0) {
       return null;
@@ -212,9 +212,9 @@ export class WeightedAverageCombiner implements ISignalCombiner {
 
     for (const { signal, weight, timeDecay } of signals) {
       const effectiveWeight = weight * signal.confidence * timeDecay;
-      totalWeight += effectiveWeight;
+      totalWeight += Math.abs(effectiveWeight);  // Normalize by absolute weight sum
       weightedStrength += signal.strength * effectiveWeight;
-      weightedConfidence += signal.confidence * effectiveWeight;
+      weightedConfidence += signal.confidence * Math.abs(effectiveWeight);
     }
 
     const strength = totalWeight > 0 ? weightedStrength / totalWeight : 0;
