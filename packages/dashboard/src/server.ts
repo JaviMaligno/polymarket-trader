@@ -263,26 +263,11 @@ async function main(): Promise<void> {
           console.log('Loaded params from DB:', { dbConfidence, dbStrength });
           console.log('Applied conservative minimums:', optimizedParams);
 
-          // Also load optimized signal weights from best optimization run
-          const weightMap: Record<string, string> = {
-            'combiner.momentumWeight': 'momentum',
-            'combiner.meanReversionWeight': 'mean_reversion',
-            'combiner.ofiWeight': 'ofi',
-            'combiner.mlofiWeight': 'mlofi',
-            'combiner.hawkesWeight': 'hawkes',
-          };
-          for (const [paramKey, signalType] of Object.entries(weightMap)) {
-            const w = params[paramKey];
-            if (w !== undefined && w !== null) {
-              try {
-                const clampedWeight = Math.max(0.05, Math.min(0.95, Number(w)));
-                await signalWeightsRepo.update(signalType, clampedWeight, 'startup-load');
-                console.log(`Loaded optimized weight: ${signalType} = ${clampedWeight}`);
-              } catch (err) {
-                console.warn(`Failed to load weight ${signalType}:`, err);
-              }
-            }
-          }
+          // Signal weights are NOT loaded from optimization_runs on startup.
+          // They live in signal_weights table and are synced by SignalEngine
+          // every 5 minutes via syncWeightsFromDatabase(). The old startup-load
+          // was overwriting manual/contrarian weights with stale optimization
+          // results on every container restart.
         } else {
           console.log('No optimization results found, using default conservative thresholds');
         }
