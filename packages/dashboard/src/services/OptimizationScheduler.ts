@@ -692,10 +692,8 @@ export class OptimizationScheduler {
     }
 
     // Apply optimized signal weights to database
-    // NOTE: momentum excluded — fixed at -0.4 (contrarian) until we have
-    // 2+ weeks of balanced-market price data for meaningful backtests.
-    // Re-add 'combiner.momentumWeight': 'momentum' when ready.
     const WEIGHT_PARAM_MAP: Record<string, string> = {
+      'combiner.momentumWeight': 'momentum',
       'combiner.meanReversionWeight': 'mean_reversion',
       'combiner.ofiWeight': 'ofi',
       'combiner.mlofiWeight': 'mlofi',
