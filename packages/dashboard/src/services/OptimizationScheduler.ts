@@ -706,12 +706,13 @@ export class OptimizationScheduler {
       'combiner.newsSentimentWeight': 'news_sentiment',
     };
 
+    const MIN_WEIGHT = -1.5;  // Allow negative (contrarian) weights
     const MAX_WEIGHT = 3.0;
 
     for (const [paramKey, signalType] of Object.entries(WEIGHT_PARAM_MAP)) {
       const rawWeight = result.params[paramKey];
       if (rawWeight !== undefined && rawWeight !== null) {
-        const weight = Math.max(0, Math.min(MAX_WEIGHT, Number(rawWeight)));
+        const weight = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Number(rawWeight)));
 
         try {
           await signalWeightsRepo.update(signalType, weight, `optimization-${new Date().toISOString().slice(0, 10)}`);
