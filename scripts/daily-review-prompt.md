@@ -27,7 +27,10 @@ Analyze the trading system's health, investigate anomalies, and implement well-u
 - VM: GCP e2-micro (0.25 vCPU, 1GB RAM) — resource constrained
 - DB: TimescaleDB in Docker on the VM
 - Initial capital: $10,000, max drawdown threshold: 15%
-- Signal types: momentum, mean_reversion, OFI, MLOFI, Hawkes
+- Signal types: momentum (contrarian, weight -0.4), mean_reversion (weight 0.8), OFI, MLOFI, Hawkes, + 6 more
+- **Direction multiplier: -1.0** (all signals are flipped — this is INTENTIONAL, see CLAUDE.md)
+- **MarketScorer tradeability**: 30-70% scores 1.0 (NO 50/50 dead zone — this is INTENTIONAL, see design doc)
+- Reset epoch: use `paper_account.last_reset_at` (do NOT hardcode dates)
 - SSH: `gcloud compute ssh polymarket-vm --zone=us-east1-b`
 - DB access: `docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading`
 - VM deploy path: `/home/Usuario/polymarket-trader` (NOT /opt/ — that's stale)
@@ -64,19 +67,19 @@ There is a **historical PnL gap** between `paper_account.total_realized_pnl` and
 
 The paper account has been reset multiple times to correct accounting bugs. **A reset is NOT a trading loss.** If you see a large drop in `peak_equity` → `current_capital` that coincides with a known reset date, it is an accounting correction, not a drawdown.
 
-Known resets:
-- **2026-03-30** (latest): syncOrderBookToDb wrote No token midPrice to current_price_yes, corrupting snapshots. PR #64 fix merged. 94/183 positions inverted. Reset to $10,000. **Use `2026-03-30` as LAST_RESET_DATE.**
-- **2026-03-29**: CLOB `/prices-history` API returns complementary (No) prices for Yes token. 153k corrupted `api` rows deleted. Disabled sync-price-history, snapshots only. Reset to $10,000.
-- **2026-03-28**: Exit price inversion. `signal.price` fallback used wrong token's price when DB timed out. 261 inverted trade pairs, $13,478 phantom PnL. Fix: PriceService + inversion guard. Reset to $10,000.
-- **2026-03-26**: Price inversion reset. `price_history` stored both Yes AND No token prices from `api` and `collector` sources, corrupting all signals and producing phantom PnL (~$3.5k reported, all unreliable). Cleaned No token rows + reset to $10,000.
-- **2026-03-24**: Phantom PnL reset. System reported $19k gains but real cash profit was ~$426. Reset via cash flow recalculation. Peak went from ~$30k to ~$11k. This is NOT a 63% drawdown.
-- **2026-03-12**: Reset to $10,000 from $6,287 (37% real drawdown from bugs). Phase 2 risk fixes.
-- **2026-03-10**: Reset to $10,000. Data corruption from DELETE bug.
+**IMPORTANT: Use `paper_account.last_reset_at` as the reset epoch. Do NOT hardcode dates.**
+
+```sql
+SELECT last_reset_at FROM paper_account LIMIT 1;
+```
+
+Use this timestamp to filter all post-reset analysis (trades, positions, cashflows, invariant checks).
+
+There have been 12 resets (Mar-Apr 2026), mostly from price inversion bugs and accounting corrections. Pre-reset data exists in the DB but should be excluded from analysis. If you see a PnL gap between `paper_account.total_realized_pnl` and `SUM(paper_positions.realized_pnl)`, check whether the position-level sum includes pre-reset data — that's the most common cause.
 
 **How to distinguish a reset from a real drawdown:**
-1. Check `circuit_breaker_log` — if the CB triggered at a drawdown % that makes no sense given recent trading volume, it's likely post-reset
-2. If `peak_equity` is much higher than any realistic trading could produce from `initial_capital`, the peak is from a pre-reset phantom period
-3. After a reset, `peak_equity` in the DB may still reflect the old phantom peak — flag this as "peak_equity needs updating" rather than "massive drawdown"
+1. If `peak_equity` matches `initial_capital` ($10,000), a recent reset occurred
+2. After a reset, all metrics start from zero — don't compare against pre-reset values
 
 ### Historical Bug Patterns (learn from these)
 - **Bypass bugs**: Services closing positions via direct SQL instead of PositionClosingService
@@ -184,7 +187,8 @@ SELECT condition_id, current_price_yes, market_score
 FROM markets WHERE tracking_status = 'active'
 ORDER BY market_score DESC LIMIT 20;
 ```
-- If ALL active markets are in 50/50 (0.45–0.55) or extreme (<0.05 or >0.95) ranges → rotation is stuck on untradeable markets, not filtering working correctly. Flag as **Critical**.
+- Balanced markets (0.30–0.70) should be present in active/warming. If ALL active markets are extreme (<0.15 or >0.85) → rotation may need time to promote balanced markets.
+- NOTE: The 50/50 zone (0.45–0.55) is now scored as maximum tradeability (1.0). This is intentional — do NOT flag it as a bug or create PRs to revert it.
 
 ### Cross-Review Trending (mandatory if review_history has 2+ entries)
 

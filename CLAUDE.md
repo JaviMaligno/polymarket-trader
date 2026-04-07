@@ -74,21 +74,31 @@ Analyzes recent trades to identify patterns in losing trades.
 ## Signal Generation Pipeline
 
 1. **Data Collection**: data-collector fetches market prices every 5 seconds
-2. **Signal Generation**: SignalEngine runs 5 generators (momentum, mean_reversion, OFI, MLOFI, Hawkes)
-3. **Signal Combination**: WeightedAverageCombiner combines signals with optimized weights
+2. **Signal Generation**: SignalEngine runs 11 generators (momentum, mean_reversion, OFI, MLOFI, Hawkes, volume_anomaly, spread_compression, cross_market_corr, price_divergence, attention_spike, news_sentiment)
+3. **Signal Combination**: WeightedAverageCombiner combines signals with optimized weights, then applies `directionMultiplier`
 4. **Execution**: AutoSignalExecutor opens/closes positions based on combined signals
 
 ### Current Configuration
 
 - **Combiner thresholds**: minCombinedConfidence=0.43, minCombinedStrength=0.27
-- **Market filter**: Excludes markets with Yes price <5% or >95%
+- **Direction multiplier**: -1.0 (contrarian flip — see design rationale below)
+- **Market filter**: Excludes markets with Yes price <5% or >95%. NO 50/50 filter (removed intentionally).
 - **Max positions**: 50 concurrent open positions
 - **Signal interval**: 60 seconds
 
-### Signal Directions
+### Signal Directions (post-flip)
 
-- **LONG**: Buy Yes token (price expected to rise)
-- **SHORT**: Buy No token or close Yes position (price expected to fall)
+The combined signal direction is INVERTED by `directionMultiplier = -1`. This is intentional:
+- Prediction market signals detect information-driven moves as "overextension" and bet against them
+- But information is permanent — the price doesn't revert
+- Flipping converts the signals into trend-followers: "when a significant move is detected, follow it"
+- Empirical validation: 91.5% accuracy when flipped vs 3.7% unflipped (188 trades, Apr 2026)
+
+### Market Selection (intentional design)
+
+`MarketScorer.tradeabilityScore()` gives maximum score (1.0) to balanced markets (30-70% price).
+This is NOT a bug — it replaced the old 50/50 dead zone. Design doc: `docs/plans/2026-04-05-market-selection-dual-strategy-design.md`.
+**Do NOT revert the tradeability curve. The tests match the current spec.**
 
 ## System Invariants (for debugging and review)
 
@@ -102,7 +112,7 @@ Rules that MUST hold. When data violates one, there's a bug.
 ### Capital Accounting
 - `current_capital + SUM(open position costs) ≈ initial_capital + total_realized_pnl - total_fees`
 - `paper_account.total_realized_pnl` must equal `SUM(realized_pnl)` from all closed positions
-- **Known historical gap**: Pre-reset trade data exists in DB. Last reset: 2026-03-30 (reset #7, syncOrderBookToDb No token corruption). Use `WHERE created_at >= '2026-03-30'` for post-reset trade analysis.
+- **Known historical gap**: Pre-reset trade data exists in DB. Last reset: 2026-04-07 (reset #12, direction multiplier flip). Use `paper_account.last_reset_at` for post-reset trade analysis — do NOT hardcode dates.
 
 ### Historical Bug Patterns
 - Services bypassing PositionClosingService with direct SQL
