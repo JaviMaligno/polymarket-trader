@@ -26,46 +26,46 @@ describe('MarketScorer', () => {
       expect(MarketScorer.tradeabilityScore(1.0)).toBe(0);
     });
 
-    it('returns 0 for 50/50 zone [0.45-0.55]', () => {
-      expect(MarketScorer.tradeabilityScore(0.45)).toBe(0);
-      expect(MarketScorer.tradeabilityScore(0.50)).toBe(0);
-      expect(MarketScorer.tradeabilityScore(0.55)).toBe(0);
+    it('returns 1.0 for balanced zone [0.30-0.70]', () => {
+      expect(MarketScorer.tradeabilityScore(0.45)).toBe(1.0);
+      expect(MarketScorer.tradeabilityScore(0.50)).toBe(1.0);
+      expect(MarketScorer.tradeabilityScore(0.55)).toBe(1.0);
     });
 
-    it('returns 1.0 for optimal low range [0.15-0.40]', () => {
-      expect(MarketScorer.tradeabilityScore(0.15)).toBe(1.0);
-      expect(MarketScorer.tradeabilityScore(0.25)).toBe(1.0);
+    it('returns correct values for low range [0.15-0.40]', () => {
+      expect(MarketScorer.tradeabilityScore(0.15)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.25)).toBeCloseTo(0.8333, 3);
       expect(MarketScorer.tradeabilityScore(0.40)).toBe(1.0);
     });
 
-    it('returns 1.0 for optimal high range [0.60-0.85]', () => {
+    it('returns correct values for high range [0.60-0.85]', () => {
       expect(MarketScorer.tradeabilityScore(0.60)).toBe(1.0);
       expect(MarketScorer.tradeabilityScore(0.70)).toBe(1.0);
-      expect(MarketScorer.tradeabilityScore(0.85)).toBe(1.0);
+      expect(MarketScorer.tradeabilityScore(0.85)).toBe(0.5);
     });
 
-    it('linearly ramps from 0 to 1 between 0.05 and 0.15', () => {
-      expect(MarketScorer.tradeabilityScore(0.05)).toBe(0);
-      expect(MarketScorer.tradeabilityScore(0.10)).toBeCloseTo(0.5, 5);
-      expect(MarketScorer.tradeabilityScore(0.15)).toBe(1.0);
+    it('returns 0.5 for extreme low range [0.05-0.15)', () => {
+      expect(MarketScorer.tradeabilityScore(0.05)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.10)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.149)).toBe(0.5);
     });
 
-    it('linearly ramps from 1 to 0 between 0.40 and 0.45', () => {
-      expect(MarketScorer.tradeabilityScore(0.40)).toBe(1.0);
-      expect(MarketScorer.tradeabilityScore(0.425)).toBeCloseTo(0.5, 5);
-      expect(MarketScorer.tradeabilityScore(0.45)).toBe(0);
+    it('linearly ramps from 0.5 to 1.0 between 0.15 and 0.30', () => {
+      expect(MarketScorer.tradeabilityScore(0.15)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.225)).toBeCloseTo(0.75, 5);
+      expect(MarketScorer.tradeabilityScore(0.30)).toBe(1.0);
     });
 
-    it('linearly ramps from 0 to 1 between 0.55 and 0.60', () => {
-      expect(MarketScorer.tradeabilityScore(0.55)).toBe(0);
-      expect(MarketScorer.tradeabilityScore(0.575)).toBeCloseTo(0.5, 5);
-      expect(MarketScorer.tradeabilityScore(0.60)).toBe(1.0);
+    it('linearly ramps from 1.0 to 0.5 between 0.70 and 0.85', () => {
+      expect(MarketScorer.tradeabilityScore(0.70)).toBe(1.0);
+      expect(MarketScorer.tradeabilityScore(0.775)).toBeCloseTo(0.75, 5);
+      expect(MarketScorer.tradeabilityScore(0.85)).toBe(0.5);
     });
 
-    it('linearly ramps from 1 to 0 between 0.85 and 0.95', () => {
-      expect(MarketScorer.tradeabilityScore(0.85)).toBe(1.0);
-      expect(MarketScorer.tradeabilityScore(0.90)).toBeCloseTo(0.5, 5);
-      expect(MarketScorer.tradeabilityScore(0.95)).toBe(0);
+    it('returns 0.5 for extreme high range (0.85-0.95]', () => {
+      expect(MarketScorer.tradeabilityScore(0.86)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.90)).toBe(0.5);
+      expect(MarketScorer.tradeabilityScore(0.95)).toBe(0.5);
     });
 
     it('is symmetric around 0.50', () => {
