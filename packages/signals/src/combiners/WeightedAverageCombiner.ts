@@ -49,6 +49,10 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   private weights: Record<string, number> = {};
   private typeWeights: Record<string, Record<string, number>>;
   private parameters: WeightedAverageParams;
+  /** Multiplier applied to combined strength before direction determination.
+   *  -1 = flip all signals (contrarian). Per-type overrides in typeDirectionMultipliers. */
+  private directionMultiplier: number = -1;
+  private typeDirectionMultipliers: Record<string, number> = {};
 
   constructor(
     initialWeights: Record<string, number> = {},
@@ -75,6 +79,27 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   setTypeWeights(typeWeights: Record<string, Record<string, number>>): void {
     this.typeWeights = { ...this.typeWeights, ...typeWeights };
     this.logger.info({ types: Object.keys(typeWeights) }, 'Type weights updated');
+  }
+
+  /**
+   * Set direction multiplier. -1 = flip all signals (contrarian).
+   * Prediction market signals anti-correlate with outcomes (detect information
+   * as "overextension"), so flipping converts them into trend-followers.
+   */
+  setDirectionMultiplier(multiplier: number, marketType?: string): void {
+    if (marketType) {
+      this.typeDirectionMultipliers[marketType] = multiplier;
+    } else {
+      this.directionMultiplier = multiplier;
+    }
+    this.logger.info({ multiplier, marketType: marketType ?? 'global' }, 'Direction multiplier updated');
+  }
+
+  getDirectionMultiplier(marketType?: string): number {
+    if (marketType && this.typeDirectionMultipliers[marketType] !== undefined) {
+      return this.typeDirectionMultipliers[marketType];
+    }
+    return this.directionMultiplier;
   }
 
   /**
@@ -118,7 +143,14 @@ export class WeightedAverageCombiner implements ISignalCombiner {
     }
 
     // Resolve conflicts if present
-    const { strength, confidence, direction, usedSignals } = this.resolveSignals(validSignals);
+    const resolved = this.resolveSignals(validSignals);
+
+    // Apply direction multiplier (e.g., -1 to flip signals for contrarian trading)
+    const multiplier = this.getDirectionMultiplier(marketType);
+    const strength = resolved.strength * multiplier;
+    const confidence = resolved.confidence;
+    const direction = this.getDirection(strength);
+    const usedSignals = resolved.usedSignals;
 
     // Check minimum thresholds
     if (Math.abs(strength) < params.minCombinedStrength) {

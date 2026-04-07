@@ -47,6 +47,14 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
   // COMBINER PARAMETERS
   // ============================================
   {
+    name: 'combiner.directionMultiplier',
+    type: 'float',
+    low: -1.5,
+    high: 1.5,
+    category: 'combiner',
+    description: 'Multiplier for combined signal direction (-1 = contrarian flip)',
+  },
+  {
     name: 'combiner.minCombinedConfidence',
     type: 'float',
     low: 0.1,

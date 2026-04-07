@@ -261,6 +261,12 @@ export class SignalEngine extends EventEmitter {
         this.combiner.setWeights(weightMap);
         console.log('[SignalEngine] Synced weights from database:', weightMap);
       }
+
+      // Sync direction multiplier (stored as pseudo-signal 'direction_multiplier')
+      const dmEntry = weights.find(w => w.signal_type === 'direction_multiplier');
+      if (dmEntry) {
+        this.combiner.setDirectionMultiplier(parseFloat(String(dmEntry.weight)));
+      }
     } catch (error) {
       console.error('[SignalEngine] Failed to sync weights:', error);
     }

@@ -59,6 +59,7 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
  * Only the 8 most impactful parameters
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
+  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: 1.5 },
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
@@ -688,6 +689,18 @@ export class OptimizationScheduler {
         `, [JSON.stringify(result.params), result.sharpe]);
       } catch (error) {
         console.error('[OptimizationScheduler] Failed to update optimization_runs:', error);
+      }
+    }
+
+    // Apply direction multiplier if optimized
+    const rawDM = result.params['combiner.directionMultiplier'];
+    if (rawDM !== undefined && rawDM !== null) {
+      try {
+        const dm = Math.max(-1.5, Math.min(1.5, Number(rawDM)));
+        await signalWeightsRepo.update('direction_multiplier', dm, `optimization-${new Date().toISOString().slice(0, 10)}`);
+        console.log(`[OptimizationScheduler] Updated direction multiplier: ${dm.toFixed(4)}`);
+      } catch (err) {
+        console.error('[OptimizationScheduler] Failed to update direction multiplier:', err);
       }
     }
 
