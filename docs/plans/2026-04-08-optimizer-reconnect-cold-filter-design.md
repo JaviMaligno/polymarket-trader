@@ -22,16 +22,24 @@ The `directionMultiplier = -1` was validated on extreme-price markets where mean
 
 ### Change
 
-In `SignalEngine.generateSignals()`, skip markets with `trackingStatus === 'cold'` before signal computation.
+The `ActiveMarket` interface (SignalEngine.ts:76) lacks `trackingStatus`. Three changes needed:
+
+1. **Add field to `ActiveMarket`**: `trackingStatus?: string` in the interface
+2. **Populate in `PolymarketService.updateSignalEngineMarkets()`** (line 678): map `trackingStatus: m.trackingStatus` from `PolymarketMarket`
+3. **Filter in `SignalEngine.setActiveMarkets()`** (line 290 filter block): add cold market filter alongside existing `isActive`, `isResolved`, and extreme price filters:
 
 ```typescript
-// In the market iteration loop, before processing:
-if (market.trackingStatus === 'cold') continue;
+// Filter: Skip cold markets (stale price data)
+if (m.trackingStatus === 'cold') {
+  coldCount++;
+  return false;
+}
 ```
 
 ### Location
 
-`packages/dashboard/src/services/SignalEngine.ts` — in the method that iterates markets for signal generation.
+- `packages/dashboard/src/services/SignalEngine.ts` — interface + filter
+- `packages/dashboard/src/services/PolymarketService.ts` — mapping (line 678)
 
 ### Scope
 
@@ -82,7 +90,7 @@ All backtesting happens locally on the dashboard using its own TimescaleDB.
 ### Cold Start Handling
 
 - Render free tier spins down after inactivity. First call after sleep takes ~30s.
-- Verify `OptunaClient` has adequate timeout (>=60s) for the first HTTP request.
+- `OptunaClient` already uses 60s timeout for cold starts (line 152), 15s after warmup. No changes needed.
 - Neon cold start is ~1-2s, not a concern after optimizer wakes.
 
 ### Result
@@ -121,7 +129,11 @@ Fix existing:
 
 ### Apply Optimized directionMultiplier
 
-Verify that `OptimizationScheduler.updateStrategy()` maps the `combiner.directionMultiplier` result back to the combiner via `setDirectionMultiplier()`. If this mapping doesn't exist, add it. The combiner already supports `setDirectionMultiplier(value)` — just needs to be called from the strategy update path.
+**Already wired up.** `OptimizationScheduler.updateStrategy()` (line 695-705) reads `combiner.directionMultiplier` from optimized params and writes to `signal_weights` table. All signal weights (OFI, MLOFI, Hawkes, etc.) are also mapped at line 708-737. No code changes needed for the application path.
+
+### OptunaClient Cold Start
+
+**Already handled.** `OptunaClient` (line 152) uses 60s timeout for first request, 15s after warmup. No changes needed.
 
 ### Optuna Capacity
 
