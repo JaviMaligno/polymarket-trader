@@ -84,6 +84,7 @@ interface ActiveMarket {
   isResolved?: boolean;  // Market has been resolved
   marketType?: string;   // crypto_intraday, crypto_daily, event_short, event_long
   endDate?: Date | null; // Market resolution date for duration-based weight scaling
+  trackingStatus?: string; // active, hot, cold — cold markets have stale prices
 }
 
 export class SignalEngine extends EventEmitter {
@@ -284,6 +285,7 @@ export class SignalEngine extends EventEmitter {
 
     let inactiveCount = 0;
     let resolvedCount = 0;
+    let coldCount = 0;
     let extremePriceCount = 0;
     let fiftyFiftyCount = 0;
 
@@ -300,7 +302,13 @@ export class SignalEngine extends EventEmitter {
         return false;
       }
 
-      // Filter 3: Skip extreme prices (no profitable trade opportunity)
+      // Filter 3: Skip cold markets (stale price data)
+      if (m.trackingStatus === 'cold') {
+        coldCount++;
+        return false;
+      }
+
+      // Filter 4: Skip extreme prices (no profitable trade opportunity)
       const price = m.currentPrice;
       if (price < MIN_PRICE || price > MAX_PRICE) {
         extremePriceCount++;
@@ -314,9 +322,9 @@ export class SignalEngine extends EventEmitter {
     });
 
     // Log filtering summary
-    const totalExcluded = inactiveCount + resolvedCount + extremePriceCount + fiftyFiftyCount;
+    const totalExcluded = inactiveCount + resolvedCount + coldCount + extremePriceCount + fiftyFiftyCount;
     if (totalExcluded > 0) {
-      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${extremePriceCount} extreme prices, ${fiftyFiftyCount} near-50/50`);
+      console.log(`[SignalEngine] Filtered markets: ${inactiveCount} inactive, ${resolvedCount} resolved, ${coldCount} cold, ${extremePriceCount} extreme prices, ${fiftyFiftyCount} near-50/50`);
     }
 
     this.activeMarkets = filtered;

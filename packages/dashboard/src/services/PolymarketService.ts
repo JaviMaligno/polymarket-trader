@@ -62,6 +62,7 @@ export interface PolymarketMarket {
   tags: string[];
   category: string;  // Primary category for diversification
   marketType?: string;  // crypto_intraday, crypto_daily, event_short, event_long
+  trackingStatus?: string;
 }
 
 export interface PolymarketPrice {
@@ -427,16 +428,19 @@ export class PolymarketService extends EventEmitter {
         end_date: Date;
         is_active: boolean;
         market_type: string | null;
+        tracking_status: string | null;
       }>(`
         SELECT
           m.id, m.condition_id, m.question, m.category,
           m.clob_token_id_yes, m.clob_token_id_no,
           m.current_price_yes, m.current_price_no,
           m.volume_24h, m.liquidity, m.end_date, m.is_active,
-          m.market_type
+          m.market_type,
+          m.tracking_status
         FROM markets m
         WHERE m.is_active = true
           AND m.is_resolved = false
+          AND COALESCE(m.tracking_status, 'active') != 'cold'
           AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
           AND m.current_price_yes > $1
           AND m.current_price_yes < $2
@@ -475,6 +479,7 @@ export class PolymarketService extends EventEmitter {
           tags: [],
           category: m.category || category,
           marketType: m.market_type || undefined,
+          trackingStatus: m.tracking_status || undefined,
         };
 
         candidateMarkets.push(market);
@@ -686,6 +691,7 @@ export class PolymarketService extends EventEmitter {
           isResolved: false, // If we're fetching it, it's not resolved yet
           marketType: m.marketType,
           endDate: m.endDate ?? null,
+          trackingStatus: m.trackingStatus,
         }));
 
       engine.setActiveMarkets(activeMarkets);
