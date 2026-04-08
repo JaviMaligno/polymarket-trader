@@ -112,6 +112,10 @@ const DEFAULT_CONFIG: ExecutorConfig = {
 };
 
 const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
+// Any position close with realized loss >= this threshold triggers the same 4h cooldown,
+// regardless of exit reason (signal, time_exit, etc.). Prevents re-entry into markets
+// that consistently lose large amounts due to stale price data or bad market conditions.
+const LARGE_LOSS_COOLDOWN_THRESHOLD_USD = 25;
 const MAX_POSITIONS_PER_MARKET = 2;
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
@@ -156,8 +160,10 @@ export class AutoSignalExecutor extends EventEmitter {
   }
 
   registerStopLossCooldown(closingService: import('events').EventEmitter): void {
-    closingService.on('position:closed', ({ marketId, reason }: { marketId: string; reason: string }) => {
-      if (reason === 'stop_loss') {
+    closingService.on('position:closed', ({ marketId, reason, netPnl }: { marketId: string; reason: string; netPnl: number }) => {
+      const isStopLoss = reason === 'stop_loss';
+      const isLargeLoss = typeof netPnl === 'number' && netPnl <= -LARGE_LOSS_COOLDOWN_THRESHOLD_USD;
+      if (isStopLoss || isLargeLoss) {
         if (this.nearResolutionMarkets.has(marketId)) {
           // Permanent cooldown for near-resolution markets (set far-future timestamp)
           const until = Date.now() + 365 * 24 * 3600000;
@@ -165,10 +171,11 @@ export class AutoSignalExecutor extends EventEmitter {
           this.persistCooldown(marketId, until);
           console.log(`[AutoExecutor] PERMANENT stop-loss cooldown for near-resolution market ${marketId.substring(0, 12)}...`);
         } else {
+          const triggerReason = isStopLoss ? 'stop_loss' : `large_loss($${Math.abs(netPnl).toFixed(2)})`;
           const stoppedAt = Date.now();
           this.stoppedOutMarkets.set(marketId, stoppedAt);
           this.persistCooldown(marketId, stoppedAt + STOP_LOSS_COOLDOWN_MS);
-          console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
+          console.log(`[AutoExecutor] Stop-loss cooldown activated for ${marketId.substring(0, 12)}... [${triggerReason}] (${STOP_LOSS_COOLDOWN_MS / 3600000}h)`);
         }
       }
     });
