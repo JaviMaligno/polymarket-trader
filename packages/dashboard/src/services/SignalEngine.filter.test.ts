@@ -54,3 +54,44 @@ describe('setActiveMarkets 50/50 filter', () => {
     expect(filterMarkets(markets)).toHaveLength(0);
   });
 });
+
+function filterMarketsWithTracking(markets: Array<{ currentPrice: number; isActive?: boolean; isResolved?: boolean; trackingStatus?: string }>) {
+  const MIN_PRICE = 0.05;
+  const MAX_PRICE = 0.95;
+
+  return markets.filter(m => {
+    if (m.isActive === false) return false;
+    if (m.isResolved === true) return false;
+    if (m.trackingStatus === 'cold') return false;
+    const price = m.currentPrice;
+    if (price < MIN_PRICE || price > MAX_PRICE) return false;
+    return true;
+  });
+}
+
+describe('cold market filter', () => {
+  it('should filter out cold markets', () => {
+    const markets = [
+      { currentPrice: 0.50, isActive: true, trackingStatus: 'cold' },
+      { currentPrice: 0.30, isActive: true, trackingStatus: 'active' },
+    ];
+    const filtered = filterMarketsWithTracking(markets);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].currentPrice).toBe(0.30);
+  });
+
+  it('should keep markets without trackingStatus (backwards compat)', () => {
+    const markets = [
+      { currentPrice: 0.30, isActive: true },
+    ];
+    expect(filterMarketsWithTracking(markets)).toHaveLength(1);
+  });
+
+  it('should keep active and hot markets', () => {
+    const markets = [
+      { currentPrice: 0.30, isActive: true, trackingStatus: 'active' },
+      { currentPrice: 0.60, isActive: true, trackingStatus: 'hot' },
+    ];
+    expect(filterMarketsWithTracking(markets)).toHaveLength(2);
+  });
+});
