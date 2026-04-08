@@ -118,8 +118,7 @@ services:
       SIGNAL_INTERVAL_MS: "300000"
       MAX_SIGNAL_MARKETS: "35"
       ENABLE_OPTIMIZATION: "true"
-      # OPTIMIZER_URL removed: Render service can't reach TimescaleDB (localhost-only port).
-      # Without it, OptimizationScheduler falls back to local grid search.
+      OPTIMIZER_URL: "https://polymarket-optimizer-server.onrender.com"
       POLYMARKET_API_URL: https://clob.polymarket.com
       INITIAL_CAPITAL: "10000"
       FEE_RATE: "0.001"
