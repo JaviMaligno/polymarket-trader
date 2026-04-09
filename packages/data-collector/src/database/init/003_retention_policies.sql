@@ -47,8 +47,8 @@ SELECT add_retention_policy('orderbook_snapshots', INTERVAL '7 days', if_not_exi
 -- Price history: Keep 30 days (needed for backtesting but old data less useful)
 SELECT add_retention_policy('price_history', INTERVAL '30 days', if_not_exists => TRUE);
 
--- Trades: Keep 60 days (historical reference)
-SELECT add_retention_policy('trades', INTERVAL '60 days', if_not_exists => TRUE);
+-- Trades: Keep 7 days (raw market orderflow grows ~1GB/day; 7 days is enough for signal history)
+SELECT add_retention_policy('trades', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- Positions: Keep 90 days (need for analysis)
 SELECT add_retention_policy('positions', INTERVAL '90 days', if_not_exists => TRUE);
@@ -86,7 +86,7 @@ FROM show_chunks('trades', older_than => INTERVAL '3 days') c;
 -- Drop old chunks immediately to reclaim space
 SELECT drop_chunks('orderbook_snapshots', older_than => INTERVAL '7 days');
 SELECT drop_chunks('price_history', older_than => INTERVAL '30 days');
-SELECT drop_chunks('trades', older_than => INTERVAL '60 days');
+SELECT drop_chunks('trades', older_than => INTERVAL '7 days');
 
 -- ============================================
 -- DIAGNOSTIC QUERIES (for monitoring)
