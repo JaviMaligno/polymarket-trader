@@ -263,7 +263,7 @@ export class OptimizationScheduler {
       // Always run OOS validation and persist score (feeds decay factor history)
       await this.runOOSAndPersist(best);
 
-      if (best.sharpe > this.state.bestSharpe * 1.05) {
+      if (best.sharpe >= this.state.bestSharpe) {
         console.log(`[OptimizationScheduler] Found better params: Sharpe ${best.sharpe.toFixed(2)} vs ${this.state.bestSharpe.toFixed(2)}`);
         await this.updateStrategy(best);
       }
