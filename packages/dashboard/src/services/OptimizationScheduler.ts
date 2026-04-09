@@ -691,8 +691,11 @@ export class OptimizationScheduler {
         try {
           await query(`
             UPDATE optimization_runs SET oos_score = $1
-            WHERE status = 'completed' AND oos_score IS NULL
-            ORDER BY completed_at DESC LIMIT 1
+            WHERE id = (
+              SELECT id FROM optimization_runs
+              WHERE status = 'completed' AND oos_score IS NULL
+              ORDER BY completed_at DESC LIMIT 1
+            )
           `, [oosResult.sharpeOOS]);
         } catch (err) {
           console.error('[OptimizationScheduler] Failed to persist OOS score:', err);
