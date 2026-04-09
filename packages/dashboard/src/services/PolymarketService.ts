@@ -460,8 +460,22 @@ export class PolymarketService extends EventEmitter {
       const candidateMarkets: PolymarketMarket[] = [];
 
       for (const m of marketsResult.rows) {
-        const priceYes = parseFloat(m.current_price_yes || '0.5');
-        const priceNo = m.current_price_no ? parseFloat(m.current_price_no) : 1 - priceYes;
+        // Compute priceYes by cross-checking against priceNo when available.
+        // The CLOB updater sometimes fails to refresh current_price_yes (e.g. when a
+        // market moves to near-resolution and the YES token stops trading), leaving it
+        // stuck at the 0.5 default while current_price_no is correctly updated.
+        // If YES + NO deviate by more than 10 cents we trust the NO side and derive YES.
+        const rawPriceYes = m.current_price_yes != null ? parseFloat(m.current_price_yes) : null;
+        const rawPriceNo = m.current_price_no != null ? parseFloat(m.current_price_no) : null;
+        let priceYes: number;
+        if (rawPriceYes != null && rawPriceNo != null && Math.abs(rawPriceYes + rawPriceNo - 1.0) > 0.10) {
+          // Prices are inconsistent — derive YES from the NO side (NO is usually more reliable
+          // because near-resolved markets keep trading NO while YES becomes illiquid).
+          priceYes = 1 - rawPriceNo;
+        } else {
+          priceYes = rawPriceYes ?? 0.5;
+        }
+        const priceNo = rawPriceNo ?? 1 - priceYes;
         const category = this.extractCategory([], m.question);
 
         const market: PolymarketMarket = {
