@@ -260,6 +260,9 @@ export class OptimizationScheduler {
 
       const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
 
+      // Always run OOS validation and persist score (feeds decay factor history)
+      await this.runOOSAndPersist(best);
+
       if (best.sharpe > this.state.bestSharpe * 1.05) {
         console.log(`[OptimizationScheduler] Found better params: Sharpe ${best.sharpe.toFixed(2)} vs ${this.state.bestSharpe.toFixed(2)}`);
         await this.updateStrategy(best);
@@ -284,6 +287,9 @@ export class OptimizationScheduler {
       if (results.length === 0) return;
 
       const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
+
+      // Always run OOS validation and persist score (feeds decay factor history)
+      await this.runOOSAndPersist(best);
 
       if (best.sharpe > this.state.bestSharpe) {
         console.log(`[OptimizationScheduler] Found better params: Sharpe ${best.sharpe.toFixed(2)} vs ${this.state.bestSharpe.toFixed(2)}`);
@@ -674,6 +680,36 @@ export class OptimizationScheduler {
   }
 
   // ============================================================
+  // OOS validation + persistence (runs always, not just when deploying)
+  // ============================================================
+  private async runOOSAndPersist(best: OptimizationResult): Promise<void> {
+    try {
+      const oosResult = await this.validateOnOOS(best.params, best.sharpe);
+
+      // Persist OOS score for decay factor history (even if gate failed)
+      if (isDatabaseConfigured()) {
+        try {
+          await query(`
+            UPDATE optimization_runs SET oos_score = $1
+            WHERE status = 'completed' AND oos_score IS NULL
+            ORDER BY completed_at DESC LIMIT 1
+          `, [oosResult.sharpeOOS]);
+        } catch (err) {
+          console.error('[OptimizationScheduler] Failed to persist OOS score:', err);
+        }
+      }
+
+      // Store result for updateStrategy to check
+      this._lastOOSResult = oosResult;
+    } catch (error) {
+      console.error('[OptimizationScheduler] OOS validation failed:', error);
+      this._lastOOSResult = null;
+    }
+  }
+
+  private _lastOOSResult: OOSValidationResult | null = null;
+
+  // ============================================================
   // Strategy update
   // ============================================================
   private async updateStrategy(result: OptimizationResult): Promise<void> {
@@ -689,26 +725,13 @@ export class OptimizationScheduler {
       return;
     }
 
-    // OOS Validation Gate
-    console.log('[OptimizationScheduler] Running OOS validation before deployment...');
-    const oosResult = await this.validateOnOOS(result.params, result.sharpe);
-
-    // Persist OOS score for decay factor history (even if gate failed)
-    if (isDatabaseConfigured()) {
-      try {
-        await query(`
-          UPDATE optimization_runs SET oos_score = $1
-          WHERE status = 'completed' AND oos_score IS NULL
-          ORDER BY completed_at DESC LIMIT 1
-        `, [oosResult.sharpeOOS]);
-      } catch (err) {
-        console.error('[OptimizationScheduler] Failed to persist OOS score:', err);
+    // OOS Validation Gate (already ran in runOOSAndPersist)
+    const oosResult = this._lastOOSResult;
+    if (!oosResult || !oosResult.passed) {
+      console.log(`[OptimizationScheduler] OOS validation FAILED: ${oosResult?.reason ?? 'no OOS result available'}`);
+      if (oosResult) {
+        console.log(`[OptimizationScheduler] OOS metrics: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, DD=${(oosResult.drawdownOOS * 100).toFixed(1)}%, Trades=${oosResult.tradesOOS}, WR=${(oosResult.winRateOOS * 100).toFixed(1)}%`);
       }
-    }
-
-    if (!oosResult.passed) {
-      console.log(`[OptimizationScheduler] OOS validation FAILED: ${oosResult.reason}`);
-      console.log(`[OptimizationScheduler] OOS metrics: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, DD=${(oosResult.drawdownOOS * 100).toFixed(1)}%, Trades=${oosResult.tradesOOS}, WR=${(oosResult.winRateOOS * 100).toFixed(1)}%`);
       return;
     }
 
