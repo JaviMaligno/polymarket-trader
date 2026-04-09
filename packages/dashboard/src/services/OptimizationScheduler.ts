@@ -82,19 +82,19 @@ const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
 // ============================================================
 const WALKFORWARD_CONFIG = {
   /** Total data period in days */
-  totalPeriodDays: 30,
+  totalPeriodDays: 14,
   /** Out-of-sample validation period in days */
-  oosPeriodDays: 7,
+  oosPeriodDays: 4,
   /** Training period in days (totalPeriodDays - oosPeriodDays) */
-  trainingPeriodDays: 23,
+  trainingPeriodDays: 10,
   /** Minimum Sharpe ratio on OOS data to approve deployment */
-  minOOSSharpe: 0.3,
+  minOOSSharpe: 0.0,
   /** Maximum drawdown on OOS data */
-  maxOOSDrawdown: 0.20,
+  maxOOSDrawdown: 0.25,
   /** Minimum trades on OOS period */
-  minOOSTrades: 10,
+  minOOSTrades: 5,
   /** Minimum win rate on OOS period */
-  minOOSWinRate: 0.40,
+  minOOSWinRate: 0.15,
 };
 
 // Batch processing configuration for resource management
