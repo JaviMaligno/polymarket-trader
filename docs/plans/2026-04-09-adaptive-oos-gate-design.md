@@ -91,11 +91,22 @@ Compute `ratio = oos_score / best_score` for each row. Return percentile 25 of t
 
 ### `updateStrategy()` (line ~657)
 
-Receives `oosScore` to pass through to `saveOptimizationRun()`.
+Already has `result.sharpe` (the IS score). Pass it to `validateOnOOS(result.params, result.sharpe)`. After validation, pass `oosScore` to `saveOptimizationRun()` for persistence.
 
 ### `saveOptimizationRun()` (line ~812)
 
-Saves `oos_score` in the new column.
+No signature change. The run is saved here WITHOUT `oos_score` (OOS hasn't been computed yet — it happens later in `updateStrategy()`).
+
+### New: persist OOS score after validation
+
+After `validateOnOOS()` returns inside `updateStrategy()`, UPDATE the most recent optimization run with the OOS score:
+
+```sql
+UPDATE optimization_runs SET oos_score = $1
+WHERE status = 'completed' ORDER BY completed_at DESC LIMIT 1
+```
+
+This runs regardless of whether the gate passed — we want the OOS score for the `computeDecayFactor()` historical distribution even when params aren't deployed.
 
 ### `runIncrementalOptimization()` / `runFullOptimization()`
 
