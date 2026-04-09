@@ -87,15 +87,21 @@ const WALKFORWARD_CONFIG = {
   oosPeriodDays: 4,
   /** Training period in days (totalPeriodDays - oosPeriodDays) */
   trainingPeriodDays: 10,
-  /** Minimum Sharpe ratio on OOS data to approve deployment */
-  minOOSSharpe: 0.0,
-  /** Maximum drawdown on OOS data */
-  maxOOSDrawdown: 0.25,
-  /** Minimum trades on OOS period */
-  minOOSTrades: 5,
-  /** Minimum win rate on OOS period */
-  minOOSWinRate: 0.15,
 };
+
+// Adaptive OOS gate: safety floor (fixed, non-adaptive)
+const OOS_SAFETY_FLOOR = {
+  /** Minimum OOS Sharpe — reject severely negative */
+  minSharpe: -1.0,
+  /** Maximum OOS drawdown — reject catastrophic */
+  maxDrawdown: 0.50,
+  /** Minimum trades in OOS for statistical signal */
+  minTrades: 20,
+};
+
+// Decay factor cold start: used when fewer than 10 runs have OOS data
+const DECAY_FACTOR_COLD_START = 0.3;
+const DECAY_FACTOR_MIN_ROWS = 10;
 
 // Batch processing configuration for resource management
 const BATCH_CONFIG = {
@@ -566,13 +572,17 @@ export class OptimizationScheduler {
   /**
    * Validate parameters on out-of-sample data
    */
-  private async validateOnOOS(params: Record<string, any>): Promise<OOSValidationResult> {
+  private async validateOnOOS(params: Record<string, any>, isScore: number): Promise<OOSValidationResult> {
+    // Gate: don't validate negative in-sample
+    if (isScore <= 0) {
+      return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, reason: 'IS Sharpe <= 0, nothing to validate' };
+    }
+
     const now = new Date();
-    // OOS period: last 7 days (data NOT used in training)
     const oosEndDate = now;
     const oosStartDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
 
-    console.log(`[OptimizationScheduler] Running OOS validation from ${oosStartDate.toISOString().slice(0,10)} to ${oosEndDate.toISOString().slice(0,10)}`);
+    console.log(`[OptimizationScheduler] Running OOS validation from ${oosStartDate.toISOString().slice(0, 10)} to ${oosEndDate.toISOString().slice(0, 10)} (IS Sharpe: ${isScore.toFixed(3)})`);
 
     try {
       const request = this.optunaClient
@@ -592,62 +602,74 @@ export class OptimizationScheduler {
       const backtest = await this.backtestService.runBacktest(request);
 
       if (!backtest.result || !backtest.result.metrics) {
-        return {
-          passed: false,
-          sharpeOOS: 0,
-          drawdownOOS: 1,
-          tradesOOS: 0,
-          winRateOOS: 0,
-          reason: 'Backtest failed to produce results',
-        };
+        return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, reason: 'Backtest failed to produce results' };
       }
 
       const metrics = backtest.result.metrics;
       const trades = backtest.result.trades?.length || 0;
+      const oosScore = metrics.sharpeRatio || 0;
+      const drawdown = Math.abs(metrics.maxDrawdown || 0);
 
-      const passed = (
-        metrics.sharpeRatio >= WALKFORWARD_CONFIG.minOOSSharpe &&
-        Math.abs(metrics.maxDrawdown) <= WALKFORWARD_CONFIG.maxOOSDrawdown &&
-        trades >= WALKFORWARD_CONFIG.minOOSTrades &&
-        metrics.winRate >= WALKFORWARD_CONFIG.minOOSWinRate
-      );
+      // Safety floor checks
+      if (trades < OOS_SAFETY_FLOOR.minTrades) {
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `Trades ${trades} < ${OOS_SAFETY_FLOOR.minTrades}` };
+      }
+      if (oosScore < OOS_SAFETY_FLOOR.minSharpe) {
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `OOS Sharpe ${oosScore.toFixed(3)} < ${OOS_SAFETY_FLOOR.minSharpe}` };
+      }
+      if (drawdown > OOS_SAFETY_FLOOR.maxDrawdown) {
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `Drawdown ${(drawdown * 100).toFixed(1)}% > ${OOS_SAFETY_FLOOR.maxDrawdown * 100}%` };
+      }
+
+      // Adaptive consistency gate
+      const decayFactor = await this.computeDecayFactor();
+      const threshold = isScore * decayFactor;
+      const passed = oosScore >= threshold;
 
       let reason: string | undefined;
       if (!passed) {
-        const failures: string[] = [];
-        if (metrics.sharpeRatio < WALKFORWARD_CONFIG.minOOSSharpe) {
-          failures.push(`Sharpe ${metrics.sharpeRatio.toFixed(2)} < ${WALKFORWARD_CONFIG.minOOSSharpe}`);
-        }
-        if (Math.abs(metrics.maxDrawdown) > WALKFORWARD_CONFIG.maxOOSDrawdown) {
-          failures.push(`Drawdown ${(Math.abs(metrics.maxDrawdown) * 100).toFixed(1)}% > ${WALKFORWARD_CONFIG.maxOOSDrawdown * 100}%`);
-        }
-        if (trades < WALKFORWARD_CONFIG.minOOSTrades) {
-          failures.push(`Trades ${trades} < ${WALKFORWARD_CONFIG.minOOSTrades}`);
-        }
-        if (metrics.winRate < WALKFORWARD_CONFIG.minOOSWinRate) {
-          failures.push(`WinRate ${(metrics.winRate * 100).toFixed(1)}% < ${WALKFORWARD_CONFIG.minOOSWinRate * 100}%`);
-        }
-        reason = failures.join(', ');
+        reason = `OOS ${oosScore.toFixed(3)} < IS ${isScore.toFixed(3)} * decay ${decayFactor.toFixed(3)} = ${threshold.toFixed(3)}`;
       }
 
-      return {
-        passed,
-        sharpeOOS: metrics.sharpeRatio,
-        drawdownOOS: metrics.maxDrawdown,
-        tradesOOS: trades,
-        winRateOOS: metrics.winRate,
-        reason,
-      };
+      console.log(`[OptimizationScheduler] OOS validation: Sharpe=${oosScore.toFixed(3)}, decay=${decayFactor.toFixed(3)}, threshold=${threshold.toFixed(3)}, ${passed ? 'PASSED' : 'FAILED'}`);
+
+      return { passed, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason };
     } catch (error) {
       console.error('[OptimizationScheduler] OOS validation failed:', error);
-      return {
-        passed: false,
-        sharpeOOS: 0,
-        drawdownOOS: 1,
-        tradesOOS: 0,
-        winRateOOS: 0,
-        reason: `Validation error: ${error instanceof Error ? error.message : String(error)}`,
-      };
+      return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, reason: `Validation error: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+
+  /**
+   * Compute adaptive decay factor from historical OOS/IS ratios.
+   * Returns the 25th percentile of ratios, or cold-start default if insufficient data.
+   */
+  private async computeDecayFactor(): Promise<number> {
+    if (!isDatabaseConfigured()) return DECAY_FACTOR_COLD_START;
+
+    try {
+      const result = await query<{ best_score: number; oos_score: number }>(`
+        SELECT best_score, oos_score FROM optimization_runs
+        WHERE status = 'completed' AND oos_score IS NOT NULL AND best_score > 0
+        ORDER BY created_at DESC LIMIT 30
+      `);
+
+      if (result.rows.length < DECAY_FACTOR_MIN_ROWS) {
+        console.log(`[OptimizationScheduler] Decay factor: cold start (${result.rows.length}/${DECAY_FACTOR_MIN_ROWS} rows)`);
+        return DECAY_FACTOR_COLD_START;
+      }
+
+      const ratios = result.rows
+        .map(r => r.oos_score / r.best_score)
+        .sort((a, b) => a - b);
+
+      const idx = Math.floor(ratios.length * 0.25);
+      const factor = ratios[idx];
+      console.log(`[OptimizationScheduler] Decay factor: ${factor.toFixed(3)} (p25 of ${ratios.length} ratios)`);
+      return factor;
+    } catch (error) {
+      console.error('[OptimizationScheduler] Failed to compute decay factor:', error);
+      return DECAY_FACTOR_COLD_START;
     }
   }
 
@@ -669,7 +691,20 @@ export class OptimizationScheduler {
 
     // OOS Validation Gate
     console.log('[OptimizationScheduler] Running OOS validation before deployment...');
-    const oosResult = await this.validateOnOOS(result.params);
+    const oosResult = await this.validateOnOOS(result.params, result.sharpe);
+
+    // Persist OOS score for decay factor history (even if gate failed)
+    if (isDatabaseConfigured()) {
+      try {
+        await query(`
+          UPDATE optimization_runs SET oos_score = $1
+          WHERE status = 'completed' AND oos_score IS NULL
+          ORDER BY completed_at DESC LIMIT 1
+        `, [oosResult.sharpeOOS]);
+      } catch (err) {
+        console.error('[OptimizationScheduler] Failed to persist OOS score:', err);
+      }
+    }
 
     if (!oosResult.passed) {
       console.log(`[OptimizationScheduler] OOS validation FAILED: ${oosResult.reason}`);
