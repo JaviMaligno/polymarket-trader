@@ -117,6 +117,11 @@ const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 // that consistently lose large amounts due to stale price data or bad market conditions.
 const LARGE_LOSS_COOLDOWN_THRESHOLD_USD = 25;
 const MAX_POSITIONS_PER_MARKET = 2;
+// Block new opens in a market where the last N closed positions all lost money.
+// This prevents the system from continuously re-entering a market that has structural
+// signal mismatch (e.g. Man City 566188 — 0/25 win rate on SHORT, -$707 total loss).
+const PER_MARKET_CONSECUTIVE_LOSS_BLOCK = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_BLOCK || '5', 10);
+const PER_MARKET_LOSS_BLOCK_WINDOW_MS = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_WINDOW_MS || String(24 * 60 * 60 * 1000), 10);
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
 // Near-resolved price guard: block new opens when market is effectively decided
@@ -349,7 +354,7 @@ export class AutoSignalExecutor extends EventEmitter {
       }
     }
 
-    // 3b. Signal deduplication - prevent processing same signal type for same market within window
+    // 3b. Signal deduplication - prevent processing same signal type for same market within 5-min window
     const dedupKey = `${signal.marketId}:${signal.direction}`;
     const lastProcessed = this.processedSignals.get(dedupKey);
     if (lastProcessed && Date.now() - lastProcessed < this.SIGNAL_DEDUP_WINDOW_MS) {
@@ -401,6 +406,35 @@ export class AutoSignalExecutor extends EventEmitter {
       ).length;
       if (openOnMarket >= MAX_POSITIONS_PER_MARKET) {
         return { executed: false, reason: `At market position limit (${openOnMarket}/${MAX_POSITIONS_PER_MARKET})` };
+      }
+
+      // 4b. Per-market consecutive-loss block (new opens only)
+      // If the last PER_MARKET_CONSECUTIVE_LOSS_BLOCK closed positions in this market all
+      // lost money within the window, skip new entries. This prevents the system from
+      // re-entering markets with structural signal mismatch (e.g. 0/25 win rate on SHORT
+      // positions in market 566188 due to consistent fee+spread drag in the wrong direction).
+      try {
+        const lossResult = await query<{ realized_pnl: string }>(
+          `SELECT realized_pnl FROM paper_positions
+           WHERE market_id = $1
+             AND closed_at IS NOT NULL
+             AND closed_at >= NOW() - $2::interval
+           ORDER BY closed_at DESC
+           LIMIT $3`,
+          [signal.marketId, `${PER_MARKET_LOSS_BLOCK_WINDOW_MS} milliseconds`, PER_MARKET_CONSECUTIVE_LOSS_BLOCK]
+        );
+        if (lossResult.rows.length >= PER_MARKET_CONSECUTIVE_LOSS_BLOCK) {
+          const allLosing = lossResult.rows.every(r => parseFloat(r.realized_pnl) < 0);
+          if (allLosing) {
+            console.log(`[AutoExecutor] BLOCKED ${signal.marketId.substring(0, 12)}...: last ${PER_MARKET_CONSECUTIVE_LOSS_BLOCK} positions all lost money`);
+            return {
+              executed: false,
+              reason: `Market blocked: last ${PER_MARKET_CONSECUTIVE_LOSS_BLOCK} closed positions all lost (24h window)`,
+            };
+          }
+        }
+      } catch {
+        // Non-fatal: proceed without the check
       }
     }
 
