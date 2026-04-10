@@ -76,7 +76,12 @@ export class EntityMatcher {
       return { id: m.id, question: m.question, entities, eventContext };
     });
 
-    logger.info({ marketCount: this.markets.length }, 'Updated entity cache for markets');
+    if (this.markets.length > 0) {
+      const sample = this.markets.slice(0, 3).map(m => ({ q: m.question.substring(0, 60), entities: m.entities }));
+      logger.info({ marketCount: this.markets.length, sample }, 'Updated entity cache for markets');
+    } else {
+      logger.warn('No markets loaded for entity matching');
+    }
   }
 
   matchHeadline(headline: string): HeadlineMatch[] {

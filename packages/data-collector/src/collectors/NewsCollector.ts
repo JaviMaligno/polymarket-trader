@@ -47,7 +47,10 @@ export class NewsCollector {
   async refreshMarkets(): Promise<void> {
     try {
       const result = await query<{ id: string; question: string }>(
-        `SELECT id, question FROM markets WHERE is_active = true`
+        `SELECT id, question FROM markets
+         WHERE is_active = true AND is_resolved = false
+           AND COALESCE(tracking_status, 'active') IN ('active', 'hot', 'warming')
+         ORDER BY volume_24h DESC NULLS LAST LIMIT 50`
       );
       this.matcher.setMarkets(result.rows);
       logger.info({ marketCount: result.rows.length }, 'Refreshed market entities');
@@ -133,6 +136,9 @@ export class NewsCollector {
 
         // Match against markets
         const matches = this.matcher.matchHeadline(article.title);
+        if (matches.length > 0) {
+          logger.info({ headline: article.title.substring(0, 80), matchCount: matches.length, markets: matches.map(m => m.marketId) }, 'Headline matched markets');
+        }
 
         for (const match of matches) {
           // Direction logic: positive sentiment + direct mention = LONG
@@ -157,15 +163,14 @@ export class NewsCollector {
           };
 
           await query(
-            `INSERT INTO external_signals (market_id, source, signal_type, signal_value, confidence, direction, metadata, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())`,
+            `INSERT INTO external_signals (market_id, source, signal_type, value, confidence, metadata)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
             [
               match.marketId,
               'news_pipeline',
               'sentiment',
               signalValue,
               confidence,
-              direction,
               JSON.stringify(metadata),
             ]
           );
