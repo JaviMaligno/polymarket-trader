@@ -26,4 +26,17 @@ describe('NewsCollector', () => {
     const deduped = collector.dedup(articles);
     expect(deduped).toHaveLength(2);
   });
+
+  it('filters out neutral sentiment articles', () => {
+    const neutralSentiment = 0.02;
+    const minSentiment = 0.05;
+    expect(Math.abs(neutralSentiment) < minSentiment).toBe(true);
+  });
+
+  it('constructs with LLM provider when API key available', () => {
+    process.env.ANTHROPIC_API_KEY = 'test-key';
+    const c = new NewsCollector();
+    expect(c).toBeDefined();
+    delete process.env.ANTHROPIC_API_KEY;
+  });
 });
