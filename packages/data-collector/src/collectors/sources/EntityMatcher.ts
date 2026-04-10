@@ -4,6 +4,15 @@ import { pino } from 'pino';
 
 const logger = pino({ name: 'entity-matcher' });
 
+// Entities too generic to be useful for matching
+const ENTITY_STOPLIST = new Set([
+  'World', 'Game', 'Time', 'First', 'New', 'Last', 'Next', 'Top',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+]);
+
+const MIN_ENTITY_LENGTH = parseInt(process.env.NEWS_MIN_ENTITY_LENGTH || '4', 10);
+
 export interface MarketEntitySet {
   id: string;
   question: string;
@@ -40,7 +49,7 @@ export class EntityMatcher {
     // All-caps acronyms (e.g. PSG, NBA, NFL)
     const acronyms = text.match(/\b[A-Z]{2,}\b/g) || [];
     for (const a of acronyms) {
-      if (!entities.includes(a)) entities.push(a);
+      if (!entities.includes(a) && a.length >= 3) entities.push(a);
     }
 
     // Capitalized multi-word phrases (e.g. "Champions League", "Manchester City")
@@ -63,7 +72,10 @@ export class EntityMatcher {
       if (!skipWords.has(w) && !entities.includes(w)) entities.push(w);
     }
 
-    return [...new Set(entities)];
+    const isAcronym = (e: string) => /^[A-Z]{2,}$/.test(e);
+    return [...new Set(entities)].filter(e =>
+      (isAcronym(e) ? e.length >= 3 : e.length >= MIN_ENTITY_LENGTH) && !ENTITY_STOPLIST.has(e)
+    );
   }
 
   setMarkets(markets: Array<{ id: string; question: string }>): void {

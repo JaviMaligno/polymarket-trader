@@ -50,4 +50,23 @@ describe('EntityMatcher', () => {
     // Arsenal winning is direct for Arsenal market
     if (arsenalMatch) expect(arsenalMatch.isCompetitorMention).toBe(false);
   });
+
+  it('filters out short entities (<=2 chars)', () => {
+    const entities = matcher.extractEntities('US Iran deal by April');
+    expect(entities).not.toContain('US');
+    expect(entities.some(e => e.includes('Iran'))).toBe(true);
+  });
+
+  it('filters out month names', () => {
+    const entities = matcher.extractEntities('Will something happen by March 31?');
+    expect(entities).not.toContain('March');
+  });
+
+  it('filters out generic stoplist words', () => {
+    const entities = matcher.extractEntities('World Game Time for First event');
+    expect(entities).not.toContain('World');
+    expect(entities).not.toContain('Game');
+    expect(entities).not.toContain('Time');
+    expect(entities).not.toContain('First');
+  });
 });
