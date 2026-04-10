@@ -116,19 +116,18 @@ export class NewsCollector {
       try {
         const sentiment = this.scorer.score(article.title);
 
-        // Store in news_articles (ON CONFLICT DO NOTHING for dedup)
+        // Store in news_articles (dedup by url — ON CONFLICT not supported on hypertable without time, use catch)
         await query(
-          `INSERT INTO news_articles (url, title, source, category, published_at, sentiment_score, description)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
-           ON CONFLICT (url) DO NOTHING`,
+          `INSERT INTO news_articles (time, source, title, url, category, raw_sentiment, metadata)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
           [
-            article.url,
-            article.title,
-            article.source,
-            article.category,
             article.publishedAt,
+            article.source,
+            article.title,
+            article.url,
+            article.category,
             sentiment,
-            article.description || null,
+            JSON.stringify({ description: article.description || null }),
           ]
         );
 
