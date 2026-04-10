@@ -124,7 +124,30 @@ For AFINN-only fallback:
 | `NEWS_MIN_ENTITY_LENGTH` | `4` | Min chars for entity to count as match |
 | `NEWS_MIN_SENTIMENT` | `0.05` | Min |sentiment| to write signal |
 
-**Budget tracking:** In-memory counter of tokens used × price/token. Reset at midnight UTC. Not persisted (worst case: double spend on restart day — acceptable at ~$0.05/day).
+**Budget tracking and enforcement:**
+
+The `LLMProvider` wraps a `BudgetTracker` that controls when LLM calls are allowed:
+
+```
+class BudgetTracker {
+  private spentUSD: number = 0;
+  private lastResetDate: string = '';
+  private limitUSD: number;  // from LLM_DAILY_BUDGET_USD
+
+  canSpend(): boolean  // returns false if spentUSD >= limitUSD
+  record(inputTokens: number, outputTokens: number): void  // adds cost to spentUSD
+  resetIfNewDay(): void  // resets spentUSD to 0 at midnight UTC
+}
+```
+
+**Where it's checked:** In `NewsCollector.collect()`, before calling `llmProvider.evaluateHeadlines()`:
+1. Call `budgetTracker.resetIfNewDay()`
+2. If `budgetTracker.canSpend()` is false → skip LLM, use AFINN fallback for all headlines
+3. If true → call LLM, then `budgetTracker.record(inputTokens, outputTokens)` from API response usage
+
+**Cost calculation:** Haiku pricing ($0.25/M input, $1.25/M output). `record()` computes: `inputTokens * 0.25e-6 + outputTokens * 1.25e-6`.
+
+In-memory only. Reset on container restart (worst case: double spend one day — acceptable at ~$0.05/day).
 
 ## File Map
 
@@ -132,6 +155,8 @@ For AFINN-only fallback:
 |---|---|---|
 | Create | `packages/data-collector/src/collectors/sources/LLMProvider.ts` | Interface + AnthropicProvider implementation |
 | Create | `packages/data-collector/src/collectors/sources/LLMProvider.test.ts` | Tests |
+| Create | `packages/data-collector/src/collectors/sources/BudgetTracker.ts` | Daily spend tracking + enforcement |
+| Create | `packages/data-collector/src/collectors/sources/BudgetTracker.test.ts` | Tests |
 | Modify | `packages/data-collector/src/collectors/sources/EntityMatcher.ts` | Add stoplist, min length, entity filtering |
 | Modify | `packages/data-collector/src/collectors/sources/EntityMatcher.test.ts` | Update tests |
 | Modify | `packages/data-collector/src/collectors/NewsCollector.ts` | Integrate LLM evaluation, neutral filter, fallback logic |
