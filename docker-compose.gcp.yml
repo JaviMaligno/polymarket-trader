@@ -76,6 +76,10 @@ services:
       DATA_API_URL: https://data-api.polymarket.com
       MAX_TRACKED_MARKETS: "40"
       DB_POOL_MAX: "5"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_DAILY_BUDGET_USD: "1.0"
+      NEWS_MIN_ENTITY_LENGTH: "4"
+      NEWS_MIN_SENTIMENT: "0.05"
       PORT: 10000
     ports:
       - "10000:10000"
