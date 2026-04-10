@@ -78,7 +78,7 @@ Competitor detection: if multiple markets share the same event context (e.g., "W
 
 ### Signal Store
 
-**`news_articles` table (hypertable):**
+**`news_articles` table (NEW, hypertable):**
 ```sql
 time TIMESTAMPTZ NOT NULL,
 source VARCHAR(50) NOT NULL,        -- 'google_rss', 'finnhub'
@@ -90,25 +90,23 @@ language VARCHAR(10) DEFAULT 'en',
 metadata JSONB DEFAULT '{}'
 ```
 
-**`news_market_signals` table (hypertable):**
-```sql
-time TIMESTAMPTZ NOT NULL,
-article_url TEXT NOT NULL,
-market_id VARCHAR(128) NOT NULL,
-relevance_score DECIMAL(5,4),       -- 0-1
-direction VARCHAR(8),               -- 'LONG', 'SHORT', 'NEUTRAL'
-impact_score DECIMAL(5,4),          -- 0-1, derived from sentiment magnitude
-signal_strength DECIMAL(5,4),       -- relevance * impact * |sentiment|
-match_method VARCHAR(20)            -- 'entity_match', 'finnhub_direct'
-```
+Retention: 7 days.
 
-Retention: 7 days for `news_articles`, 30 days for `news_market_signals`.
+**`external_signals` table (EXISTING):**
+
+Already exists with schema: `market_id, source, signal_type, value, confidence, metadata, fetched_at`. The `NewsSentimentGenerator` already reads from this table via `SignalEngine.ts:654-665`. No new table needed — write matched signals here with `signal_type = 'sentiment'` and `source = 'news_pipeline'`.
+
+The existing query reads: `WHERE market_id = $1 AND signal_type = 'sentiment' AND fetched_at > NOW() - INTERVAL '4 hours'`.
 
 ### SignalEngine Integration
 
-The existing `NewsSentimentGenerator` (`packages/signals/src/signals/external/NewsSentimentGenerator.ts`) currently reads from `context.custom.newsSentiment`. Change it to query `news_market_signals` directly for the given market, returning the most recent signal within a configurable window (default: 1 hour).
+The `NewsSentimentGenerator` is already registered (line 166) and the SignalEngine already queries `external_signals` for sentiment data (lines 650-668) and passes it via `context.custom.newsSentiment`. **No changes needed to SignalEngine or the generator.** The pipeline just needs to write to `external_signals` and the existing plumbing picks it up.
 
-The generator is already registered in SignalEngine but listed as "inactive" (skipped in weight sync). Activate it by ensuring it has a weight in `signal_weights` table.
+**Activation:** The generator has a hardcoded default weight of 0.10 (line 130) but no entry in `signal_weights` table — so it appears as "inactive" in weight sync logs. Fix: `INSERT INTO signal_weights (signal_type, weight, is_enabled) VALUES ('news_sentiment', 0.10, true)`.
+
+### Finnhub API Key
+
+Finnhub free tier requires registration for an API key. Register at finnhub.io, add `FINNHUB_API_KEY` to `.env` and to `docker-compose.gcp.yml` for the data-collector service.
 
 ## Resource Constraints (e2-micro, 1GB RAM)
 
