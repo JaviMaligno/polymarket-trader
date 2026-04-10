@@ -202,8 +202,9 @@ export const DEFAULT_BACKTEST_CONFIG: Partial<BacktestConfig> = {
   feeRate: 0.001, // 0.1% (optimized)
   granularityMinutes: 60,
   slippage: {
-    model: 'fixed',
-    fixedSlippage: 0.005, // 0.5% slippage
+    model: 'proportional',
+    fixedSlippage: 0.01,       // 1% floor (matches production estimatedSlippageFloor)
+    proportionalRate: 0.002,   // 0.2% base (matches production estimatedBaseRate)
   },
   risk: mergeRiskConfig('CONSERVATIVE', {
     maxPositionSizePct: 5,    // Optimized: smaller positions reduce risk

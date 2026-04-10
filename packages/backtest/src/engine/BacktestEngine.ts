@@ -175,6 +175,17 @@ export class BacktestEngine {
       const granularityMs = this.config.granularityMinutes * 60 * 1000;
       let tickTime = new Date(this.config.startDate);
 
+      // Buffer signals from tick T, execute at tick T+1 with updated prices.
+      // This eliminates look-ahead bias: the backtester cannot execute at the
+      // same price used to generate the signal.
+      let pendingSignals: SignalEvent[] = [];
+      const originalHandler = this.handleSignal.bind(this);
+      // Replace immediate signal handler with buffering handler
+      (this.eventBus as any).emitter.removeAllListeners('SIGNAL');
+      this.eventBus.on<SignalEvent>('SIGNAL', (event) => {
+        pendingSignals.push(event);
+      });
+
       while (tickTime <= this.config.endDate) {
         if (this.isPaused) {
           await this.waitForResume();
@@ -182,10 +193,16 @@ export class BacktestEngine {
 
         this.currentTime = tickTime;
 
-        // Process events up to current tick
+        // Process events up to current tick (updates prices)
         await this.eventBus.processUntil(tickTime);
 
-        // Generate signals for current state
+        // Execute signals from PREVIOUS tick at CURRENT prices (no look-ahead)
+        for (const signal of pendingSignals) {
+          originalHandler(signal);
+        }
+        pendingSignals = [];
+
+        // Generate signals for current state (will be executed next tick)
         await this.generateSignals();
 
         // Check risk limits

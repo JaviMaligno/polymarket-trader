@@ -37,6 +37,8 @@ interface OrderBookSimulatorConfig {
   minLevelSize: number;
   /** How much volume affects spread */
   volumeSpreadImpact: number;
+  /** Fee rate per trade (e.g. 0.001 = 0.1%) */
+  feeRate: number;
 }
 
 /**
@@ -67,6 +69,7 @@ export class OrderBookSimulator implements IOrderBookSimulator {
       sizeDecay: 0.8,
       minLevelSize: 100,
       volumeSpreadImpact: 0.1,
+      feeRate: 0.001,
       ...config,
     };
     this.slippageModel = slippageModel;
@@ -272,7 +275,7 @@ export class OrderBookSimulator implements IOrderBookSimulator {
         fills.push({
           price: level.price,
           size: fillSize,
-          fee: fillSize * level.price * 0.001, // 0.1% fee
+          fee: fillSize * level.price * this.config.feeRate,
           timestamp: new Date(),
         });
         remainingSize -= fillSize;

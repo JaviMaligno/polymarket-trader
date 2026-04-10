@@ -65,7 +65,7 @@ export class SlippageModel {
     side: OrderSide,
     orderBook: OrderLevel[]
   ): SlippageResult {
-    const fixedSlippage = this.config.fixedSlippage || 0.001; // 0.1% default
+    const fixedSlippage = this.config.fixedSlippage || 0.01; // 1% default (matches production)
 
     if (orderBook.length === 0) {
       return this.noLiquidityResult();
@@ -100,7 +100,7 @@ export class SlippageModel {
     }
 
     const bestPrice = orderBook[0].price;
-    const baseRate = this.config.proportionalRate || 0.001;
+    const baseRate = this.config.proportionalRate || 0.002; // matches production estimatedBaseRate
 
     // Slippage increases with order size / daily volume
     const volumeRatio = (orderSize * bestPrice) / Math.max(1, dailyVolume);
@@ -229,7 +229,7 @@ export class SlippageModel {
 
       case 'proportional': {
         // Solve: baseRate + (size * price / dailyVolume) * 0.1 = maxSlippage
-        const baseRate = this.config.proportionalRate || 0.001;
+        const baseRate = this.config.proportionalRate || 0.002; // matches production estimatedBaseRate
         if (baseRate >= maxSlippage) return 0;
 
         const remainingSlippage = maxSlippage - baseRate;
