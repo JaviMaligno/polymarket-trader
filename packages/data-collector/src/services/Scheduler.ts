@@ -198,6 +198,9 @@ export class Scheduler {
         case 'compute-market-priors':
           await this.computeMarketPriors();
           break;
+        case 'collect-news':
+          await this.collectNews();
+          break;
         default:
           logger.warn({ name }, 'No handler for job');
       }
