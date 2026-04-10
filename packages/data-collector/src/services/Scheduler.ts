@@ -10,6 +10,7 @@ import { MarketScorer } from './MarketScorer.js';
 import { MarketRotator } from './MarketRotator.js';
 import { optimizeScorerWeights } from './ScorerWeightOptimizer.js';
 import { updateCategoryPriors } from './MarketPerformanceTracker.js';
+import { NewsCollector } from '../collectors/NewsCollector.js';
 
 const logger = pino({ name: 'scheduler' });
 
@@ -30,12 +31,14 @@ export class Scheduler {
   private externalDataCollector?: ExternalDataCollector;
   private marketScorer: MarketScorer;
   private marketRotator: MarketRotator;
+  private newsCollector: NewsCollector;
 
   constructor(adaptiveSyncManager?: AdaptiveSyncManager, externalDataCollector?: ExternalDataCollector) {
     this.adaptiveSyncManager = adaptiveSyncManager;
     this.externalDataCollector = externalDataCollector;
     this.marketScorer = new MarketScorer();
     this.marketRotator = new MarketRotator();
+    this.newsCollector = new NewsCollector();
     // Define all scheduled jobs
     this.defineJob('sync-markets', '17 * * * *', this.syncMarkets.bind(this));      // Hourly at :17
     this.defineJob('sync-events', '47 */2 * * *', this.syncEvents.bind(this));     // Every 2h at :47
@@ -52,6 +55,7 @@ export class Scheduler {
     this.defineJob('match-external-markets', '0 3 * * *', this.matchExternalMarkets.bind(this));  // Daily at 3 UTC
     this.defineJob('optimize-scorer-weights', '17 3 * * 1', this.optimizeScorerWeights.bind(this));  // Every Monday at 03:17 UTC
     this.defineJob('compute-market-priors', '45 2 * * *', this.computeMarketPriors.bind(this));  // Daily at 02:45 UTC
+    this.defineJob('collect-news', '*/15 * * * *', this.collectNews.bind(this));  // News pipeline every 15 minutes
   }
 
   /**
@@ -427,6 +431,16 @@ export class Scheduler {
    */
   private async computeMarketPriors(): Promise<void> {
     await updateCategoryPriors();
+  }
+
+  /**
+   * Collect news from Google News RSS + Finnhub, score sentiment,
+   * match to active markets, write signals to external_signals.
+   * Every 15 minutes.
+   */
+  private async collectNews(): Promise<void> {
+    const signalsWritten = await this.newsCollector.collect();
+    logger.info({ signalsWritten }, 'News collection completed');
   }
 
   /**
