@@ -35,6 +35,7 @@ export class NewsCollector {
     const provider = new AnthropicProvider(anthropicKey);
     this.llmProvider = provider.isAvailable() ? provider : null;
     this.budgetTracker = new BudgetTracker();
+    logger.info({ llmAvailable: this.llmProvider !== null, keyLength: anthropicKey.length }, 'NewsCollector initialized');
   }
 
   /**
@@ -180,6 +181,14 @@ export class NewsCollector {
     const shouldUseLLM = this.llmProvider != null
       && this.budgetTracker.canSpend()
       && Date.now() > this.llmDisabledUntil;
+
+    logger.info({
+      shouldUseLLM,
+      hasProvider: this.llmProvider != null,
+      canSpend: this.budgetTracker.canSpend(),
+      notDisabled: Date.now() > this.llmDisabledUntil,
+      candidates: llmCandidates.length,
+    }, 'LLM decision');
 
     let usedLLM = false;
 
