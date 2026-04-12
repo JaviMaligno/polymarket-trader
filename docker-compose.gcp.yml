@@ -146,6 +146,8 @@ services:
       EXECUTOR_MARKET_COOLDOWN_MS: "1800000"
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
+      # Market type gate: only trade these types live, shadow-trade the rest
+      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
