@@ -58,6 +58,30 @@ async function analyze() {
     const weights = await pool.query('SELECT * FROM signal_weights_current');
     console.table(weights.rows);
 
+    // Market distribution by type
+    const typeDistribution = await pool.query(`
+      SELECT
+        COALESCE(market_type, 'unclassified') as type,
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE tracking_status = 'active') as active,
+        COUNT(*) FILTER (WHERE tracking_status = 'warming') as warming
+      FROM markets
+      WHERE tracking_status IN ('active', 'warming', 'cooling')
+      GROUP BY market_type
+      ORDER BY active DESC
+    `);
+    console.log('\n=== MERCADOS POR TIPO ===');
+    if (typeDistribution.rows.length === 0) {
+      console.log('(sin mercados trackeados)');
+    } else {
+      console.table(typeDistribution.rows.map(r => ({
+        type: r.type,
+        active: r.active,
+        warming: r.warming,
+        total: r.total
+      })));
+    }
+
   } finally {
     await pool.end();
   }

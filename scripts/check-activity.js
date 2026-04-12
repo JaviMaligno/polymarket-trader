@@ -74,6 +74,29 @@ async function check() {
     signals.rows.forEach(s => console.log(' ', s.signal_type || 'unknown', ':', s.count));
   }
 
+  // Trades by market type (24h)
+  const signalsByType = await pool.query(`
+    SELECT
+      COALESCE(m.market_type, 'unclassified') as type,
+      COUNT(*) as signals,
+      COUNT(DISTINCT pt.market_id) as markets
+    FROM paper_trades pt
+    JOIN markets m ON pt.market_id = m.id
+    WHERE pt.time > NOW() - INTERVAL '24 hours'
+    GROUP BY m.market_type
+    ORDER BY signals DESC
+  `);
+  console.log('\n=== TRADES POR TIPO DE MERCADO (24h) ===');
+  if (signalsByType.rows.length === 0) {
+    console.log('(sin trades en 24h)');
+  } else {
+    console.table(signalsByType.rows.map(r => ({
+      type: r.type,
+      trades: r.signals,
+      markets: r.markets
+    })));
+  }
+
   await pool.end();
 }
 check().catch(e => console.error(e.message));

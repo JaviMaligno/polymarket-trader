@@ -63,6 +63,38 @@ async function check() {
   console.log('\n=== SEÑALES USADAS (24h) ===');
   signals.rows.forEach(s => console.log(' ', s.signal_type || 'unknown', ':', s.count));
 
+  // Performance by market type (post-reset)
+  const resetDate = await pool.query(`SELECT last_reset_at FROM paper_account LIMIT 1`);
+  const resetAt = resetDate.rows[0]?.last_reset_at || '2026-04-07';
+
+  const typePerf = await pool.query(`
+    SELECT
+      COALESCE(m.market_type, 'unclassified') as type,
+      COUNT(*) as trades,
+      ROUND(AVG(CASE WHEN p.realized_pnl > 0 THEN 1.0 ELSE 0.0 END) * 100, 1) as win_pct,
+      ROUND(SUM(p.realized_pnl)::numeric, 2) as total_pnl,
+      ROUND(AVG(p.realized_pnl)::numeric, 2) as avg_pnl
+    FROM paper_positions p
+    JOIN markets m ON p.market_id = m.id
+    WHERE p.closed_at IS NOT NULL
+      AND p.closed_at >= $1
+      AND p.realized_pnl IS NOT NULL
+    GROUP BY m.market_type
+    ORDER BY total_pnl DESC
+  `, [resetAt]);
+  console.log('\n=== PERFORMANCE POR TIPO (post-reset) ===');
+  if (typePerf.rows.length === 0) {
+    console.log('(sin trades cerrados post-reset)');
+  } else {
+    console.table(typePerf.rows.map(r => ({
+      type: r.type,
+      trades: r.trades,
+      win: r.win_pct + '%',
+      total_pnl: '$' + parseFloat(r.total_pnl).toFixed(2),
+      avg_pnl: '$' + parseFloat(r.avg_pnl).toFixed(2)
+    })));
+  }
+
   await pool.end();
 }
 check().catch(e => console.error(e.message));
