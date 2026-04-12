@@ -157,10 +157,8 @@ export class NewsCollector {
           ]
         );
 
-        // Filter out neutral sentiment
-        if (Math.abs(sentiment) < MIN_SENTIMENT) continue;
-
-        // Match against markets
+        // Match against markets (don't filter by sentiment here — LLM can evaluate
+        // relevance of factual headlines that AFINN scores as neutral)
         const matches = this.matcher.matchHeadline(article.title);
         if (matches.length === 0) continue;
 
@@ -281,6 +279,9 @@ export class NewsCollector {
     // Fallback: write AFINN-based signals if LLM was not used or failed
     if (!usedLLM) {
       for (const candidate of llmCandidates) {
+        // AFINN fallback: skip neutral sentiment (LLM would have handled these)
+        if (Math.abs(candidate.sentiment) < MIN_SENTIMENT) continue;
+
         for (const match of candidate.matches) {
           const adjustedSentiment = candidate.sentiment * (match.isCompetitorMention ? -1 : 1);
           const direction = adjustedSentiment >= 0 ? 'LONG' : 'SHORT';
