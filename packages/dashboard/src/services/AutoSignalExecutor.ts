@@ -70,6 +70,7 @@ export interface SignalResult {
   strength: number;      // 0-1
   confidence: number;    // 0-1
   price: number;
+  marketType?: string;  // crypto_intraday, crypto_daily, event_short, event_long
   metadata?: Record<string, unknown>;
 }
 

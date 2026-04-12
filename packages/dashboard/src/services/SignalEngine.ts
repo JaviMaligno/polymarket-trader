@@ -1023,6 +1023,7 @@ export class SignalEngine extends EventEmitter {
       strength,
       confidence: output.confidence,
       price,
+      marketType: market.marketType,
       metadata: output.metadata,
     };
   }
