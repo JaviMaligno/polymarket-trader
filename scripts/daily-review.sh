@@ -494,6 +494,43 @@ real_pnl_check=$(query_one "
   ) t;
 ")
 
+# ── per-type performance ────────────────────────────────────────────────────
+
+category_performance=$(query_json "
+  SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (
+    SELECT market_type, win_rate, avg_pnl, sharpe_ratio, n_trades, prior,
+           updated_at
+    FROM category_performance
+    ORDER BY n_trades DESC
+  ) t;
+")
+
+trades_by_type=$(query_json "
+  SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (
+    SELECT COALESCE(m.market_type, 'unclassified') AS market_type,
+           COUNT(*) AS trades_24h,
+           ROUND(AVG(CASE WHEN p.realized_pnl > 0 THEN 1.0 ELSE 0.0 END)::numeric * 100, 1) AS win_pct,
+           ROUND(SUM(p.realized_pnl)::numeric, 2) AS pnl_24h
+    FROM paper_positions p
+    JOIN markets m ON p.market_id = m.id
+    WHERE p.closed_at >= NOW() - INTERVAL '24 hours'
+      AND p.realized_pnl IS NOT NULL
+    GROUP BY m.market_type
+    ORDER BY pnl_24h DESC
+  ) t;
+")
+
+shadow_summary=$(query_json "
+  SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (
+    SELECT market_type,
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
+           ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 2) AS avg_pnl
+    FROM shadow_trades
+    GROUP BY market_type
+  ) t;
+")
+
 # ── save review history ──────────────────────────────────────────────────────
 
 HISTORY_ENTRY=$(cat <<HISTEOF
@@ -551,6 +588,9 @@ jq -n \
   --argjson disk_usage "$disk_usage" \
   --argjson error_logs "$error_logs" \
   --argjson real_pnl_check "$real_pnl_check" \
+  --argjson category_performance "$category_performance" \
+  --argjson trades_by_type "$trades_by_type" \
+  --argjson shadow_summary "$shadow_summary" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -579,5 +619,8 @@ jq -n \
     disk_usage: $disk_usage,
     error_logs: $error_logs,
     real_pnl_check: $real_pnl_check,
+    category_performance: $category_performance,
+    trades_by_type: $trades_by_type,
+    shadow_summary: $shadow_summary,
     review_history: $review_history
   }'
