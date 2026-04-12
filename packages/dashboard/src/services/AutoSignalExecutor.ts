@@ -130,6 +130,12 @@ const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
 const NEAR_RESOLVED_UPPER = parseFloat(process.env.EXECUTOR_NEAR_RESOLVED_UPPER || '0.97');
 const NEAR_RESOLVED_LOWER = parseFloat(process.env.EXECUTOR_NEAR_RESOLVED_LOWER || '0.03');
 
+// Market type gate: only allow trades for these market types (comma-separated)
+// If unset, all types are allowed (backward compatible)
+const ALLOWED_MARKET_TYPES: Set<string> | null = process.env.ALLOWED_MARKET_TYPES
+  ? new Set(process.env.ALLOWED_MARKET_TYPES.split(',').map(t => t.trim()))
+  : null;
+
 interface TradeRecord {
   marketId: string;
   timestamp: number;
@@ -199,6 +205,42 @@ export class AutoSignalExecutor extends EventEmitter {
        ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`,
       [key, JSON.stringify({ until })]
     ).catch(err => console.error('[AutoExecutor] Failed to persist cooldown:', err));
+  }
+
+  /**
+   * Record a shadow trade for a signal blocked by the market type gate.
+   * Fire-and-forget — errors are logged but don't affect signal processing.
+   */
+  private async insertShadowTrade(signal: SignalResult): Promise<void> {
+    // Compute theoretical position size using the same logic as openPosition
+    let weight = 0.5;
+    try {
+      const weightRecord = await signalWeightsRepo.get(signal.signalId);
+      if (weightRecord) weight = Number(weightRecord.weight);
+    } catch { /* use default */ }
+
+    const sizeMultiplier = signal.confidence * Math.abs(signal.strength) * weight;
+    const positionValue = Math.min(
+      this.config.maxPositionSize * sizeMultiplier,
+      this.config.maxPositionSize
+    );
+    const shares = Math.floor(positionValue / signal.price);
+    if (shares < 1) return; // Too small to record
+
+    await query(
+      `INSERT INTO shadow_trades (time, market_id, market_type, direction, entry_price, theoretical_size, signal_strength, signal_confidence, signal_type)
+       VALUES (NOW(), $1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        signal.marketId,
+        signal.marketType,
+        signal.direction,
+        signal.price,
+        shares,
+        Math.abs(signal.strength),
+        signal.confidence,
+        signal.signalId,
+      ]
+    );
   }
 
   /**
@@ -313,6 +355,25 @@ export class AutoSignalExecutor extends EventEmitter {
     } catch (error) {
       console.error('[AutoExecutor] Failed to verify market status:', error);
       return { executed: false, reason: 'Cannot verify market status - rejecting for safety' };
+    }
+
+    // 0d. Market type gate: restrict new opens to allowed types
+    if (ALLOWED_MARKET_TYPES && signal.marketType && !ALLOWED_MARKET_TYPES.has(signal.marketType)) {
+      // Check if this is a close of an existing position — always allow closes
+      try {
+        const openPositions = await paperPositionsRepo.getAll();
+        const hasOpenPosition = openPositions.some(p => p.market_id === signal.marketId);
+        if (!hasOpenPosition) {
+          console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${signal.marketType})`);
+          // Fire-and-forget shadow trade insert
+          this.insertShadowTrade(signal).catch(() => {});
+          return { executed: false, reason: `market_type_not_allowed: ${signal.marketType}` };
+        }
+      } catch {
+        // If we can't check positions, block the trade for safety
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${signal.marketType}, position check failed)`);
+        return { executed: false, reason: `market_type_not_allowed: ${signal.marketType}` };
+      }
     }
 
     // Reset daily counter if new day
