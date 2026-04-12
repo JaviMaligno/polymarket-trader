@@ -15,10 +15,11 @@ export function getPool(): Pool {
                       connectionString.includes('sslmode=require');
 
     const maxConnections = parseInt(process.env.DB_POOL_MAX || '5', 10);
+    const idleTimeoutMs = parseInt(process.env.DB_IDLE_TIMEOUT_MS || '10000', 10);
     pool = new Pool({
       connectionString,
       max: maxConnections,
-      idleTimeoutMillis: 30000,
+      idleTimeoutMillis: idleTimeoutMs,
       connectionTimeoutMillis: 10000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,

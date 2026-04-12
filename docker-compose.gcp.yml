@@ -76,6 +76,7 @@ services:
       DATA_API_URL: https://data-api.polymarket.com
       MAX_TRACKED_MARKETS: "40"
       DB_POOL_MAX: "5"
+      DB_IDLE_TIMEOUT_MS: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_DAILY_BUDGET_USD: "1.0"
       NEWS_MIN_ENTITY_LENGTH: "4"
@@ -118,6 +119,7 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
       DB_POOL_MAX: "5"
+      DB_IDLE_TIMEOUT_MS: "10000"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "300000"
       MAX_SIGNAL_MARKETS: "35"
