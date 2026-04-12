@@ -57,3 +57,46 @@ export async function updateCategoryPriors(): Promise<void> {
       'Updated category prior');
   }
 }
+
+/**
+ * Resolve shadow trades whose markets have been resolved.
+ * For LONG: pnl = (resolution_price - entry_price) * theoretical_size
+ * For SHORT: pnl = (entry_price - resolution_price) * theoretical_size
+ * Resolution price is 1.0 (YES outcome) or 0.0 (NO outcome).
+ */
+export async function resolveShadowTrades(): Promise<void> {
+  const result = await query<{
+    id: string;
+    direction: string;
+    entry_price: string;
+    theoretical_size: string;
+    resolution_price: string;
+  }>(`
+    SELECT st.id, st.direction, st.entry_price, st.theoretical_size,
+           CASE WHEN m.outcome = 'Yes' THEN 1.0 ELSE 0.0 END AS resolution_price
+    FROM shadow_trades st
+    JOIN markets m ON st.market_id = m.id
+    WHERE st.resolved_at IS NULL
+      AND m.is_resolved = true
+  `);
+
+  if (result.rows.length === 0) return;
+
+  logger.info({ count: result.rows.length }, 'Resolving shadow trades');
+
+  for (const row of result.rows) {
+    const entryPrice = parseFloat(row.entry_price);
+    const size = parseFloat(row.theoretical_size);
+    const resolutionPrice = parseFloat(row.resolution_price);
+    const pnl = row.direction === 'long'
+      ? (resolutionPrice - entryPrice) * size
+      : (entryPrice - resolutionPrice) * size;
+
+    await query(
+      `UPDATE shadow_trades SET resolved_at = NOW(), resolution_price = $1, theoretical_pnl = $2 WHERE id = $3`,
+      [resolutionPrice, pnl, parseInt(row.id, 10)],
+    );
+  }
+
+  logger.info({ resolved: result.rows.length }, 'Shadow trades resolved');
+}
