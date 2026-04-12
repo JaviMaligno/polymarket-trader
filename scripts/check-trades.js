@@ -65,7 +65,7 @@ async function check() {
 
   // Performance by market type (post-reset)
   const resetDate = await pool.query(`SELECT last_reset_at FROM paper_account LIMIT 1`);
-  const resetAt = resetDate.rows[0]?.last_reset_at || '2026-04-07';
+  const resetAt = resetDate.rows[0]?.last_reset_at || '2000-01-01';
 
   const typePerf = await pool.query(`
     SELECT

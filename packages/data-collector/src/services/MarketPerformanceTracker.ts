@@ -73,7 +73,7 @@ export async function resolveShadowTrades(): Promise<void> {
     resolution_price: string;
   }>(`
     SELECT st.id, st.direction, st.entry_price, st.theoretical_size,
-           CASE WHEN m.outcome = 'Yes' THEN 1.0 ELSE 0.0 END AS resolution_price
+           CASE WHEN LOWER(m.resolution_outcome) = 'yes' THEN 1.0 ELSE 0.0 END AS resolution_price
     FROM shadow_trades st
     JOIN markets m ON st.market_id = m.id
     WHERE st.resolved_at IS NULL

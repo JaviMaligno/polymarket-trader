@@ -358,21 +358,23 @@ export class AutoSignalExecutor extends EventEmitter {
     }
 
     // 0d. Market type gate: restrict new opens to allowed types
-    if (ALLOWED_MARKET_TYPES && signal.marketType && !ALLOWED_MARKET_TYPES.has(signal.marketType)) {
+    // Treat undefined marketType as 'unclassified' — unclassified markets are blocked by default
+    const effectiveMarketType = signal.marketType || 'unclassified';
+    if (ALLOWED_MARKET_TYPES && !ALLOWED_MARKET_TYPES.has(effectiveMarketType)) {
       // Check if this is a close of an existing position — always allow closes
       try {
         const openPositions = await paperPositionsRepo.getAll();
         const hasOpenPosition = openPositions.some(p => p.market_id === signal.marketId);
         if (!hasOpenPosition) {
-          console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${signal.marketType})`);
+          console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${effectiveMarketType})`);
           // Fire-and-forget shadow trade insert
           this.insertShadowTrade(signal).catch(() => {});
-          return { executed: false, reason: `market_type_not_allowed: ${signal.marketType}` };
+          return { executed: false, reason: `market_type_not_allowed: ${effectiveMarketType}` };
         }
       } catch {
         // If we can't check positions, block the trade for safety
-        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${signal.marketType}, position check failed)`);
-        return { executed: false, reason: `market_type_not_allowed: ${signal.marketType}` };
+        console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${effectiveMarketType}, position check failed)`);
+        return { executed: false, reason: `market_type_not_allowed: ${effectiveMarketType}` };
       }
     }
 
