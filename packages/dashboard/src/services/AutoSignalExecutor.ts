@@ -272,6 +272,39 @@ export class AutoSignalExecutor extends EventEmitter {
   }
 
   /**
+   * Ensure the shadow_trades table exists. The init/*.sql migrations only run on
+   * first TimescaleDB initialization, so post-deploy schema changes won't apply
+   * to existing volumes. Mirrors the trading_config pattern in CircuitBreakerService.
+   */
+  async ensureShadowTradesTable(): Promise<void> {
+    if (!isDatabaseConfigured()) return;
+    try {
+      await query(`
+        CREATE TABLE IF NOT EXISTS shadow_trades (
+          id SERIAL PRIMARY KEY,
+          time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          market_id VARCHAR(255) NOT NULL,
+          market_type VARCHAR(20) NOT NULL,
+          direction VARCHAR(5) NOT NULL,
+          entry_price FLOAT NOT NULL,
+          theoretical_size FLOAT NOT NULL,
+          signal_strength FLOAT NOT NULL,
+          signal_confidence FLOAT NOT NULL,
+          signal_type VARCHAR(100),
+          resolved_at TIMESTAMPTZ,
+          resolution_price FLOAT,
+          theoretical_pnl FLOAT
+        )
+      `);
+      await query(`CREATE INDEX IF NOT EXISTS idx_shadow_trades_market_type ON shadow_trades(market_type)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_shadow_trades_time ON shadow_trades(time DESC)`);
+      await query(`CREATE INDEX IF NOT EXISTS idx_shadow_trades_unresolved ON shadow_trades(resolved_at) WHERE resolved_at IS NULL`);
+    } catch (error) {
+      console.error('[AutoExecutor] Failed to ensure shadow_trades table:', error);
+    }
+  }
+
+  /**
    * Process a signal and potentially execute a trade
    *
    * Trading Logic:
