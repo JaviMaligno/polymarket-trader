@@ -136,12 +136,31 @@ export class MarketClassifier {
       : '';
 
     if (VALID_TYPES.includes(text as MarketType)) {
+      // Sanity-check Haiku: if it labels as crypto but the question contains no
+      // crypto keyword, override to event_*. Haiku has been observed to mislabel
+      // sports/politics markets ("Will Canada win the 2026 FIFA World Cup?") as
+      // crypto_daily, which would let the execution gate trade them as crypto.
+      if ((text === 'crypto_intraday' || text === 'crypto_daily') && !this.questionLooksCrypto(question)) {
+        const fallback = this.classifyWithRegex(question, endDate);
+        console.warn(`[MarketClassifier] Haiku said "${text}" but question lacks crypto keyword, overriding to ${fallback}: "${question.slice(0, 60)}"`);
+        return fallback;
+      }
       return text as MarketType;
     }
 
     // If Haiku returned something unexpected, fallback to regex
     console.warn(`[MarketClassifier] Haiku returned unexpected: "${text}", using regex`);
     return this.classifyWithRegex(question, endDate);
+  }
+
+  /**
+   * Strict crypto-keyword check using word boundaries.
+   * Used to validate Haiku's "crypto_*" classifications against false positives.
+   */
+  private questionLooksCrypto(question: string): boolean {
+    const fullWords = /\b(bitcoin|ethereum|solana|cardano|dogecoin|cryptocurrency|crypto|microstrategy|megaeth|satoshi|coinbase|binance|chainlink|polkadot|stellar|monero|polygon|ripple|fdv|stablecoin)\b/i;
+    const tickers = /\b(btc|eth|xrp|ada|doge|bnb|sol|usdt|usdc)\b/i;
+    return fullWords.test(question) || tickers.test(question);
   }
 
   /**
