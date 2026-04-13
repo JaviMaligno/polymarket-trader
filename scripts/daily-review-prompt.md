@@ -87,6 +87,24 @@ There have been 12 resets (Mar-Apr 2026), mostly from price inversion bugs and a
 - **Hardcoded values**: Config that should read from env vars but has hardcoded numbers
 - **Formula asymmetry**: One service calculates a metric differently from another (e.g., peak uses equity but drawdown uses capital)
 
+## Market Type Execution Gate (deployed 2026-04-12)
+
+The system trades only crypto markets in live mode. Other market types (event_short, event_long, unclassified) have signals generated and combined, but the executor blocks the open and records a `shadow_trade` instead. Closes are never blocked.
+
+- **Config:** `ALLOWED_MARKET_TYPES=crypto_intraday,crypto_daily` env var on dashboard-api
+- **Rejection log:** `[AutoExecutor] REJECTED ... : market_type_not_allowed (<type>)`
+- **Tables affected:** `shadow_trades` (new) — INSERT on every blocked open
+
+**Implications for analysis:**
+- **Closes** on event_short/event_long markets are EXPECTED behavior — they are legacy positions opened before the gate, unwinding. Do NOT flag as a bug or as the gate misbehaving.
+- **0 new opens on non-crypto markets** is the desired state. If `trades_by_type` shows opens on blocked types AFTER the deploy, the gate is broken — investigate which code path bypassed it.
+- **Shadow trades** in `shadow_summary` show what the system would have traded. They accumulate over time and resolve when the underlying market resolves. Used for offline evaluation of when blocked types might be worth enabling.
+
+**JSON sections to use:**
+- `trades_by_type`: realized trades in last 24h, broken down by market_type (post-gate, opens should be crypto-only; closes can be any type)
+- `category_performance`: cumulative win_rate / Sharpe / prior per market_type
+- `shadow_summary`: blocked signals recorded as shadow trades
+
 ## Step 0: Check Existing Work
 
 Before creating any issues or PRs, check what already exists:
@@ -125,7 +143,7 @@ If a fix is **ineffective**, flag as HIGH and investigate why.
 
 ## Step 1: Read the Data
 
-Read `review-data.json` in the current directory. It contains 19 sections of trading data gathered from the VM.
+Read `review-data.json` in the current directory. It contains ~22 sections of trading data gathered from the VM, including per-market-type breakdowns (`trades_by_type`, `category_performance`, `shadow_summary`).
 
 ## Step 2: Analyze
 
