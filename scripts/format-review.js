@@ -105,6 +105,9 @@ const consecutiveLosses = data.consecutive_losses || null;
 const containers = Array.isArray(data.containers) ? data.containers : [];
 const errorLogs = data.error_logs || {};
 const realPnlCheck = data.real_pnl_check || null;
+const categoryPerformance = Array.isArray(data.category_performance) ? data.category_performance : [];
+const tradesByType = Array.isArray(data.trades_by_type) ? data.trades_by_type : [];
+const shadowSummary = Array.isArray(data.shadow_summary) ? data.shadow_summary : [];
 const generatedAt = data.generated_at || new Date().toISOString();
 
 // ── Detect alerts ───────────────────────────────────────────────────────────
@@ -284,6 +287,45 @@ function buildMarkdown() {
       ln(`| ${fmtDateShort(h.hour)} | ${fmt(h.trade_count, 0)} | ${fmtUsd(h.total_value)} |`);
     }
     ln();
+  }
+
+  // By Market Type
+  if (tradesByType.length > 0 || categoryPerformance.length > 0 || shadowSummary.length > 0) {
+    ln(`## By Market Type`);
+    ln();
+
+    if (tradesByType.length > 0) {
+      ln(`### Trades 24h`);
+      ln();
+      ln(`| Type | Trades | Win % | PnL |`);
+      ln(`|------|--------|-------|-----|`);
+      for (const t of tradesByType) {
+        ln(`| ${t.market_type || 'N/A'} | ${fmt(t.trades_24h, 0)} | ${fmtPctRaw(t.win_pct)} | ${fmtUsd(t.pnl_24h)} |`);
+      }
+      ln();
+    }
+
+    if (categoryPerformance.length > 0) {
+      ln(`### Cumulative Performance`);
+      ln();
+      ln(`| Type | Trades | Win Rate | Avg PnL | Sharpe | Prior |`);
+      ln(`|------|--------|----------|---------|--------|-------|`);
+      for (const c of categoryPerformance) {
+        ln(`| ${c.market_type || 'N/A'} | ${fmt(c.n_trades, 0)} | ${fmtPct(c.win_rate)} | ${fmtUsd(c.avg_pnl)} | ${fmt(c.sharpe_ratio, 3)} | ${fmt(c.prior, 3)} |`);
+      }
+      ln();
+    }
+
+    if (shadowSummary.length > 0) {
+      ln(`### Shadow Trades (blocked by gate)`);
+      ln();
+      ln(`| Type | Total | Resolved | Avg PnL |`);
+      ln(`|------|-------|----------|---------|`);
+      for (const s of shadowSummary) {
+        ln(`| ${s.market_type || 'N/A'} | ${fmt(s.total, 0)} | ${fmt(s.resolved, 0)} | ${s.avg_pnl != null ? fmtUsd(s.avg_pnl) : 'N/A'} |`);
+      }
+      ln();
+    }
   }
 
   // Open Positions
@@ -543,6 +585,33 @@ function buildEmailHtml() {
     p(`<p>${escapeHtml(fmt(tradesSummary.total_trades, 0))} trades | ${escapeHtml(fmtUsd(tradesSummary.total_value))} volume | ${escapeHtml(fmtUsd(tradesSummary.total_fees))} fees</p>`);
   } else {
     p('<p><em>No trade data.</em></p>');
+  }
+
+  // By market type
+  if (tradesByType.length > 0 || shadowSummary.length > 0) {
+    p('<h2>By Market Type</h2>');
+
+    if (tradesByType.length > 0) {
+      p('<p style="margin:4px 0;font-size:13px;color:#586069;">Trades 24h</p>');
+      p('<table>');
+      p('<tr><th>Type</th><th>Trades</th><th>Win %</th><th>PnL</th></tr>');
+      for (const t of tradesByType) {
+        const pnl = Number(t.pnl_24h || 0);
+        const cls = pnl >= 0 ? 'positive' : 'negative';
+        p(`<tr><td>${escapeHtml(t.market_type || 'N/A')}</td><td>${escapeHtml(fmt(t.trades_24h, 0))}</td><td>${escapeHtml(fmtPctRaw(t.win_pct))}</td><td class="${cls}">${escapeHtml(fmtUsd(t.pnl_24h))}</td></tr>`);
+      }
+      p('</table>');
+    }
+
+    if (shadowSummary.length > 0) {
+      p('<p style="margin:8px 0 4px;font-size:13px;color:#586069;">Shadow trades (blocked by gate)</p>');
+      p('<table>');
+      p('<tr><th>Type</th><th>Total</th><th>Resolved</th><th>Avg PnL</th></tr>');
+      for (const s of shadowSummary) {
+        p(`<tr><td>${escapeHtml(s.market_type || 'N/A')}</td><td>${escapeHtml(fmt(s.total, 0))}</td><td>${escapeHtml(fmt(s.resolved, 0))}</td><td>${escapeHtml(s.avg_pnl != null ? fmtUsd(s.avg_pnl) : 'N/A')}</td></tr>`);
+      }
+      p('</table>');
+    }
   }
 
   // Open positions
