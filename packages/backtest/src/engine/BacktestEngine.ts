@@ -684,7 +684,15 @@ export class BacktestEngine {
           tokenIdYes: tokenId,
         },
         currentTime: this.currentTime,
-        priceBars: [...cache.bars, cache.currentBar],
+        // Limit bars passed to signals to reduce compute time.
+        // Largest indicator lookback: Hurst 50, MACD 35. 100 gives 2x margin.
+        priceBars: (() => {
+          const MAX_SIGNAL_LOOKBACK = 100;
+          const allBars = cache.bars.length > MAX_SIGNAL_LOOKBACK - 1
+            ? [...cache.bars.slice(-(MAX_SIGNAL_LOOKBACK - 1)), cache.currentBar]
+            : [...cache.bars, cache.currentBar];
+          return allBars;
+        })(),
         recentTrades: [],
       };
 

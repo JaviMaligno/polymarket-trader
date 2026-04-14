@@ -107,7 +107,7 @@ export class BacktestService extends EventEmitter {
   /**
    * Run a backtest with the given configuration
    */
-  async runBacktest(request: BacktestRequest): Promise<StoredBacktest> {
+  async runBacktest(request: BacktestRequest, preloadedData?: MarketData[]): Promise<StoredBacktest> {
     const backtestId = this.generateBacktestId();
 
     // Check concurrent limit
@@ -132,9 +132,9 @@ export class BacktestService extends EventEmitter {
       storedBacktest.status = 'running';
       this.runningBacktests.set(backtestId, { status: 'running', progress: 0 });
 
-      // Fetch historical data
-      this.updateProgress(backtestId, 10, 'Fetching historical data');
-      const marketData = await this.fetchHistoricalData(
+      // Use preloaded data if available, otherwise fetch from DB
+      this.updateProgress(backtestId, 10, preloadedData ? 'Using cached data' : 'Fetching historical data');
+      const marketData = preloadedData ?? await this.fetchHistoricalData(
         new Date(request.startDate),
         new Date(request.endDate),
         request.marketIds
@@ -306,7 +306,7 @@ export class BacktestService extends EventEmitter {
   /**
    * Fetch historical data from database
    */
-  private async fetchHistoricalData(
+  async fetchHistoricalData(
     startDate: Date,
     endDate: Date,
     marketIds?: string[]

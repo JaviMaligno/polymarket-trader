@@ -14,6 +14,7 @@
 import { query, isDatabaseConfigured } from '../database/index.js';
 import { signalWeightsRepo } from '../database/repositories.js';
 import { getBacktestService, BacktestService, type BacktestRequest } from './BacktestService.js';
+import type { MarketData } from '@polymarket-trader/backtest';
 import { getValidationService, type ValidationService } from './ValidationService.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { OptunaClient, type ParameterDef } from './OptunaClient.js';
@@ -149,6 +150,7 @@ export class OptimizationScheduler {
   };
 
   private mainLoopInterval: NodeJS.Timeout | null = null;
+  private keepAliveInterval: NodeJS.Timeout | null = null;
   private backtestService: BacktestService;
   private validationService: ValidationService;
   private dashboardApiUrl: string;
@@ -192,6 +194,13 @@ export class OptimizationScheduler {
       5 * 60 * 1000
     );
 
+    // Keep Render Optuna server warm to avoid 30-60s cold start per run
+    if (this.optunaClient) {
+      this.keepAliveInterval = setInterval(() => {
+        this.optunaClient!.ping().catch(() => {});
+      }, 4 * 60 * 1000); // Every 4 min (Render sleeps after 15 min)
+    }
+
     await this.mainLoop();
     console.log('[OptimizationScheduler] Started');
   }
@@ -203,6 +212,10 @@ export class OptimizationScheduler {
     if (this.mainLoopInterval) {
       clearInterval(this.mainLoopInterval);
       this.mainLoopInterval = null;
+    }
+    if (this.keepAliveInterval) {
+      clearInterval(this.keepAliveInterval);
+      this.keepAliveInterval = null;
     }
 
     await this.saveState();
@@ -362,6 +375,11 @@ export class OptimizationScheduler {
 
     console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${WALKFORWARD_CONFIG.trainingPeriodDays} days)`);
 
+    // Preload backtest data once for all trials (same training period)
+    console.log('[OptimizationScheduler] Preloading backtest data...');
+    const preloadedData: MarketData[] = await this.backtestService.fetchHistoricalData(startDate, endDate);
+    console.log(`[OptimizationScheduler] Preloaded ${preloadedData.length} markets`);
+
     try {
       let consecutiveFailures = 0;
       const MAX_CONSECUTIVE_FAILURES = 3;
@@ -396,8 +414,8 @@ export class OptimizationScheduler {
           // 2. Map Optuna params → BacktestRequest
           const request = this.mapOptunaParamsToRequest(params, startDate, endDate);
 
-          // 3. Run backtest
-          const backtest = await this.backtestService.runBacktest(request);
+          // 3. Run backtest (use preloaded data to skip per-trial DB fetch)
+          const backtest = await this.backtestService.runBacktest(request, preloadedData);
 
           if (backtest.result && backtest.result.metrics) {
             const sharpe = backtest.result.metrics.sharpeRatio || 0;
