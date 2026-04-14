@@ -141,9 +141,9 @@ export class MarketClassifier {
       // crypto keyword, override to event_*. Haiku has been observed to mislabel
       // sports/politics markets ("Will Canada win the 2026 FIFA World Cup?") as
       // crypto_daily, which would let the execution gate trade them as crypto.
-      if ((text === 'crypto_intraday' || text === 'crypto_daily') && !this.questionLooksCrypto(question)) {
+      if ((text === 'crypto_intraday' || text === 'crypto_daily') && !this.questionLooksCryptoPriceMarket(question)) {
         const fallback = this.classifyWithRegex(question, endDate);
-        console.warn(`[MarketClassifier] Haiku said "${text}" but question lacks crypto keyword, overriding to ${fallback}: "${question.slice(0, 60)}"`);
+        console.warn(`[MarketClassifier] Haiku said "${text}" but question does not look like a crypto price market, overriding to ${fallback}: "${question.slice(0, 60)}"`);
         return fallback;
       }
       // Same sanity check for event_financial — ensure it has a financial keyword.
@@ -172,10 +172,32 @@ export class MarketClassifier {
    * Strict crypto-keyword check using word boundaries.
    * Used to validate Haiku's "crypto_*" classifications against false positives.
    */
-  private questionLooksCrypto(question: string): boolean {
+  private questionMentionsCrypto(question: string): boolean {
     const fullWords = /\b(bitcoin|ethereum|solana|cardano|dogecoin|cryptocurrency|crypto|microstrategy|megaeth|satoshi|coinbase|binance|chainlink|polkadot|stellar|monero|polygon|ripple|fdv|stablecoin)\b/i;
     const tickers = /\b(btc|eth|xrp|ada|doge|bnb|sol|usdt|usdc)\b/i;
     return fullWords.test(question) || tickers.test(question);
+  }
+
+  /**
+   * Crypto markets are only treated as crypto_* when they look like price
+   * questions. Crypto ecosystem events (airdrops, launches, FDV, listings)
+   * should be classified as event_* so the crypto execution gate stays focused
+   * on markets the strategy is actually designed to trade.
+   */
+  private questionLooksCryptoPriceMarket(question: string): boolean {
+    if (!this.questionMentionsCrypto(question)) return false;
+
+    const explicitEventPatterns = /\b(airdrop|launch(?:es|ed|ing)?|mainnet|testnet|listing|list(?:ed|ing)?|points|campaign|fdv|fully diluted|market cap|governance|proposal|vote|partnership|token generation|tge|unlock|vesting)\b/i;
+    if (explicitEventPatterns.test(question)) return false;
+
+    const pricePatterns = [
+      /\bprice of\b/i,
+      /\b(up or down|all time high|ath)\b/i,
+      /\b(above|below|greater than|less than|over|under|between|exceed(?:s|ed)?|reach(?:es|ed)?|hit(?:s|ting)?)\b.*\$/i,
+      /\$\s*\d/,
+    ];
+
+    return pricePatterns.some(pattern => pattern.test(question));
   }
 
   /**
@@ -196,7 +218,7 @@ export class MarketClassifier {
    */
   classifyWithRegex(question: string, endDate: Date | null): MarketType {
     const q = question.toLowerCase();
-    const isCrypto = /bitcoin|btc|ethereum|eth|solana|sol|xrp|crypto|doge|bnb|cardano|ada/i.test(q);
+    const isCrypto = this.questionLooksCryptoPriceMarket(question);
     const isUpDown = /up or down|price.*above|reach.*\$|dip to|hit.*\$/i.test(q);
 
     if (isCrypto) {
