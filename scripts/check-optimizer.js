@@ -45,8 +45,9 @@ async function check() {
   // Check current weights
   console.log("\n=== CURRENT SIGNAL WEIGHTS ===");
   const weights = await pool.query(`
-    SELECT signal_type, weight, last_updated
-    FROM signal_weights_current
+    SELECT signal_type, weight, time as last_updated
+    FROM signal_weights
+    WHERE time = (SELECT MAX(time) FROM signal_weights)
     ORDER BY signal_type
   `);
 

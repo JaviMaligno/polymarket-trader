@@ -109,7 +109,7 @@ echo ","
 
 # === CURRENT SIGNAL WEIGHTS ===
 echo '"signal_weights":'
-query_json "SELECT * FROM signal_weights_current"
+query_json "SELECT signal_type, weight, time FROM signal_weights WHERE time = (SELECT MAX(time) FROM signal_weights)"
 echo ","
 
 # === CONSECUTIVE LOSING TRADES ===

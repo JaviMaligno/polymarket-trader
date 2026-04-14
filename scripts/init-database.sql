@@ -341,26 +341,6 @@ SELECT create_hypertable('signal_weights_history', 'time',
     if_not_exists => TRUE
 );
 
-CREATE TABLE IF NOT EXISTS signal_weights_current (
-    signal_type VARCHAR(50) PRIMARY KEY,
-    weight DECIMAL(5,4) NOT NULL DEFAULT 0.5,
-    last_updated TIMESTAMPTZ DEFAULT NOW(),
-    accuracy_7d DECIMAL(5,4),
-    accuracy_30d DECIMAL(5,4),
-    total_predictions INTEGER DEFAULT 0,
-    min_weight DECIMAL(5,4) DEFAULT 0.1,
-    max_weight DECIMAL(5,4) DEFAULT 0.9
-);
-
-INSERT INTO signal_weights_current (signal_type, weight)
-VALUES
-    ('momentum', 0.5),
-    ('mean_reversion', 0.5),
-    ('whale_following', 0.5),
-    ('volume_spike', 0.5),
-    ('sentiment', 0.5)
-ON CONFLICT DO NOTHING;
-
 INSERT INTO signal_weights_history (signal_type, weight, change_reason)
 VALUES
     ('momentum', 0.5, 'initial'),

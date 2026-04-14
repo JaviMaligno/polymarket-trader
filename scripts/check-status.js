@@ -55,7 +55,7 @@ async function analyze() {
 
     // Signal weights
     console.log('\n=== CURRENT SIGNAL WEIGHTS ===');
-    const weights = await pool.query('SELECT * FROM signal_weights_current');
+    const weights = await pool.query('SELECT signal_type, weight FROM signal_weights WHERE time = (SELECT MAX(time) FROM signal_weights)');
     console.table(weights.rows);
 
     // Market distribution by type
