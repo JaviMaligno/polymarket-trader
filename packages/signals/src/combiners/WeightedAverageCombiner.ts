@@ -40,6 +40,8 @@ interface WeightedAverageParams {
 const DEFAULT_TYPE_WEIGHTS: Record<string, Record<string, number>> = {
   crypto_intraday: { momentum: -0.3, mean_reversion: 0.5, ofi: 0.5, mlofi: 0.5, hawkes: 0.4 },
   crypto_daily:    { momentum: -0.3, mean_reversion: 0.6, ofi: 0.4, mlofi: 0.4, hawkes: 0.3 },
+  // event_financial: commodities/rates/indices have continuous underlying; use microstructure-heavy weights like crypto_daily
+  event_financial: { momentum: -0.3, mean_reversion: 0.6, ofi: 0.4, mlofi: 0.4, hawkes: 0.3 },
   event_short:     { momentum: -0.4, mean_reversion: 0.6, ofi: 0.3, mlofi: 0.3, hawkes: 0.2 },
   event_long:      { momentum: -0.4, mean_reversion: 0.6, ofi: 0.2, mlofi: 0.2, hawkes: 0.1 },
 };

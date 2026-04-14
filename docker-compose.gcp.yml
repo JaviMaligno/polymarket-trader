@@ -147,7 +147,8 @@ services:
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
       # Market type gate: only trade these types live, shadow-trade the rest
-      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily"
+      # Includes event_financial (WTI, Fed, indices) — markets with continuous underlying
+      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:

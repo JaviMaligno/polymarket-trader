@@ -82,7 +82,7 @@ interface ActiveMarket {
   volume24h?: number;
   isActive?: boolean;    // Market is still active for trading
   isResolved?: boolean;  // Market has been resolved
-  marketType?: string;   // crypto_intraday, crypto_daily, event_short, event_long
+  marketType?: string;   // crypto_intraday, crypto_daily, event_financial, event_short, event_long
   endDate?: Date | null; // Market resolution date for duration-based weight scaling
   trackingStatus?: string; // active, hot, cold — cold markets have stale prices
 }
@@ -971,6 +971,7 @@ export class SignalEngine extends EventEmitter {
   private static PRICE_FILTERS: Record<string, { min: number; max: number }> = {
     crypto_intraday: { min: 0.02, max: 0.98 },
     crypto_daily:    { min: 0.03, max: 0.97 },
+    event_financial: { min: 0.03, max: 0.97 }, // same as crypto_daily — continuous underlying
     event_short:     { min: 0.05, max: 0.95 },
     event_long:      { min: 0.08, max: 0.92 },
   };

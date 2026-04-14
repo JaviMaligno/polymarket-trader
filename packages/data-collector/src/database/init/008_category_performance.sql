@@ -11,10 +11,11 @@ CREATE TABLE IF NOT EXISTS category_performance (
   updated_at   TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Seed with default priors for the 4 known categories
+-- Seed with default priors for the 5 known categories
 INSERT INTO category_performance (market_type, prior) VALUES
   ('crypto_intraday', 1.0),
   ('crypto_daily', 1.0),
+  ('event_financial', 1.0),
   ('event_short', 1.0),
   ('event_long', 1.0)
 ON CONFLICT (market_type) DO NOTHING;

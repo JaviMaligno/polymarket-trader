@@ -1,12 +1,12 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { query, isDatabaseConfigured } from '../database/index.js';
 
-export type MarketType = 'crypto_intraday' | 'crypto_daily' | 'event_short' | 'event_long';
+export type MarketType = 'crypto_intraday' | 'crypto_daily' | 'event_financial' | 'event_short' | 'event_long';
 
-const VALID_TYPES: MarketType[] = ['crypto_intraday', 'crypto_daily', 'event_short', 'event_long'];
+const VALID_TYPES: MarketType[] = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short', 'event_long'];
 
 const CLASSIFICATION_PROMPT = `Classify this prediction market into exactly one category.
-Categories: crypto_intraday, crypto_daily, event_short, event_long
+Categories: crypto_intraday, crypto_daily, event_financial, event_short, event_long
 
 Market: "{question}"
 End date: {end_date}
@@ -14,8 +14,9 @@ End date: {end_date}
 Rules:
 - crypto_intraday: cryptocurrency price markets resolving within 4 hours
 - crypto_daily: cryptocurrency markets resolving in 4 hours to 7 days
-- event_short: non-crypto events resolving within 30 days
-- event_long: non-crypto events resolving in 30+ days
+- event_financial: markets with a continuously-priced financial underlying (commodities like WTI crude oil, gold, silver; stocks, S&P 500, Nasdaq, indices; Fed rates, interest rates, inflation; forex pairs). NOT crypto.
+- event_short: non-financial, non-crypto events resolving within 30 days (politics, sports, news, entertainment)
+- event_long: non-financial, non-crypto events resolving in 30+ days
 
 Respond with ONLY the category name, nothing else.`;
 
@@ -145,6 +146,12 @@ export class MarketClassifier {
         console.warn(`[MarketClassifier] Haiku said "${text}" but question lacks crypto keyword, overriding to ${fallback}: "${question.slice(0, 60)}"`);
         return fallback;
       }
+      // Same sanity check for event_financial — ensure it has a financial keyword.
+      if (text === 'event_financial' && !this.questionLooksFinancial(question)) {
+        const fallback = this.classifyWithRegex(question, endDate);
+        console.warn(`[MarketClassifier] Haiku said "event_financial" but question lacks financial keyword, overriding to ${fallback}: "${question.slice(0, 60)}"`);
+        return fallback;
+      }
       return text as MarketType;
     }
 
@@ -164,7 +171,20 @@ export class MarketClassifier {
   }
 
   /**
-   * Simple regex-based classification as fallback
+   * Keyword check for financial markets with continuous underlying.
+   * Covers commodities, equities/indices, rates, and forex.
+   */
+  private questionLooksFinancial(question: string): boolean {
+    const commodities = /\b(crude oil|wti|brent|natural gas|gold|silver|copper|platinum|palladium|gasoline)\b/i;
+    const equitiesIndices = /\b(s&p ?500|sp500|nasdaq|dow jones|djia|russell|ftse|dax|nikkei|hang seng|vix|stock market|stocks)\b/i;
+    const rates = /\b(fed|federal reserve|fomc|interest rate|rate cut|rate hike|rate decision|basis points|\d+ ?bps|inflation|cpi|ppi|pce|jobs report|nfp|unemployment rate|gdp|recession)\b/i;
+    const forex = /\b(eur\/usd|usd\/jpy|gbp\/usd|usd\/cny|dxy|dollar index)\b/i;
+    return commodities.test(question) || equitiesIndices.test(question) || rates.test(question) || forex.test(question);
+  }
+
+  /**
+   * Simple regex-based classification as fallback.
+   * Priority: crypto > financial > event_{long,short}.
    */
   classifyWithRegex(question: string, endDate: Date | null): MarketType {
     const q = question.toLowerCase();
@@ -178,6 +198,10 @@ export class MarketClassifier {
         if (hoursUntilEnd <= 7 * 24) return 'crypto_daily';
       }
       return isUpDown ? 'crypto_intraday' : 'crypto_daily';
+    }
+
+    if (this.questionLooksFinancial(question)) {
+      return 'event_financial';
     }
 
     if (endDate) {
