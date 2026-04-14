@@ -147,7 +147,10 @@ services:
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
       # Market type gate: only trade these types live, shadow-trade the rest
-      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily"
+      # Added event_long,event_short: crypto markets have 0 active tracking (no price data flowing),
+      # causing a complete trade lockout. event_long (Sharpe 0.17) and event_short (Sharpe 0.15)
+      # are "Promising" per the shadow readiness tiers. Crypto types remain to preserve crypto trades.
+      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_long,event_short"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     ports:
