@@ -215,33 +215,9 @@ VALUES
 ON CONFLICT DO NOTHING;
 
 -- ============================================
--- SIGNAL WEIGHTS CURRENT (for fast lookup)
--- ============================================
-
-CREATE TABLE IF NOT EXISTS signal_weights_current (
-    signal_type VARCHAR(50) PRIMARY KEY,
-    weight DECIMAL(5,4) NOT NULL DEFAULT 0.5,
-    last_updated TIMESTAMPTZ DEFAULT NOW(),
-
-    -- Cached metrics
-    accuracy_7d DECIMAL(5,4),
-    accuracy_30d DECIMAL(5,4),
-    total_predictions INTEGER DEFAULT 0,
-
-    -- Bounds
-    min_weight DECIMAL(5,4) DEFAULT 0.1,
-    max_weight DECIMAL(5,4) DEFAULT 0.9
-);
-
--- Insert initial weights
-INSERT INTO signal_weights_current (signal_type, weight)
-VALUES
-    ('momentum', 0.5),
-    ('mean_reversion', 0.5),
-    ('whale_following', 0.5),
-    ('volume_spike', 0.5),
-    ('sentiment', 0.5)
-ON CONFLICT DO NOTHING;
+-- NOTE: signal_weights_current was removed — it was a stale duplicate
+-- of signal_weights (in 002_signals_tracking.sql) that never got updated.
+-- The optimizer writes to signal_weights; SignalEngine reads from signal_weights.
 
 -- ============================================
 -- VIEWS FOR DASHBOARD
@@ -268,20 +244,17 @@ SELECT
 FROM paper_account pa
 LIMIT 1;
 
--- Signal performance summary
+-- Signal performance summary (uses signal_weights, the real table)
 CREATE OR REPLACE VIEW signal_performance_summary AS
 SELECT
-    swc.signal_type,
-    swc.weight,
-    swc.accuracy_7d,
-    swc.accuracy_30d,
-    swc.total_predictions,
+    sw.signal_type,
+    sw.weight,
     COUNT(sp.id) FILTER (WHERE sp.time > NOW() - INTERVAL '7 days') as predictions_7d,
     COUNT(sp.id) FILTER (WHERE sp.was_correct = true AND sp.time > NOW() - INTERVAL '7 days') as correct_7d,
     AVG(sp.pnl_pct) FILTER (WHERE sp.time > NOW() - INTERVAL '7 days') as avg_pnl_7d
-FROM signal_weights_current swc
-LEFT JOIN signal_predictions sp ON sp.signal_type = swc.signal_type
-GROUP BY swc.signal_type, swc.weight, swc.accuracy_7d, swc.accuracy_30d, swc.total_predictions;
+FROM signal_weights sw
+LEFT JOIN signal_predictions sp ON sp.signal_type = sw.signal_type
+GROUP BY sw.signal_type, sw.weight;
 
 -- ============================================
 -- FUNCTIONS
