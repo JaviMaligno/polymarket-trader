@@ -152,6 +152,14 @@ export class MarketClassifier {
         console.warn(`[MarketClassifier] Haiku said "event_financial" but question lacks financial keyword, overriding to ${fallback}: "${question.slice(0, 60)}"`);
         return fallback;
       }
+      // Inverse check: if Haiku says event_short/event_long but question contains
+      // financial keywords (Fed, WTI, S&P), override to event_financial. Haiku often
+      // puts commodities/rates markets in event_* because they are "events" in a
+      // loose sense.
+      if ((text === 'event_short' || text === 'event_long') && this.questionLooksFinancial(question)) {
+        console.warn(`[MarketClassifier] Haiku said "${text}" but question looks financial, overriding to event_financial: "${question.slice(0, 60)}"`);
+        return 'event_financial';
+      }
       return text as MarketType;
     }
 
