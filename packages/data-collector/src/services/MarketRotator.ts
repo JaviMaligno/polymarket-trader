@@ -13,6 +13,7 @@ export interface RotationConfig {
   emergencyFillThreshold: number;  // 20
   hysteresisRatio: number;         // 0.60
   reserveSlots: number;            // 2
+  warmingStaleHours: number;       // 6 — demote warming with 0 bars after this many hours
 }
 
 export interface MarketRow {
@@ -30,6 +31,7 @@ export interface RotationResult {
   demoted: number;
   newWarming: number;
   coolingExpired: number;
+  warmingDemoted: number;
 }
 
 interface StatusCounts {
@@ -46,6 +48,7 @@ const DEFAULT_CONFIG: RotationConfig = {
   emergencyFillThreshold: 20,
   hysteresisRatio: 0.60,
   reserveSlots: 2,
+  warmingStaleHours: 6,
 };
 
 export class MarketRotator {
@@ -109,6 +112,31 @@ export class MarketRotator {
   }
 
   /**
+   * Select warming markets that should be demoted back to cold.
+   * Two criteria:
+   * 1. Extreme price (<5% or >95%) — near resolution, will never be promoted
+   * 2. No progress (0 bars in 24h after warmingStaleHours) — data collection failing
+   * Markets with open positions are skipped (need price data for position management).
+   */
+  selectWarmingDemotions(warming: MarketRow[]): MarketRow[] {
+    const staleMs = this.config.warmingStaleHours * 3600_000;
+    const now = Date.now();
+
+    return warming.filter(m => {
+      if (m.has_open_positions) return false;
+
+      // Criterion 1: extreme price
+      if (this.isExtremePrice(m)) return true;
+
+      // Criterion 2: no bars after stale timeout
+      const elapsed = now - m.tracking_status_changed_at.getTime();
+      if (m.bars_24h === 0 && elapsed >= staleMs) return true;
+
+      return false;
+    });
+  }
+
+  /**
    * Select cooling markets that have exceeded the cooling timeout.
    * These transition back to cold regardless of position status.
    */
@@ -164,6 +192,7 @@ export class MarketRotator {
       demoted: 0,
       newWarming: 0,
       coolingExpired: 0,
+      warmingDemoted: 0,
     };
 
     // Step 1: Fetch tracked markets
@@ -210,6 +239,13 @@ export class MarketRotator {
       result.coolingExpired++;
     }
 
+    // Step 2b: Demote stuck warming markets → cold
+    const warmingDemotions = this.selectWarmingDemotions(warming);
+    for (const m of warmingDemotions) {
+      await this.updateStatus(m.id, 'cold');
+      result.warmingDemoted++;
+    }
+
     // Step 3: Promote warming -> active
     const promoted = this.selectPromotions(warming);
     for (const m of promoted) {
@@ -251,7 +287,7 @@ export class MarketRotator {
     // Step 6: Fill warming slots from cold candidates
     const currentCounts: StatusCounts = {
       active: active.length + result.promoted - result.demoted,
-      warming: warming.length - result.promoted,
+      warming: warming.length - result.promoted - result.warmingDemoted,
       cooling: cooling.length - result.coolingExpired,
     };
 
@@ -274,6 +310,7 @@ export class MarketRotator {
         demoted: result.demoted,
         newWarming: result.newWarming,
         coolingExpired: result.coolingExpired,
+        warmingDemoted: result.warmingDemoted,
         activeCount: active.length + result.promoted - result.demoted,
         emergency,
       },

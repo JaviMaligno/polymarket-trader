@@ -20,6 +20,7 @@ const DEFAULT_CONFIG: RotationConfig = {
   emergencyFillThreshold: 20,
   hysteresisRatio: 0.60,
   reserveSlots: 2,
+  warmingStaleHours: 6,
 };
 
 function makeMarket(overrides: Partial<MarketRow> = {}): MarketRow {
@@ -321,6 +322,66 @@ describe('MarketRotator', () => {
 
     it('returns cold if no positions', () => {
       expect(rotator.demotionTarget(false)).toBe('cold');
+    });
+  });
+
+  // ── selectWarmingDemotions ───────────────────────────────────────
+
+  describe('selectWarmingDemotions', () => {
+    it('returns empty for warming markets with normal prices and bars', () => {
+      const warming = [
+        makeMarket({ id: 'healthy', tracking_status: 'warming', current_price_yes: 0.50, bars_24h: 5, tracking_status_changed_at: new Date(Date.now() - 8 * 3600_000) }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result).toHaveLength(0);
+    });
+
+    it('demotes warming market with extreme low price (<0.05)', () => {
+      const warming = [
+        makeMarket({ id: 'near-no', tracking_status: 'warming', current_price_yes: 0.02, bars_24h: 5 }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result.map(m => m.id)).toContain('near-no');
+    });
+
+    it('demotes warming market with extreme high price (>0.95)', () => {
+      const warming = [
+        makeMarket({ id: 'near-yes', tracking_status: 'warming', current_price_yes: 0.98, bars_24h: 5 }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result.map(m => m.id)).toContain('near-yes');
+    });
+
+    it('demotes warming market with 0 bars after 6h', () => {
+      const warming = [
+        makeMarket({ id: 'stale', tracking_status: 'warming', current_price_yes: 0.50, bars_24h: 0, tracking_status_changed_at: new Date(Date.now() - 7 * 3600_000) }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result.map(m => m.id)).toContain('stale');
+    });
+
+    it('does NOT demote warming with 0 bars if only 2h old (below stale threshold)', () => {
+      const warming = [
+        makeMarket({ id: 'young', tracking_status: 'warming', current_price_yes: 0.50, bars_24h: 0, tracking_status_changed_at: new Date(Date.now() - 2 * 3600_000) }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result).toHaveLength(0);
+    });
+
+    it('does NOT demote warming with open positions even if extreme price', () => {
+      const warming = [
+        makeMarket({ id: 'extreme-pos', tracking_status: 'warming', current_price_yes: 0.99, bars_24h: 0, has_open_positions: true }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result).toHaveLength(0);
+    });
+
+    it('does NOT demote warming with bars > 0 even if old', () => {
+      const warming = [
+        makeMarket({ id: 'old-with-bars', tracking_status: 'warming', current_price_yes: 0.50, bars_24h: 1, tracking_status_changed_at: new Date(Date.now() - 24 * 3600_000) }),
+      ];
+      const result = rotator.selectWarmingDemotions(warming);
+      expect(result).toHaveLength(0);
     });
   });
 
