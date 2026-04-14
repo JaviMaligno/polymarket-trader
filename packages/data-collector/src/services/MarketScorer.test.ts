@@ -496,4 +496,83 @@ describe('MarketScorer', () => {
       expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
     });
   });
+
+  describe('scoreAllMarkets', () => {
+    it('batches pass-1 score updates instead of issuing a full-table update', async () => {
+      const querySpy = vi.spyOn(connection, 'query').mockImplementation(async (sql: any, params?: any[]) => {
+        const text = String(sql);
+
+        if (text.includes('SELECT tradeability, liquidity, volatility, ttr, data_quality')) {
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        if (text.includes('SELECT market_type, prior FROM category_performance')) {
+          return {
+            rows: [{ market_type: 'event_short', prior: 0.8 }],
+            rowCount: 1,
+          } as any;
+        }
+
+        if (text.includes('FROM markets') && text.includes(`tracking_status NOT IN ('warming', 'active', 'cooling')`)) {
+          return {
+            rows: [
+              {
+                condition_id: 'cold-1',
+                current_price_yes: 0.5,
+                volume_24h: 30_000_000,
+                spread: 0.01,
+                end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                market_type: 'event_short',
+              },
+              {
+                condition_id: 'cold-2',
+                current_price_yes: 0.5,
+                volume_24h: 30_000_000,
+                spread: 0.01,
+                end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+                market_type: null,
+              },
+            ],
+            rowCount: 2,
+          } as any;
+        }
+
+        if (text.includes("FROM   markets m") && text.includes("tracking_status IN ('warming', 'active', 'cooling')")) {
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        if (text.includes('UPDATE markets AS m')) {
+          return { rows: [], rowCount: (params?.length ?? 0) / 2 } as any;
+        }
+
+        if (text.includes('SELECT condition_id, market_score')) {
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        if (text.includes('INSERT INTO market_score_history')) {
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        throw new Error(`Unexpected query in test: ${text}`);
+      });
+
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      const queries = querySpy.mock.calls.map(([sql]) => String(sql));
+      expect(queries.some(q => q.includes('UPDATE markets SET market_score = ('))).toBe(false);
+      expect(queries.some(q => q.includes('UPDATE markets SET market_score = market_score * COALESCE('))).toBe(false);
+
+      const batchUpdateCall = querySpy.mock.calls.find(([sql]) => String(sql).includes('UPDATE markets AS m'));
+      expect(batchUpdateCall).toBeDefined();
+
+      const updateParams = batchUpdateCall?.[1] as Array<string | number>;
+      expect(updateParams).toEqual([
+        'cold-1', 0.8,
+        'cold-2', 1,
+      ]);
+
+      vi.restoreAllMocks();
+    });
+  });
 });

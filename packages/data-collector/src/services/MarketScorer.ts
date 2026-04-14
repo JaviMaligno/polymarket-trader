@@ -47,6 +47,15 @@ export interface EnrichUpdate {
   marketType: string | null;
 }
 
+interface Pass1CandidateRow {
+  condition_id: string;
+  current_price_yes: number | null;
+  volume_24h: number | null;
+  spread: number | null;
+  end_date: string | null;
+  market_type: string | null;
+}
+
 // ─── Helper: clamp value between 0 and 1 ──────────────────────────────
 function clamp01(v: number): number {
   return Math.min(1, Math.max(0, v));
@@ -282,62 +291,61 @@ export class MarketScorer {
    * @returns { scored, enriched } counts
    */
   async scoreAllMarkets(): Promise<{ scored: number; enriched: number }> {
-    // ── Pass 1: single SQL UPDATE for cheap dimensions ──────────────
-    // Computes tradeability + liquidity + TTR in pure SQL.
-    // Only scores eligible candidates (tradeable price, active, unresolved).
-    // Normalizes by available weights (tradeability + liquidity + ttr).
     const weights = await MarketScorer.loadWeights();
     const categoryPriors = await MarketScorer.loadCategoryPriors();
-    const NORM = weights.tradeability + weights.liquidity + weights.ttr;
-    const pass1Result = await query(`
-      UPDATE markets SET market_score = (
-        ${weights.tradeability} * CASE
-          WHEN current_price_yes IS NULL THEN 0
-          WHEN current_price_yes < 0.05 OR current_price_yes > 0.95 THEN 0
-          WHEN current_price_yes >= 0.45 AND current_price_yes <= 0.55 THEN 0
-          WHEN current_price_yes >= 0.15 AND current_price_yes <= 0.40 THEN 1.0
-          WHEN current_price_yes >= 0.60 AND current_price_yes <= 0.85 THEN 1.0
-          WHEN current_price_yes >= 0.05 AND current_price_yes < 0.15 THEN (current_price_yes - 0.05) / 0.10
-          WHEN current_price_yes > 0.40 AND current_price_yes < 0.45 THEN (0.45 - current_price_yes) / 0.05
-          WHEN current_price_yes > 0.55 AND current_price_yes < 0.60 THEN (current_price_yes - 0.55) / 0.05
-          WHEN current_price_yes > 0.85 AND current_price_yes <= 0.95 THEN (0.95 - current_price_yes) / 0.10
-          ELSE 0
-        END
-        + ${weights.liquidity} * CASE
-          WHEN volume_24h IS NULL OR volume_24h <= 0 THEN 0
-          WHEN spread IS NOT NULL AND spread > 0.03 THEN LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF})) * 0.5
-          ELSE LEAST(1.0, LN(volume_24h) / LN(${MAX_VOLUME_REF}))
-        END
-        + ${weights.ttr} * CASE
-          WHEN end_date IS NULL THEN 0.5
-          WHEN end_date < NOW() THEN 0
-          WHEN end_date < NOW() + INTERVAL '1 day' THEN 0.1
-          WHEN end_date < NOW() + INTERVAL '7 days' THEN LEAST(1.0, 0.1 + 0.9 * (EXTRACT(EPOCH FROM end_date - NOW()) - 86400) / EXTRACT(EPOCH FROM INTERVAL '6 days'))
-          WHEN end_date <= NOW() + INTERVAL '60 days' THEN 1.0
-          WHEN end_date <= NOW() + INTERVAL '180 days' THEN 1.0 - 0.5 * EXTRACT(EPOCH FROM end_date - NOW() - INTERVAL '60 days') / EXTRACT(EPOCH FROM INTERVAL '120 days')
-          ELSE 0.5
-        END
-      ) / ${NORM}
+    const pass1Candidates = await query<Pass1CandidateRow>(`
+      SELECT condition_id,
+             current_price_yes,
+             volume_24h,
+             spread,
+             end_date,
+             market_type
+      FROM markets
       WHERE is_active = true
         AND is_resolved = false
         AND clob_token_id_yes IS NOT NULL
+        AND tracking_status NOT IN ('warming', 'active', 'cooling')
     `);
-    const scored = pass1Result.rowCount ?? 0;
-    logger.info({ scored }, 'Pass 1: scored markets via SQL');
 
-    // ── Pass 1b: apply category priors ──────────────────────────────
-    if (categoryPriors.size > 0) {
-      await query(`
-        UPDATE markets SET market_score = market_score * COALESCE(
-          (SELECT prior FROM category_performance WHERE market_type = markets.market_type),
-          1.0
-        )
-        WHERE is_active = true AND is_resolved = false AND clob_token_id_yes IS NOT NULL
-      `);
-      logger.info({ priorCount: categoryPriors.size }, 'Pass 1b: applied category priors');
-    }
+    const pass1Updates: EnrichUpdate[] = pass1Candidates.rows.map((row) => {
+      const tradeability = MarketScorer.tradeabilityScore(
+        row.current_price_yes != null ? Number(row.current_price_yes) : null,
+      );
+      const liquidity = MarketScorer.liquidityScore(
+        row.volume_24h != null ? Number(row.volume_24h) : null,
+        row.spread != null ? Number(row.spread) : null,
+      );
+      const ttr = MarketScorer.ttrScore(
+        row.end_date ? new Date(row.end_date) : null,
+      );
+      const prior = categoryPriors.get(row.market_type ?? '') ?? 1.0;
+      const score = MarketScorer.compositeScore({
+        tradeability,
+        liquidity,
+        volatility: null,
+        ttr,
+        dataQuality: null,
+      }, weights) * prior;
 
-    // ── Pass 2: enrich tracked markets with volatility + data quality ─
+      return {
+        conditionId: row.condition_id,
+        trackingStatus: 'cold',
+        score,
+        tradeability,
+        liquidity,
+        ttr,
+        volatility: null,
+        dataQuality: null,
+        currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
+        volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
+        marketType: row.market_type ?? null,
+      };
+    });
+
+    await this.batchUpdateScores(pass1Updates);
+    const scored = pass1Updates.length;
+    logger.info({ scored }, 'Pass 1: scored cold markets via batched updates');
+
     const trackedResult = await query<{
       condition_id: string;
       tracking_status: string;
@@ -427,9 +435,7 @@ export class MarketScorer {
       });
     }
 
-    // Batch update pass 2
     await this.batchUpdateScores(enrichUpdates);
-    // Write score history snapshot (fire-and-forget — don't block scoring return)
     this.writeScoreHistory(enrichUpdates).catch((err) =>
       logger.warn({ err }, 'writeScoreHistory failed — non-critical'),
     );
@@ -438,8 +444,6 @@ export class MarketScorer {
     logger.info({ scored, enriched }, 'Market scoring complete');
     return { scored, enriched };
   }
-
-  // ─── Private helpers ───────────────────────────────────────────────
   private async writeScoreHistory(tracked: EnrichUpdate[]): Promise<void> {
     // Top 50 cold markets by score (no dimension breakdown — Pass 1 SQL doesn't return them individually)
     const coldResult = await query<{
@@ -540,3 +544,4 @@ export class MarketScorer {
     }
   }
 }
+
