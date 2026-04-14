@@ -148,8 +148,6 @@ async function main(): Promise<void> {
     const dbHealth = await healthCheck();
     if (dbHealth.connected) {
       console.log(`Database connected (latency: ${dbHealth.latency}ms)`);
-      // Ensure market_type column exists (added for adaptive market expansion)
-      await query('ALTER TABLE markets ADD COLUMN IF NOT EXISTS market_type VARCHAR(20)').catch(() => {});
 
       // Configure autovacuum for markets table to prevent long-running locks
       await query(`
