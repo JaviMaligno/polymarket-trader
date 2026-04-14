@@ -217,10 +217,17 @@ export class OptimizationScheduler {
     if (!this.state.isRunning || this.state.currentRunType !== 'idle') return;
 
     const now = new Date();
+    const hoursSinceIncremental = this.state.lastIncrementalAt
+      ? (now.getTime() - this.state.lastIncrementalAt.getTime()) / 3_600_000
+      : Infinity;
+
     if (this.shouldRunFull(now)) {
       await this.runFullOptimization();
     } else if (this.shouldRunIncremental(now)) {
       await this.runIncrementalOptimization();
+    } else if (hoursSinceIncremental > 4) {
+      // Log when approaching trigger time to confirm interval is alive
+      console.log(`[OptimizationScheduler] Tick: ${hoursSinceIncremental.toFixed(1)}h since last incremental (need ${this.incrementalIntervalHours}h)`);
     }
   }
 
