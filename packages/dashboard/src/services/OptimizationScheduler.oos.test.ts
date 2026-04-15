@@ -31,9 +31,12 @@ function shouldDeploy(
   drawdownOOS: number,
   tradesOOS: number,
   decayFactor: number,
+  marketsEvaluated = 100,
+  minMarkets = 8,
 ): { passed: boolean; reason?: string } {
   // Safety floor
   if (isScore <= 0) return { passed: false, reason: 'IS Sharpe <= 0' };
+  if (marketsEvaluated < minMarkets) return { passed: false, reason: `Markets ${marketsEvaluated} < ${minMarkets} (universe too small to apply)` };
   if (tradesOOS < 20) return { passed: false, reason: `Trades ${tradesOOS} < 20` };
   if (oosScore < -1.0) return { passed: false, reason: `OOS Sharpe ${oosScore} < -1.0` };
   if (Math.abs(drawdownOOS) > 0.50) return { passed: false, reason: `Drawdown ${drawdownOOS} > 50%` };
@@ -125,6 +128,25 @@ describe('shouldDeploy (adaptive OOS gate)', () => {
 
   it('works with negative decay factor', () => {
     const result = shouldDeploy(1.0, -0.3, 0.1, 50, -0.5);
+    expect(result.passed).toBe(true);
+  });
+
+  it('rejects when marketsEvaluated below minMarkets (2026-04-14 incident)', () => {
+    // Reproduces the 6-market event_financial scenario that produced
+    // direction_multiplier=+1.0208 and 13.5% drawdown.
+    const result = shouldDeploy(1.0, 0.5, 0.1, 50, 0.3, 6, 8);
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('Markets 6 < 8');
+  });
+
+  it('passes when marketsEvaluated meets threshold', () => {
+    const result = shouldDeploy(1.0, 0.4, 0.1, 50, 0.3, 8, 8);
+    expect(result.passed).toBe(true);
+  });
+
+  it('uses default 100 markets when threshold not specified (back-compat)', () => {
+    // Old call signature (no markets arg) should still pass for valid scores
+    const result = shouldDeploy(1.0, 0.4, 0.1, 50, 0.3);
     expect(result.passed).toBe(true);
   });
 });

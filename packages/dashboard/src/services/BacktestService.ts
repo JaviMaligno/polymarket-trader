@@ -194,6 +194,7 @@ export class BacktestService extends EventEmitter {
         ...result,
         metrics,
         predictionMetrics: predMetrics,
+        marketsEvaluated: marketData.length,
       };
       storedBacktest.status = 'completed';
 
