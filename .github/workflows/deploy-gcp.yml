@@ -137,7 +137,7 @@ jobs:
           gcloud compute ssh Usuario@polymarket-vm \
             --zone=us-east1-b \
             --ssh-flag="-o ServerAliveInterval=30" \
-            --command="echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u github-actions --password-stdin && cd /home/Usuario/polymarket-trader && git pull origin main && docker compose -f docker-compose.gcp.yml pull data-collector dashboard-api && docker compose -f docker-compose.gcp.yml up -d --remove-orphans"
+            --command="echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u github-actions --password-stdin && cd /home/Usuario/polymarket-trader && git pull --ff-only origin main && docker compose -f docker-compose.gcp.yml pull data-collector dashboard-api && docker compose -f docker-compose.gcp.yml up -d --remove-orphans"
 
       - name: Health check
         run: |
