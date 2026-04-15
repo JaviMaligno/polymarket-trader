@@ -141,7 +141,9 @@ jobs:
           set -euo pipefail
           tmp=$(mktemp)
           gcloud compute project-info describe \
-            --format="value(commonInstanceMetadata.items[].value)" \
+            --flatten="commonInstanceMetadata.items[]" \
+            --filter="commonInstanceMetadata.items.key=ssh-keys" \
+            --format="value(commonInstanceMetadata.items.value)" \
             | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' \
             > "$tmp"
           if [ -s "$tmp" ]; then
