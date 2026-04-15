@@ -132,6 +132,24 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Cleanup stale SSH keys in project metadata
+        # Each `gcloud compute ssh` regenerates and uploads a key. Without
+        # cleanup, project metadata grows unbounded (we hit 165KB / 284 keys
+        # on 2026-04-15, which delayed key propagation and broke deploys with
+        # `Permission denied (publickey)`). Keep the latest key per user only.
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          gcloud compute project-info describe \
+            --format="value(commonInstanceMetadata.items[].value)" \
+            | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' \
+            > "$tmp"
+          if [ -s "$tmp" ]; then
+            gcloud compute project-info add-metadata \
+              --metadata-from-file=ssh-keys="$tmp"
+          fi
+          rm -f "$tmp"
+
       - name: Deploy to VM
         run: |
           gcloud compute ssh Usuario@polymarket-vm \
