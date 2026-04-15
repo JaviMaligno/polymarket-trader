@@ -42,5 +42,22 @@ describe('MarketClassifier', () => {
         classifier.classifyWithRegex('MegaETH market cap (FDV) >$3B one day after launch?', shortEndDate)
       ).toBe('event_short');
     });
+
+    it('classifies S&P 500 markets as event_financial', () => {
+      expect(
+        classifier.classifyWithRegex('S&P 500 (SPX) Opens Up or Down on April 7?', shortEndDate)
+      ).toBe('event_financial');
+    });
+
+    it('classifies sports markets as event_short (never NULL)', () => {
+      expect(
+        classifier.classifyWithRegex('Counter-Strike: FOKUS vs BC.Game Esports (BO3)', shortEndDate)
+      ).toBe('event_short');
+    });
+
+    it('returns event_short as last-resort default (never NULL)', () => {
+      // Question with no keywords at all, no end date → still returns a type
+      expect(classifier.classifyWithRegex('Opaque question with no hints', null)).toBe('event_short');
+    });
   });
 });

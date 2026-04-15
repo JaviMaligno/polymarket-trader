@@ -67,6 +67,12 @@ export class MarketClassifier {
   async classifyPendingMarkets(): Promise<number> {
     if (!isDatabaseConfigured()) return 0;
 
+    // Prioritize tradeable markets (high volume) over zombie long-tail to ensure
+    // classifications reach the signal engine before markets go stale.
+    // Accept is_resolved NULL as "not yet resolved" — older rows may predate
+    // the column default.
+    const limit = parseInt(process.env.MARKET_CLASSIFIER_BATCH || '200', 10);
+
     const result = await query<{
       id: string;
       question: string;
@@ -76,29 +82,40 @@ export class MarketClassifier {
       FROM markets
       WHERE market_type IS NULL
         AND is_active = true
-        AND is_resolved = false
-      LIMIT 50
-    `);
+        AND COALESCE(is_resolved, false) = false
+      ORDER BY COALESCE(volume_24h, 0) DESC, updated_at DESC
+      LIMIT $1
+    `, [limit]);
 
     if (result.rows.length === 0) return 0;
 
     let classified = 0;
+    let failed = 0;
     for (const market of result.rows) {
+      let marketType: MarketType;
       try {
-        const marketType = await this.classifyMarket(market.question, market.end_date);
+        marketType = await this.classifyMarket(market.question, market.end_date);
+      } catch (error) {
+        // classifyMarket should never throw (regex fallback is pure), but if
+        // something unexpected happens, use pure regex as last resort so the
+        // market never stays NULL.
+        console.warn(`[MarketClassifier] classifyMarket threw for ${market.id}, using hard fallback:`, error);
+        marketType = this.classifyWithRegex(market.question, market.end_date);
+      }
+
+      try {
         await query(
           'UPDATE markets SET market_type = $1, updated_at = NOW() WHERE id = $2',
           [marketType, market.id]
         );
         classified++;
       } catch (error) {
-        console.error(`[MarketClassifier] Failed to classify ${market.id}:`, error);
+        failed++;
+        console.error(`[MarketClassifier] UPDATE failed for ${market.id}:`, error);
       }
     }
 
-    if (classified > 0) {
-      console.log(`[MarketClassifier] Classified ${classified}/${result.rows.length} markets`);
-    }
+    console.log(`[MarketClassifier] Classified ${classified}/${result.rows.length} markets (failed=${failed})`);
 
     return classified;
   }
