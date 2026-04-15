@@ -22,30 +22,51 @@ jobs:
     permissions:
       contents: read
     outputs:
-      dashboard: ${{ steps.filter.outputs.dashboard }}
-      data-collector: ${{ steps.filter.outputs.data-collector }}
+      dashboard: ${{ steps.detect.outputs.dashboard }}
+      data-collector: ${{ steps.detect.outputs.data-collector }}
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Detect changed paths
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            dashboard:
-              - 'packages/dashboard/**'
-              - 'packages/signals/**'
-              - 'packages/backtest/**'
-              - 'packages/trader/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'tsconfig.json'
-            data-collector:
-              - 'packages/data-collector/**'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'tsconfig.json'
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "push" ] && [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            base_ref="${{ github.event.before }}"
+          elif git rev-parse HEAD^ >/dev/null 2>&1; then
+            base_ref="$(git rev-parse HEAD^)"
+          else
+            base_ref="$(git hash-object -t tree /dev/null)"
+          fi
+
+          changed_files="$(git diff --name-only "$base_ref" "${{ github.sha }}")"
+
+          dashboard=false
+          data_collector=false
+
+          while IFS= read -r file; do
+            [ -n "$file" ] || continue
+
+            case "$file" in
+              packages/dashboard/*|packages/signals/*|packages/backtest/*|packages/trader/*|package.json|pnpm-lock.yaml|tsconfig.json)
+                dashboard=true
+                ;;
+            esac
+
+            case "$file" in
+              packages/data-collector/*|package.json|pnpm-lock.yaml|tsconfig.json)
+                data_collector=true
+                ;;
+            esac
+          done <<< "$changed_files"
+
+          echo "dashboard=$dashboard" >> "$GITHUB_OUTPUT"
+          echo "data-collector=$data_collector" >> "$GITHUB_OUTPUT"
 
   build-dashboard:
     needs: changes
@@ -56,7 +77,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -89,7 +110,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
