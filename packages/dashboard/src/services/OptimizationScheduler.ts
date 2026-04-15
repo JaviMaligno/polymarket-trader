@@ -37,8 +37,8 @@ const DEFAULT_BEST_PARAMS = {
 // Optuna 17-parameter space
 // ============================================================
 const OPTUNA_PARAM_SPACE: ParameterDef[] = [
-  // Direction multiplier — most critical parameter
-  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: 1.5 },
+  // Direction multiplier — constrained to negative only (contrarian design, validated at 91.5% accuracy)
+  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: -0.5 },
   // Combiner thresholds
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
@@ -65,7 +65,8 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
  * Only the 8 most impactful parameters
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
-  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: 1.5 },
+  // Direction multiplier — constrained to negative only (contrarian design, validated at 91.5% accuracy)
+  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: -0.5 },
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
@@ -787,7 +788,7 @@ export class OptimizationScheduler {
     const rawDM = result.params['combiner.directionMultiplier'];
     if (rawDM !== undefined && rawDM !== null) {
       try {
-        const dm = Math.max(-1.5, Math.min(1.5, Number(rawDM)));
+        const dm = Math.max(-1.5, Math.min(-0.5, Number(rawDM)));
         await signalWeightsRepo.update('direction_multiplier', dm, `optimization-${new Date().toISOString().slice(0, 10)}`);
         console.log(`[OptimizationScheduler] Updated direction multiplier: ${dm.toFixed(4)}`);
       } catch (err) {
