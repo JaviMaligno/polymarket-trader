@@ -99,6 +99,11 @@ const OOS_SAFETY_FLOOR = {
   maxDrawdown: 0.50,
   /** Minimum trades in OOS for statistical signal */
   minTrades: 20,
+  /** Minimum distinct markets evaluated — prevents apply on tiny universes
+   *  where local maxima are statistically meaningless. Triggered by the
+   *  2026-04-14 incident where 6 event_financial markets produced
+   *  direction_multiplier=+1.0208 (causing 13.5% drawdown). */
+  minMarkets: parseInt(process.env.OPTIMIZER_MIN_MARKETS_FOR_APPLY || '8', 10),
 };
 
 // Decay factor cold start: used when fewer than 10 runs have OOS data
@@ -121,6 +126,7 @@ interface OOSValidationResult {
   drawdownOOS: number;
   tradesOOS: number;
   winRateOOS: number;
+  marketsEvaluated: number;
   reason?: string;
 }
 
@@ -607,7 +613,7 @@ export class OptimizationScheduler {
   private async validateOnOOS(params: Record<string, any>, isScore: number): Promise<OOSValidationResult> {
     // Gate: don't validate negative in-sample
     if (isScore <= 0) {
-      return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, reason: 'IS Sharpe <= 0, nothing to validate' };
+      return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: 'IS Sharpe <= 0, nothing to validate' };
     }
 
     const now = new Date();
@@ -634,23 +640,27 @@ export class OptimizationScheduler {
       const backtest = await this.backtestService.runBacktest(request);
 
       if (!backtest.result || !backtest.result.metrics) {
-        return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, reason: 'Backtest failed to produce results' };
+        return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: 'Backtest failed to produce results' };
       }
 
       const metrics = backtest.result.metrics;
       const trades = backtest.result.trades?.length || 0;
       const oosScore = metrics.sharpeRatio || 0;
       const drawdown = Math.abs(metrics.maxDrawdown || 0);
+      const marketsEvaluated = backtest.result.marketsEvaluated ?? 0;
 
       // Safety floor checks
+      if (marketsEvaluated < OOS_SAFETY_FLOOR.minMarkets) {
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Markets ${marketsEvaluated} < ${OOS_SAFETY_FLOOR.minMarkets} (universe too small to apply)` };
+      }
       if (trades < OOS_SAFETY_FLOOR.minTrades) {
-        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `Trades ${trades} < ${OOS_SAFETY_FLOOR.minTrades}` };
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Trades ${trades} < ${OOS_SAFETY_FLOOR.minTrades}` };
       }
       if (oosScore < OOS_SAFETY_FLOOR.minSharpe) {
-        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `OOS Sharpe ${oosScore.toFixed(3)} < ${OOS_SAFETY_FLOOR.minSharpe}` };
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `OOS Sharpe ${oosScore.toFixed(3)} < ${OOS_SAFETY_FLOOR.minSharpe}` };
       }
       if (drawdown > OOS_SAFETY_FLOOR.maxDrawdown) {
-        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason: `Drawdown ${(drawdown * 100).toFixed(1)}% > ${OOS_SAFETY_FLOOR.maxDrawdown * 100}%` };
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Drawdown ${(drawdown * 100).toFixed(1)}% > ${OOS_SAFETY_FLOOR.maxDrawdown * 100}%` };
       }
 
       // Adaptive consistency gate
@@ -663,12 +673,12 @@ export class OptimizationScheduler {
         reason = `OOS ${oosScore.toFixed(3)} < IS ${isScore.toFixed(3)} * decay ${decayFactor.toFixed(3)} = ${threshold.toFixed(3)}`;
       }
 
-      console.log(`[OptimizationScheduler] OOS validation: Sharpe=${oosScore.toFixed(3)}, decay=${decayFactor.toFixed(3)}, threshold=${threshold.toFixed(3)}, ${passed ? 'PASSED' : 'FAILED'}`);
+      console.log(`[OptimizationScheduler] OOS validation: Sharpe=${oosScore.toFixed(3)}, markets=${marketsEvaluated}, decay=${decayFactor.toFixed(3)}, threshold=${threshold.toFixed(3)}, ${passed ? 'PASSED' : 'FAILED'}`);
 
-      return { passed, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, reason };
+      return { passed, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason };
     } catch (error) {
       console.error('[OptimizationScheduler] OOS validation failed:', error);
-      return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, reason: `Validation error: ${error instanceof Error ? error.message : String(error)}` };
+      return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: `Validation error: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 

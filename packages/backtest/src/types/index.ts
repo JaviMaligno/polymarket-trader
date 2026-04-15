@@ -247,6 +247,10 @@ export interface BacktestResult {
   equityCurve: PortfolioSnapshot[];
   metrics: PerformanceMetrics;
   predictionMetrics: PredictionMarketMetrics;
+  /** Number of distinct markets backed by data during this run.
+   *  Used by OptimizationScheduler to gate parameter apply against
+   *  statistically tiny universes. Optional for back-compat. */
+  marketsEvaluated?: number;
 }
 
 export interface BacktestSummary {
