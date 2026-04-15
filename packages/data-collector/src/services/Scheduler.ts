@@ -41,6 +41,7 @@ export class Scheduler {
     this.newsCollector = new NewsCollector();
     // Define all scheduled jobs
     this.defineJob('sync-markets', '17 * * * *', this.syncMarkets.bind(this));      // Hourly at :17
+    this.defineJob('sync-resolved-markets', '33 * * * *', this.syncResolvedMarkets.bind(this));  // Hourly at :33
     this.defineJob('sync-events', '47 */2 * * *', this.syncEvents.bind(this));     // Every 2h at :47
     this.defineJob('sync-prices', '*/5 * * * *', this.syncPrices.bind(this));  // Every 5min (only for market selection, not trading)
     // DISABLED: CLOB /prices-history returns complementary (No) prices for Yes tokens.
@@ -170,6 +171,9 @@ export class Scheduler {
         case 'sync-prices':
           await this.syncPrices();
           break;
+        case 'sync-resolved-markets':
+          await this.syncResolvedMarkets();
+          break;
         case 'sync-price-history':
           // DISABLED: see job registration comment
           // await this.syncPriceHistory();
@@ -298,6 +302,16 @@ export class Scheduler {
     const collector = getGammaCollector();
     const result = await collector.syncEventsToDb();
     logger.info({ inserted: result.inserted, updated: result.updated }, 'Events synced');
+  }
+
+  /**
+   * Pull resolution status for closed markets so the daily shadow-trade
+   * resolver can score theoretical PnL. Only touches rows we already track.
+   */
+  private async syncResolvedMarkets(): Promise<void> {
+    const collector = getGammaCollector();
+    const result = await collector.syncResolvedMarketsToDb();
+    logger.info({ resolved: result.resolved, scanned: result.scanned }, 'Resolved markets synced');
   }
 
   /**

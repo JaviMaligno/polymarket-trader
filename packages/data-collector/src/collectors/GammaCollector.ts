@@ -158,6 +158,114 @@ export class GammaCollector {
   }
 
   /**
+   * Sync resolution status for markets that have closed on Polymarket.
+   * Only UPDATES existing rows (never INSERTs) — we don't need resolved
+   * markets we never tracked. Populates `is_resolved`, `resolution_outcome`,
+   * and `resolved_at` so that `resolveShadowTrades` (daily cron) can score
+   * shadow trades against actual outcomes.
+   */
+  async syncResolvedMarketsToDb(): Promise<{ resolved: number; scanned: number }> {
+    let resolved = 0;
+    let scanned = 0;
+    let offset = 0;
+    let pageCount = 0;
+    const limit = 100;
+
+    logger.info('Syncing resolved markets');
+
+    while (true) {
+      await this.rateLimiter.acquire('gamma_markets');
+
+      let markets: any[] = [];
+      try {
+        const response = await this.client.get<any[]>('/markets', {
+          params: {
+            limit: limit.toString(),
+            offset: offset.toString(),
+            closed: 'true',
+            // Newest resolutions first — sort desc by updatedAt if supported; Gamma
+            // doesn't reject unknown params, so this is a best-effort hint.
+            order: 'updatedAt',
+            ascending: 'false',
+          },
+        });
+        markets = response.data || [];
+      } catch (error: any) {
+        logger.error({ err: error.message || String(error), offset }, 'Error fetching closed markets page');
+        break;
+      }
+
+      if (markets.length === 0) break;
+
+      // Build batched UPDATE by id. Only rows that are NOT already resolved are
+      // touched (WHERE is_resolved = false), so re-runs are idempotent and cheap.
+      for (const market of markets) {
+        scanned++;
+        if (!market.id || !market.closed) continue;
+
+        // Schema: `markets.resolution_outcome` is VARCHAR(10) with values
+        // 'yes' | 'no' | 'invalid'. MarketPerformanceTracker interprets any
+        // non-'yes' value as 0.0 in PnL, so invalid markets are skipped here to
+        // avoid polluting shadow resolution.
+        let resolutionOutcome: 'yes' | 'no' | null = null;
+        try {
+          const prices = JSON.parse(market.outcomePrices || '[]');
+          const yesPrice = prices[0] ? parseFloat(prices[0]) : null;
+          if (yesPrice !== null && !isNaN(yesPrice)) {
+            if (yesPrice >= 0.99) resolutionOutcome = 'yes';
+            else if (yesPrice <= 0.01) resolutionOutcome = 'no';
+            // Else market resolved partially (invalid/50-50) — skip.
+          }
+        } catch {
+          // Leave null — we won't mark it resolved.
+        }
+
+        if (resolutionOutcome === null) continue;
+
+        // Prefer the API's closedTime; fall back to now for rows missing it.
+        const resolvedAt = market.closedTime
+          ? new Date(market.closedTime.replace(' ', 'T').replace('+00', 'Z'))
+          : new Date();
+
+        try {
+          const result = await query(
+            `
+            UPDATE markets
+            SET is_resolved = true,
+                resolution_outcome = $1,
+                resolved_at = $2,
+                is_active = false,
+                updated_at = NOW()
+            WHERE id = $3
+              AND COALESCE(is_resolved, false) = false
+            `,
+            [resolutionOutcome, resolvedAt, market.id]
+          );
+          if (result.rowCount && result.rowCount > 0) {
+            resolved++;
+          }
+        } catch (err: any) {
+          logger.warn({ err: err.message || String(err), marketId: market.id }, 'Failed to mark market resolved');
+        }
+      }
+
+      pageCount++;
+      logger.debug({ offset, batchSize: markets.length, resolved, scanned }, 'Processed closed markets batch');
+
+      if (markets.length < limit) break;
+      if (pageCount >= MAX_SYNC_PAGES) {
+        logger.info(`[GammaCollector] Reached MAX_SYNC_PAGES (${MAX_SYNC_PAGES}), stopping resolved-market sync`);
+        break;
+      }
+
+      offset += limit;
+    }
+
+    logger.info({ resolved, scanned }, 'Finished syncing resolved markets');
+    return { resolved, scanned };
+  }
+
+  /**
    * Sync all events to database (streaming to avoid memory issues)
    */
   async syncEventsToDb(): Promise<{ inserted: number; updated: number }> {
