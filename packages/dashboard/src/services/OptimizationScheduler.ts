@@ -37,8 +37,10 @@ const DEFAULT_BEST_PARAMS = {
 // Optuna 17-parameter space
 // ============================================================
 const OPTUNA_PARAM_SPACE: ParameterDef[] = [
-  // Direction multiplier — constrained to negative only (contrarian design, validated at 91.5% accuracy)
-  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: -0.5 },
+  // Direction multiplier is EXCLUDED from optimization — pinned to -1.0 per validated design spec.
+  // Empirical validation: 91.5% accuracy at -1.0 vs 3.7% unflipped (188 trades, Apr 2026).
+  // History: optimizer drifted to -0.7819 (Apr 15) and +1.0208 (Apr 14), both causing losses.
+  // The value is enforced to -1.0 after each optimization run (see applyOptimizationResult).
   // Combiner thresholds
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
@@ -65,8 +67,7 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
  * Only the 8 most impactful parameters
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
-  // Direction multiplier — constrained to negative only (contrarian design, validated at 91.5% accuracy)
-  { name: 'combiner.directionMultiplier', type: 'float', low: -1.5, high: -0.5 },
+  // direction_multiplier excluded — pinned to -1.0 (see OPTUNA_PARAM_SPACE comment above)
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
@@ -794,16 +795,15 @@ export class OptimizationScheduler {
       }
     }
 
-    // Apply direction multiplier if optimized
-    const rawDM = result.params['combiner.directionMultiplier'];
-    if (rawDM !== undefined && rawDM !== null) {
-      try {
-        const dm = Math.max(-1.5, Math.min(-0.5, Number(rawDM)));
-        await signalWeightsRepo.update('direction_multiplier', dm, `optimization-${new Date().toISOString().slice(0, 10)}`);
-        console.log(`[OptimizationScheduler] Updated direction multiplier: ${dm.toFixed(4)}`);
-      } catch (err) {
-        console.error('[OptimizationScheduler] Failed to update direction multiplier:', err);
-      }
+    // Enforce direction multiplier = -1.0 after every optimization run.
+    // It is excluded from the parameter space (not optimized), but we reset it here
+    // so any manual or legacy DB changes are corrected automatically.
+    // Validated value: -1.0 gives 91.5% accuracy vs 3.7% unflipped (188 trades, Apr 2026).
+    try {
+      await signalWeightsRepo.update('direction_multiplier', -1.0, `optimization-${new Date().toISOString().slice(0, 10)}`);
+      console.log('[OptimizationScheduler] direction_multiplier enforced to -1.0 (pinned design spec)');
+    } catch (err) {
+      console.error('[OptimizationScheduler] Failed to enforce direction_multiplier to -1.0:', err);
     }
 
     // Apply optimized signal weights to database
