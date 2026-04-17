@@ -46,14 +46,8 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
   // ============================================
   // COMBINER PARAMETERS
   // ============================================
-  {
-    name: 'combiner.directionMultiplier',
-    type: 'float',
-    low: -1.5,
-    high: 1.5,
-    category: 'combiner',
-    description: 'Multiplier for combined signal direction (-1 = contrarian flip)',
-  },
+  // directionMultiplier is intentionally pinned to -1.0 in production.
+  // Keep it out of generic optimization spaces to avoid rediscovering invalid drift.
   {
     name: 'combiner.minCombinedConfidence',
     type: 'float',

@@ -34,7 +34,7 @@ const DEFAULT_BEST_PARAMS = {
 };
 
 // ============================================================
-// Optuna 17-parameter space
+// Optuna parameter space
 // ============================================================
 const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   // Direction multiplier is EXCLUDED from optimization — pinned to -1.0 per validated design spec.
