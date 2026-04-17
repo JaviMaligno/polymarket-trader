@@ -133,6 +133,8 @@ jobs:
             echo "==========================="
             echo ""
             echo "IMPORTANT: Create the GitHub Issue and implement fixes as PRs (deploy to VM to verify each, then rollback to main). Do NOT send email or Slack — the workflow handles notifications automatically."
+            echo "IMPORTANT: Prioritize root-cause infra/control failures over tactical mitigations. Prefer 0 PRs over speculative symptom patches."
+            echo "IMPORTANT: If a PR is only containment (thresholds, memory knobs, cooldown tuning), label it clearly as temporary containment in the issue and PR."
             echo "When done, output a single line: REVIEW_COMPLETE"
           } | claude --model claude-sonnet-4-6 \
             --print \
@@ -294,6 +296,10 @@ jobs:
           for branch in $PR_BRANCHES; do
             PR_NUM=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number' 2>/dev/null || true)
             [ -z "$PR_NUM" ] && echo "[$branch] No open PR — skipping" && continue
+
+            # Claude occasionally omits the label even though the branch belongs to this workflow.
+            # Normalize metadata here so valid small fixes are not blocked on PR labeling.
+            gh pr edit "$PR_NUM" --add-label "daily-review" >/dev/null 2>&1 || true
 
             PR_DATA=$(gh pr view "$PR_NUM" --json files,additions,deletions,changedFiles,labels)
             FILE_COUNT=$(echo "$PR_DATA" | jq '.changedFiles')

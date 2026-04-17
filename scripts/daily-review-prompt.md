@@ -141,11 +141,21 @@ For each PR merged in the last 48h:
 
 If a fix is **ineffective**, flag as HIGH and investigate why.
 
+Also check the 3 oldest open `daily-review` issues. If one is still relevant today, add a `Persistent Open Issues` section to the new issue and explain whether today worsens, improves, or merely repeats that problem.
+
 ## Step 1: Read the Data
 
 Read `review-data.json` in the current directory. It contains ~22 sections of trading data gathered from the VM, including per-market-type breakdowns (`trades_by_type`, `category_performance`, `shadow_summary`).
 
 ## Step 2: Analyze
+
+Before proposing any fix, rank causes in this order:
+1. Control-plane / infra failures (DB timeouts, stale ingestion, unhealthy containers, broken schedulers, failed risk checks)
+2. Data integrity failures
+3. Execution / accounting bugs
+4. Strategy tuning or threshold issues
+
+If categories 1-2 are active, do not present category 4 as the main fix.
 
 For each section, don't just report numbers — explain what they MEAN and investigate when things don't add up:
 
@@ -238,6 +248,7 @@ The issue should have:
 - **Key Metrics** table: capital, PnL, drawdown, win rate, open positions
 - **Alerts** if any thresholds exceeded — use judgment (see alert guidance below)
 - **Analysis** sections — including any investigation you performed (queries run, code read, findings)
+- **Persistent Open Issues** — unresolved prior issues still relevant today, if any
 - **Recommendations** ranked by impact
 - **Risk Assessment**: what could go wrong in the next 24h
 
@@ -257,6 +268,7 @@ Do NOT send email or Slack notifications yourself. The workflow handles that aut
 - **Test the invariants** after your fix — don't just check "containers healthy"
 - **Do NOT merge PRs yourself** — leave them open for human review. The auto-merge step in the workflow will handle small PRs that meet the criteria.
 - **Do NOT use `Fixes #N` or `Closes #N`** in commit messages or PR bodies — the daily review issue must stay open for tracking. Use `Related to #N` instead.
+- **Do NOT submit mitigation-only PRs as if they were root fixes.** If the change merely reduces blast radius (thresholds, memory knobs, cooldown tuning), label it clearly as `temporary containment` in the PR body.
 
 ### 4a. Create branch and implement
 

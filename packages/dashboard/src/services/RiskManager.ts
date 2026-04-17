@@ -17,7 +17,7 @@ import {
 
 export type { RiskConfig } from '@polymarket-trader/backtest';
 
-export type RiskViolation = 'drawdown' | 'daily_loss' | 'position_size' | 'total_exposure' | 'manual';
+export type RiskViolation = 'drawdown' | 'daily_loss' | 'position_size' | 'total_exposure' | 'manual' | 'system';
 
 interface RiskStatus {
   isHalted: boolean;
@@ -29,6 +29,8 @@ interface RiskStatus {
   largestPositionPct: number;
   adaptiveMultiplier: number;
   profileType: string;
+  consecutiveCheckFailures: number;
+  lastCheckError: string | null;
 }
 
 /**
@@ -50,14 +52,18 @@ export class RiskManager extends EventEmitter {
   private lastDayReset: Date;
   private adaptiveMultiplier = 1.0;
   private isResuming = false; // Prevent infinite recursion
+  private consecutiveCheckFailures = 0;
+  private lastCheckError: string | null = null;
+  private consecutiveFailureHaltThreshold: number;
 
-  constructor(config?: Partial<RiskConfig>) {
+  constructor(config?: (Partial<RiskConfig> & { consecutiveFailureHaltThreshold?: number })) {
     super();
 
     // Use AGGRESSIVE profile as default
     this.config = config
       ? mergeRiskConfig('AGGRESSIVE', config)
       : getDefaultRiskProfile();
+    this.consecutiveFailureHaltThreshold = config?.consecutiveFailureHaltThreshold ?? 3;
 
     this.lastDayReset = new Date();
     this.lastDayReset.setHours(0, 0, 0, 0);
@@ -286,6 +292,9 @@ export class RiskManager extends EventEmitter {
         }
       }
 
+      this.consecutiveCheckFailures = 0;
+      this.lastCheckError = null;
+
       const status: RiskStatus = {
         isHalted: this.isHalted,
         haltReason: this.haltReason,
@@ -296,6 +305,8 @@ export class RiskManager extends EventEmitter {
         largestPositionPct,
         adaptiveMultiplier: this.adaptiveMultiplier,
         profileType: this.config.profileType,
+        consecutiveCheckFailures: this.consecutiveCheckFailures,
+        lastCheckError: this.lastCheckError,
       };
 
       this.emit('risk:checked', status);
@@ -303,6 +314,16 @@ export class RiskManager extends EventEmitter {
 
     } catch (error) {
       console.error('[RiskManager] Risk check failed:', error);
+      this.consecutiveCheckFailures += 1;
+      this.lastCheckError = error instanceof Error ? error.message : String(error);
+
+      if (!this.isHalted && this.consecutiveCheckFailures >= this.consecutiveFailureHaltThreshold) {
+        await this.haltTrading(
+          'system',
+          `Risk checks failed ${this.consecutiveCheckFailures} consecutive times: ${this.lastCheckError}`
+        );
+      }
+
       this.emit('risk:error', error);
       return this.getStatus();
     }
@@ -503,6 +524,8 @@ export class RiskManager extends EventEmitter {
       largestPositionPct: 0,
       adaptiveMultiplier: this.adaptiveMultiplier,
       profileType: this.config.profileType,
+      consecutiveCheckFailures: this.consecutiveCheckFailures,
+      lastCheckError: this.lastCheckError,
     };
   }
 

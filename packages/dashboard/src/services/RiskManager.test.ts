@@ -72,4 +72,50 @@ describe('RiskManager — canOpenPosition fail-closed', () => {
     const result = await rm.canOpenPosition(100);
     expect(result.allowed).toBe(true);
   });
+
+  it('halts trading after repeated risk check database failures', async () => {
+    rm = new RiskManager({
+      enabled: true,
+      consecutiveFailureHaltThreshold: 2,
+    } as any);
+
+    vi.mocked(query).mockRejectedValue(new Error('connection timeout'));
+
+    const firstStatus = await rm.checkRisk();
+    expect(firstStatus.isHalted).toBe(false);
+
+    const secondStatus = await rm.checkRisk();
+    expect(secondStatus.isHalted).toBe(true);
+    expect(secondStatus.haltReason).toBe('system');
+    expect((secondStatus as any).consecutiveCheckFailures).toBe(2);
+    expect((secondStatus as any).lastCheckError).toContain('connection timeout');
+  });
+
+  it('resets the failure counter after a successful risk check', async () => {
+    rm = new RiskManager({
+      enabled: true,
+      consecutiveFailureHaltThreshold: 3,
+    } as any);
+
+    vi.mocked(query)
+      .mockRejectedValueOnce(new Error('connection timeout'))
+      .mockResolvedValueOnce({
+        rows: [{ initial_capital: '10000', current_capital: '10000', peak_equity: '10000' }],
+      } as any)
+      .mockResolvedValueOnce({
+        rows: [{ current_capital: '10000' }],
+      } as any)
+      .mockResolvedValueOnce({
+        rows: [],
+      } as any);
+
+    vi.mocked(paperPositionsRepo.getAll).mockResolvedValue([]);
+
+    await rm.checkRisk();
+    const status = await rm.checkRisk();
+
+    expect(status.isHalted).toBe(false);
+    expect((status as any).consecutiveCheckFailures).toBe(0);
+    expect((status as any).lastCheckError).toBeNull();
+  });
 });

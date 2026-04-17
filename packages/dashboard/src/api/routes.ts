@@ -7,7 +7,7 @@
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type { DashboardContext } from './server.js';
 import type { JournalFilter, ApiResponse, PaginatedResponse } from '../types/index.js';
-import { healthCheck as dbHealthCheck, isDatabaseConfigured } from '../database/index.js';
+import { getQueryStats as getDbQueryStats, healthCheck as dbHealthCheck, isDatabaseConfigured } from '../database/index.js';
 import {
   signalPredictionsRepo,
   signalWeightsRepo,
@@ -746,6 +746,7 @@ export async function registerRoutes(
           external: Math.round(memUsage.external / 1024 / 1024),
         },
         database: dbMetrics,
+        databaseResilience: getDbQueryStats(),
         trading: tradingMetrics,
         optimization: optimizationMetrics,
       },

@@ -12,6 +12,19 @@ export type PoolClient = pg.PoolClient;
 
 // Connection pool singleton
 let pool: pg.Pool | null = null;
+const RETRYABLE_CONNECTION_ERRORS = [
+  'connection terminated due to connection timeout',
+  'timeout exceeded when trying to connect',
+  'terminating connection due to administrator command',
+  'server closed the connection unexpectedly',
+];
+const queryStats = {
+  totalQueries: 0,
+  retries: 0,
+  poolResets: 0,
+  consecutiveConnectionFailures: 0,
+  lastError: null as string | null,
+};
 
 export interface DatabaseConfig {
   connectionString?: string;
@@ -96,6 +109,25 @@ export function getPool(): pg.Pool {
   return pool;
 }
 
+async function resetPool(): Promise<void> {
+  if (!pool) return;
+
+  const stalePool = pool;
+  pool = null;
+  queryStats.poolResets += 1;
+
+  try {
+    await stalePool.end();
+  } catch (error) {
+    console.warn('Database pool reset failed during end():', error);
+  }
+}
+
+function isRetryableConnectionError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return RETRYABLE_CONNECTION_ERRORS.some(pattern => message.includes(pattern));
+}
+
 /**
  * Execute a query
  */
@@ -103,22 +135,43 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[]
 ): Promise<pg.QueryResult<T>> {
-  const client = getPool();
-  const start = Date.now();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    queryStats.totalQueries += 1;
+    const client = getPool();
+    const start = Date.now();
 
-  try {
-    const result = await client.query<T>(text, params);
-    const duration = Date.now() - start;
+    try {
+      const result = await client.query<T>(text, params);
+      const duration = Date.now() - start;
+      queryStats.consecutiveConnectionFailures = 0;
 
-    if (duration > 1000) {
-      // console.warn(`Slow query (${duration}ms):`, text.substring(0, 100));
+      if (duration > 1000) {
+        // console.warn(`Slow query (${duration}ms):`, text.substring(0, 100));
+      }
+
+      return result;
+    } catch (error) {
+      const retryable = attempt === 0 && isRetryableConnectionError(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      queryStats.lastError = errorMessage;
+      console.error('Query error:', error);
+
+      if (!retryable) {
+        throw error;
+      }
+
+      queryStats.retries += 1;
+      queryStats.consecutiveConnectionFailures += 1;
+      console.warn('Retrying query after resetting database pool');
+      await resetPool();
     }
-
-    return result;
-  } catch (error) {
-    console.error('Query error:', error);
-    throw error;
   }
+
+  throw new Error('Query retry loop exited unexpectedly');
+}
+
+export function getQueryStats(): typeof queryStats {
+  return { ...queryStats };
 }
 
 /**

@@ -63,6 +63,7 @@ Present to user concisely (NOT as a GitHub issue):
 - Persistent issues flagged across multiple reviews without fix
 - Gradual degradation trends (compare with recent issues)
 - Whether previous fixes actually worked
+- Whether today's PRs prioritized mitigation over the actual infra/control root cause
 
 **Real PnL check** (mandatory):
 Run this query to separate real from phantom PnL:
@@ -120,13 +121,14 @@ gcloud compute ssh polymarket-vm --zone=us-east1-b -- "docker stats --no-stream 
 |-----------|------|-----|
 | Root cause | SQL evidence, code line refs | "likely", "may be", "suggests" |
 | Severity | Context-aware, distinguishes resets from bugs | Everything is CRITICAL |
-| PR quality | Tests, boundary cases, CI green | No tests, untested edge cases |
+| PR quality | Tests, boundary cases, CI green, temporary containment labeled honestly | No tests, untested edge cases, symptom patch sold as root fix |
 | Persistence tracking | References prior issues, tracks trends | Each review is isolated |
 | Fix verification | Checks if yesterday's fix worked | Never looks back |
 
 ## Common Auto-Review Failure Patterns
 
 - **Symptom patching**: Creates PR for symptom without finding root cause
+- **Root-cause inversion**: Infra/control failure exists but the review prioritizes thresholds or tunables
 - **Trending blind spot**: Doesn't compare metrics across consecutive reviews
 - **Persistent issue slide**: Flags same P1 issue for days without escalating
 - **No fix verification**: Never checks if merged PRs actually resolved the problem
