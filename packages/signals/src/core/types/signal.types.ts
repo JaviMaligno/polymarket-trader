@@ -174,7 +174,12 @@ export interface CombinedSignalOutput extends SignalOutput {
 
 export interface ISignalCombiner {
   /** Combine multiple signals into one (currentTime optional for backtesting, marketType for per-type weights) */
-  combine(signals: SignalOutput[], currentTime?: Date, marketType?: string): CombinedSignalOutput | null;
+  combine(
+    signals: SignalOutput[],
+    currentTime?: Date,
+    marketType?: string,
+    directionContextKey?: string
+  ): CombinedSignalOutput | null;
 
   /** Get current weights */
   getWeights(): Record<string, number>;

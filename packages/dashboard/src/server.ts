@@ -10,6 +10,7 @@ import { createDashboardServer } from './api/server.js';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
 import { signalWeightsRepo, tradingConfigRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
+import { initializeDirectionMultiplierLearningService } from './services/DirectionMultiplierLearningService.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
@@ -274,6 +275,14 @@ async function main(): Promise<void> {
       }
 
       // Initialize SignalEngine with optimized parameters
+      const directionMultiplierLearning = initializeDirectionMultiplierLearningService({
+        enabled: process.env.ENABLE_DIRECTION_MULTIPLIER_LEARNING !== 'false',
+        evaluationIntervalMs: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10),
+        lookbackDays: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_LOOKBACK_DAYS || '30', 10),
+      });
+      await directionMultiplierLearning.start();
+      console.log('DirectionMultiplierLearningService started');
+
       const signalEngine = initializeSignalEngine({
         enabled: true,
         computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),

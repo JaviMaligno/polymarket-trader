@@ -52,9 +52,10 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   private typeWeights: Record<string, Record<string, number>>;
   private parameters: WeightedAverageParams;
   /** Multiplier applied to combined strength before direction determination.
-   *  -1 = flip all signals (contrarian). Per-type overrides in typeDirectionMultipliers. */
+   *  -1 = flip all signals (contrarian). Context overrides are stored separately
+   *  so market-type-specific signal weights remain independent from direction policy. */
   private directionMultiplier: number = -1;
-  private typeDirectionMultipliers: Record<string, number> = {};
+  private contextDirectionMultipliers: Record<string, number> = {};
 
   constructor(
     initialWeights: Record<string, number> = {},
@@ -88,18 +89,23 @@ export class WeightedAverageCombiner implements ISignalCombiner {
    * Prediction market signals anti-correlate with outcomes (detect information
    * as "overextension"), so flipping converts them into trend-followers.
    */
-  setDirectionMultiplier(multiplier: number, marketType?: string): void {
-    if (marketType) {
-      this.typeDirectionMultipliers[marketType] = multiplier;
+  setDirectionMultiplier(multiplier: number, contextKey?: string): void {
+    if (contextKey) {
+      this.contextDirectionMultipliers[contextKey] = multiplier;
     } else {
       this.directionMultiplier = multiplier;
     }
-    this.logger.info({ multiplier, marketType: marketType ?? 'global' }, 'Direction multiplier updated');
+    this.logger.info({ multiplier, contextKey: contextKey ?? 'global' }, 'Direction multiplier updated');
   }
 
-  getDirectionMultiplier(marketType?: string): number {
-    if (marketType && this.typeDirectionMultipliers[marketType] !== undefined) {
-      return this.typeDirectionMultipliers[marketType];
+  setDirectionMultipliers(multipliers: Record<string, number>): void {
+    this.contextDirectionMultipliers = { ...multipliers };
+    this.logger.info({ count: Object.keys(multipliers).length }, 'Direction multiplier overrides replaced');
+  }
+
+  getDirectionMultiplier(contextKey?: string): number {
+    if (contextKey && this.contextDirectionMultipliers[contextKey] !== undefined) {
+      return this.contextDirectionMultipliers[contextKey];
     }
     return this.directionMultiplier;
   }
@@ -110,7 +116,12 @@ export class WeightedAverageCombiner implements ISignalCombiner {
    * @param currentTime Optional current time for backtesting (defaults to wall-clock time)
    * @param marketType Optional market type for per-type weight selection
    */
-  combine(signals: SignalOutput[], currentTime?: Date, marketType?: string): CombinedSignalOutput | null {
+  combine(
+    signals: SignalOutput[],
+    currentTime?: Date,
+    marketType?: string,
+    directionContextKey?: string
+  ): CombinedSignalOutput | null {
     if (signals.length === 0) {
       return null;
     }
@@ -148,7 +159,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
     const resolved = this.resolveSignals(validSignals);
 
     // Apply direction multiplier (e.g., -1 to flip signals for contrarian trading)
-    const multiplier = this.getDirectionMultiplier(marketType);
+    const multiplier = this.getDirectionMultiplier(directionContextKey);
     const strength = resolved.strength * multiplier;
     const confidence = resolved.confidence;
     const direction = this.getDirection(strength);

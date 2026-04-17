@@ -11,10 +11,17 @@
 
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
-import { signalWeightsRepo } from '../database/repositories.js';
+import { signalWeightsRepo, tradingConfigRepo } from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { getDbEventListener } from './DbEventListener.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
+import {
+  DEFAULT_DIRECTION_MULTIPLIER_POLICY,
+  buildDirectionMultiplierMap,
+  resolveDirectionMultiplier,
+  sanitizeDirectionMultiplierPolicy,
+  type DirectionMultiplierPolicy,
+} from './DirectionMultiplierPolicy.js';
 
 
 // Import from signals package
@@ -100,6 +107,7 @@ export class SignalEngine extends EventEmitter {
   private activeMarkets: ActiveMarket[] = [];
   private lastComputeTime: Date | null = null;
   private signalsGenerated = 0;
+  private directionMultiplierPolicy: DirectionMultiplierPolicy = DEFAULT_DIRECTION_MULTIPLIER_POLICY;
 
   constructor(config?: Partial<SignalEngineConfig>) {
     super();
@@ -265,9 +273,22 @@ export class SignalEngine extends EventEmitter {
 
       // Sync direction multiplier (stored as pseudo-signal 'direction_multiplier')
       const dmEntry = weights.find(w => w.signal_type === 'direction_multiplier');
+      const globalDirectionMultiplier = dmEntry
+        ? parseFloat(String(dmEntry.weight))
+        : DEFAULT_DIRECTION_MULTIPLIER_POLICY.global;
+
+      const configuredPolicy = await tradingConfigRepo.get<Partial<DirectionMultiplierPolicy>>(
+        'direction_multiplier_policy'
+      );
+      this.directionMultiplierPolicy = sanitizeDirectionMultiplierPolicy(
+        configuredPolicy,
+        globalDirectionMultiplier
+      );
+
       if (dmEntry) {
-        this.combiner.setDirectionMultiplier(parseFloat(String(dmEntry.weight)));
+        this.combiner.setDirectionMultiplier(globalDirectionMultiplier);
       }
+      this.combiner.setDirectionMultipliers(buildDirectionMultiplierMap(this.directionMultiplierPolicy));
     } catch (error) {
       console.error('[SignalEngine] Failed to sync weights:', error);
     }
@@ -425,8 +446,24 @@ export class SignalEngine extends EventEmitter {
     const combinedWeights = this.priceRangeModifier.modifyWeights(durationWeights, market.currentPrice);
     this.combiner.setWeights(combinedWeights);
 
-    // Combine signals with market-type-specific weights
-    const combined = this.combiner.combine(signalOutputs, undefined, market.marketType);
+    const directionResolution = resolveDirectionMultiplier(this.directionMultiplierPolicy, {
+      marketType: market.marketType,
+      currentPrice: market.currentPrice,
+      endDate: market.endDate,
+      question: market.question,
+    });
+    this.combiner.setDirectionMultiplier(
+      directionResolution.multiplier,
+      directionResolution.contextKey
+    );
+
+    // Combine signals with market-type-specific weights and a separate direction context
+    const combined = this.combiner.combine(
+      signalOutputs,
+      undefined,
+      market.marketType,
+      directionResolution.contextKey
+    );
 
     // Restore original weights after combining
     this.combiner.setWeights(originalWeights);
@@ -438,6 +475,12 @@ export class SignalEngine extends EventEmitter {
     // Apply Bayesian confidence cap based on data availability
     const confidenceCap = this.computeBayesianConfidenceCap(context.priceBars);
     combined.confidence *= confidenceCap;
+    combined.metadata = {
+      ...(combined.metadata ?? {}),
+      directionMultiplier: directionResolution.multiplier,
+      directionContextKey: directionResolution.contextKey,
+      directionPolicySegmentId: directionResolution.segmentId ?? 'global',
+    };
 
     // Re-check confidence after cap — use exitThreshold as pass-through floor
     // (SignalEngine lets through anything ≥ exitThreshold; AutoSignalExecutor re-applies
