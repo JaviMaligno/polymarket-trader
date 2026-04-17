@@ -120,8 +120,11 @@ const LARGE_LOSS_COOLDOWN_THRESHOLD_USD = 25;
 const MAX_POSITIONS_PER_MARKET = 2;
 // Block new opens in a market where the last N closed positions all lost money.
 // This prevents the system from continuously re-entering a market that has structural
-// signal mismatch (e.g. Man City 566188 — 0/25 win rate on SHORT, -$707 total loss).
-const PER_MARKET_CONSECUTIVE_LOSS_BLOCK = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_BLOCK || '5', 10);
+// signal mismatch (e.g. Man City 566188 — 0/25 win rate on SHORT, -$707 total loss;
+// WTI crude oil markets 1712297/1712301/1894941 — 21 consecutive losses Apr 2026).
+// Default lowered from 5 to 3: observed cycling produces 3-4 losses per market within
+// 24h before reaching 5, so 5 was too lenient to stop the re-entry loop.
+const PER_MARKET_CONSECUTIVE_LOSS_BLOCK = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_BLOCK || '3', 10);
 const PER_MARKET_LOSS_BLOCK_WINDOW_MS = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_WINDOW_MS || String(24 * 60 * 60 * 1000), 10);
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;

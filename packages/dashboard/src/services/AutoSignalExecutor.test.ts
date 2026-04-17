@@ -305,4 +305,55 @@ describe('AutoSignalExecutor', () => {
       expect(result.reason || '').not.toContain('market position limit');
     });
   });
+
+  // =========================================================
+  // Per-market consecutive loss block
+  // =========================================================
+  describe('Per-market consecutive loss block', () => {
+    it('should block new opens after 3 consecutive losses in a market', async () => {
+      // First query: market metadata; second query: consecutive loss check returns 3 losing rows
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [
+          { realized_pnl: '-5.00' },
+          { realized_pnl: '-3.50' },
+          { realized_pnl: '-8.00' },
+        ] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/last 3 closed positions all lost/i);
+    });
+
+    it('should allow new opens when fewer than 3 consecutive losses', async () => {
+      // First query: market metadata; second query: only 2 losing rows (below threshold)
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [
+          { realized_pnl: '-5.00' },
+          { realized_pnl: '-3.50' },
+        ] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      // Should NOT be blocked for consecutive losses (may fail for other reasons)
+      expect(result.reason || '').not.toMatch(/last 3 closed positions all lost/i);
+    });
+
+    it('should allow new opens when 3 positions exist but some are winning', async () => {
+      // First query: market metadata; second query: 3 rows but one is a win
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [
+          { realized_pnl: '-5.00' },
+          { realized_pnl: '10.00' }, // winning trade breaks the streak
+          { realized_pnl: '-3.50' },
+        ] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.reason || '').not.toMatch(/last 3 closed positions all lost/i);
+    });
+  });
 });
