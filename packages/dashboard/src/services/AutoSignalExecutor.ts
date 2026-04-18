@@ -89,6 +89,9 @@ export interface ExecutorConfig {
   // Asymmetric SHORT gate: block SHORT entries against high-consensus markets
   // (YES price > shortMaxYesPrice). LONG entries are unaffected.
   shortMaxYesPrice: number;     // Max YES price to allow SHORT entry (0.6 default)
+  // Asymmetric SHORT sizing: scale SHORT position size by this multiplier.
+  // Empirical: 5-day SHORT win rate is 0% — halve size while collecting data.
+  shortSizeMultiplier: number;  // Multiplier for SHORT position size (0.5 default)
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: number;        // Minimum confidence to OPEN a new position
   exitThreshold: number;        // Minimum confidence to CLOSE an existing position (lower)
@@ -113,6 +116,7 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // Empirical: 5-day analysis (Apr 13-18, 24 SHORTs) showed 0% win rate when
   // SHORTs entered against YES > 0.6. Default optimizable via env.
   shortMaxYesPrice: parseFloat(process.env.EXECUTOR_SHORT_MAX_YES_PRICE || '0.6'),
+  shortSizeMultiplier: parseFloat(process.env.EXECUTOR_SHORT_SIZE_MULT || '0.5'),
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: parseFloat(process.env.EXECUTOR_OPEN_THRESHOLD || '0.43'),
   exitThreshold: parseFloat(process.env.EXECUTOR_EXIT_THRESHOLD || '0.25'),
@@ -645,11 +649,15 @@ export class AutoSignalExecutor extends EventEmitter {
       console.warn('Failed to get signal weight, using default:', error);
     }
 
-    // Calculate position size based on confidence, strength (absolute), and weight
-    const sizeMultiplier = signal.confidence * Math.abs(signal.strength) * weight;
+    // Calculate position size based on confidence, strength (absolute), and weight.
+    // SHORT positions get scaled by shortSizeMultiplier (default 0.5x) to limit
+    // damage while empirical SHORT win rate remains low.
+    const baseSizeMultiplier = signal.confidence * Math.abs(signal.strength) * weight;
+    const sideMultiplier = signal.direction === 'short' ? this.config.shortSizeMultiplier : 1.0;
+    const sizeMultiplier = baseSizeMultiplier * sideMultiplier;
     const positionValue = Math.min(
       this.config.maxPositionSize * sizeMultiplier,
-      this.config.maxPositionSize
+      this.config.maxPositionSize * sideMultiplier
     ) * (isNearResolution ? 0.5 : 1.0);
 
     // Calculate number of shares based on price
