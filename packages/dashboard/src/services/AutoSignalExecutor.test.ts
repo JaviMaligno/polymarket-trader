@@ -398,4 +398,85 @@ describe('AutoSignalExecutor', () => {
       expect(result.reason).toMatch(/SHORT blocked.*consensus/i);
     });
   });
+
+  // =========================================================
+  // Asymmetric position sizing (LONG vs SHORT)
+  //
+  // Rationale: SHORTs lose 0% win rate empirically (24/24 losing in 5 days).
+  // Until Learning Service identifies winning SHORT segments, halve SHORT
+  // position size to limit damage while still collecting data. LONG sizing
+  // unaffected.
+  // =========================================================
+  describe('Asymmetric SHORT position sizing', () => {
+    function fullMockChain() {
+      // Route queries by SQL content so order/optional queries don't break the chain
+      (query as any).mockImplementation((sql: string) => {
+        if (sql.includes('FROM markets WHERE id')) {
+          return Promise.resolve({ rows: [{ is_active: true, is_resolved: false, end_date: null }] });
+        }
+        if (sql.includes('FROM paper_account')) {
+          return Promise.resolve({ rows: [{ available_capital: '100000', current_capital: '10000' }] });
+        }
+        if (sql.includes('market_score') && sql.includes('current_price_yes')) {
+          return Promise.resolve({ rows: [{ market_score: '0.5', current_price_yes: '0.5', volume_24h: '1000', spread: '0.01', end_date: null }] });
+        }
+        // Loss check, predictions insert, etc — return empty
+        return Promise.resolve({ rows: [] });
+      });
+    }
+
+    it('should size SHORT positions smaller than LONG at same price (default 0.5x)', async () => {
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
+      const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
+
+      // Same price for both, only direction differs — isolates the side multiplier
+      fullMockChain();
+      await exec.processSignal(makeSignal({ direction: 'long', price: 0.50 }));
+      const longShares = Number(simSpy.mock.calls[0]?.[2] ?? 0);
+
+      fullMockChain();
+      await exec.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
+      const shortShares = Number(simSpy.mock.calls[1]?.[2] ?? 0);
+
+      expect(longShares).toBeGreaterThan(0);
+      expect(shortShares).toBeGreaterThan(0);
+      // SHORT should be ~50% of LONG (default 0.5 multiplier)
+      expect(shortShares).toBeLessThan(longShares * 0.6);
+      expect(shortShares).toBeGreaterThan(longShares * 0.4);
+    });
+
+    it('should respect custom shortSizeMultiplier via config', async () => {
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortSizeMultiplier: 0.25 });
+      const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
+      fullMockChain();
+      await exec.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
+      const shortSharesQuarter = Number(simSpy.mock.calls[0]?.[2] ?? 0);
+
+      const exec2 = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
+      const simSpy2 = vi.spyOn((exec2 as any).simulator, 'simulateBuy');
+      fullMockChain();
+      await exec2.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
+      const shortSharesHalf = Number(simSpy2.mock.calls[0]?.[2] ?? 0);
+
+      // 0.25x should produce ~half the shares of 0.5x
+      expect(shortSharesQuarter).toBeGreaterThan(0);
+      expect(shortSharesQuarter).toBeLessThan(shortSharesHalf);
+    });
+
+    it('should NOT alter LONG sizing regardless of shortSizeMultiplier', async () => {
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortSizeMultiplier: 0.1 });
+      const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
+      fullMockChain();
+      await exec.processSignal(makeSignal({ direction: 'long', price: 0.30 }));
+      const longSharesA = Number(simSpy.mock.calls[0]?.[2] ?? 0);
+
+      const exec2 = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortSizeMultiplier: 0.5 });
+      const simSpy2 = vi.spyOn((exec2 as any).simulator, 'simulateBuy');
+      fullMockChain();
+      await exec2.processSignal(makeSignal({ direction: 'long', price: 0.30 }));
+      const longSharesB = Number(simSpy2.mock.calls[0]?.[2] ?? 0);
+
+      expect(longSharesA).toBe(longSharesB);
+    });
+  });
 });
