@@ -86,6 +86,9 @@ export interface ExecutorConfig {
   // Smart price validation based on ROI and probability
   minPotentialROI: number;      // Minimum potential ROI to accept (0.15 = 15%)
   minImpliedProbability: number; // Minimum market probability (0.10 = 10%)
+  // Asymmetric SHORT gate: block SHORT entries against high-consensus markets
+  // (YES price > shortMaxYesPrice). LONG entries are unaffected.
+  shortMaxYesPrice: number;     // Max YES price to allow SHORT entry (0.6 default)
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: number;        // Minimum confidence to OPEN a new position
   exitThreshold: number;        // Minimum confidence to CLOSE an existing position (lower)
@@ -107,6 +110,9 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // minImpliedProbability: 0.10 means market must show at least 10% chance → rejects prices < 0.10
   minPotentialROI: parseFloat(process.env.EXECUTOR_MIN_POTENTIAL_ROI || '0.15'),
   minImpliedProbability: parseFloat(process.env.EXECUTOR_MIN_IMPLIED_PROB || '0.10'),
+  // Empirical: 5-day analysis (Apr 13-18, 24 SHORTs) showed 0% win rate when
+  // SHORTs entered against YES > 0.6. Default optimizable via env.
+  shortMaxYesPrice: parseFloat(process.env.EXECUTOR_SHORT_MAX_YES_PRICE || '0.6'),
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: parseFloat(process.env.EXECUTOR_OPEN_THRESHOLD || '0.43'),
   exitThreshold: parseFloat(process.env.EXECUTOR_EXIT_THRESHOLD || '0.25'),
@@ -611,6 +617,18 @@ export class AutoSignalExecutor extends EventEmitter {
         executed: false,
         reason: `Too speculative: implied probability ${(impliedProbability * 100).toFixed(1)}% < ${(this.config.minImpliedProbability * 100).toFixed(0)}% required (likely resolved NO)`,
       };
+    }
+
+    // SHORT YES-price gate: block SHORTs against high-consensus markets.
+    // For SHORT signals, signal.price is the NO token price → YES = 1 - signal.price.
+    if (signal.direction === 'short') {
+      const yesPrice = 1 - signal.price;
+      if (yesPrice > this.config.shortMaxYesPrice) {
+        return {
+          executed: false,
+          reason: `SHORT blocked: YES price ${(yesPrice * 100).toFixed(0)}% > ${(this.config.shortMaxYesPrice * 100).toFixed(0)}% threshold (consensus too strong to flip)`,
+        };
+      }
     }
 
     // Get signal weight from database
