@@ -432,11 +432,11 @@ describe('AutoSignalExecutor', () => {
       // Same price for both, only direction differs — isolates the side multiplier
       fullMockChain();
       await exec.processSignal(makeSignal({ direction: 'long', price: 0.50 }));
-      const longShares = simSpy.mock.calls[0]?.[2] ?? 0;
+      const longShares = Number(simSpy.mock.calls[0]?.[2] ?? 0);
 
       fullMockChain();
       await exec.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
-      const shortShares = simSpy.mock.calls[1]?.[2] ?? 0;
+      const shortShares = Number(simSpy.mock.calls[1]?.[2] ?? 0);
 
       expect(longShares).toBeGreaterThan(0);
       expect(shortShares).toBeGreaterThan(0);
@@ -450,13 +450,13 @@ describe('AutoSignalExecutor', () => {
       const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
       fullMockChain();
       await exec.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
-      const shortSharesQuarter = simSpy.mock.calls[0]?.[2] ?? 0;
+      const shortSharesQuarter = Number(simSpy.mock.calls[0]?.[2] ?? 0);
 
       const exec2 = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
       const simSpy2 = vi.spyOn((exec2 as any).simulator, 'simulateBuy');
       fullMockChain();
       await exec2.processSignal(makeSignal({ direction: 'short', price: 0.50, tokenId: 'token-no' }));
-      const shortSharesHalf = simSpy2.mock.calls[0]?.[2] ?? 0;
+      const shortSharesHalf = Number(simSpy2.mock.calls[0]?.[2] ?? 0);
 
       // 0.25x should produce ~half the shares of 0.5x
       expect(shortSharesQuarter).toBeGreaterThan(0);
@@ -468,13 +468,13 @@ describe('AutoSignalExecutor', () => {
       const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
       fullMockChain();
       await exec.processSignal(makeSignal({ direction: 'long', price: 0.30 }));
-      const longSharesA = simSpy.mock.calls[0]?.[2] ?? 0;
+      const longSharesA = Number(simSpy.mock.calls[0]?.[2] ?? 0);
 
       const exec2 = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortSizeMultiplier: 0.5 });
       const simSpy2 = vi.spyOn((exec2 as any).simulator, 'simulateBuy');
       fullMockChain();
       await exec2.processSignal(makeSignal({ direction: 'long', price: 0.30 }));
-      const longSharesB = simSpy2.mock.calls[0]?.[2] ?? 0;
+      const longSharesB = Number(simSpy2.mock.calls[0]?.[2] ?? 0);
 
       expect(longSharesA).toBe(longSharesB);
     });
