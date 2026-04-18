@@ -356,4 +356,46 @@ describe('AutoSignalExecutor', () => {
       expect(result.reason || '').not.toMatch(/last 3 closed positions all lost/i);
     });
   });
+
+  // =========================================================
+  // SHORT YES-price gate (asymmetric entry filter)
+  //
+  // Rationale: empirical analysis (5 days, 24 SHORTs) showed 0% win rate when
+  // SHORTs entered against high-consensus markets (YES > 0.6). The consensus
+  // does not flip in our 60-min hold window; NO token decays from spread/fees.
+  // Block SHORT entries when YES price > shortMaxYesPrice. LONG unaffected.
+  // For SHORT signals, signal.price is the NO token price → YES = 1 - signal.price.
+  // =========================================================
+  describe('SHORT YES-price gate', () => {
+    it('should reject SHORT when YES consensus is too strong (YES > 0.6)', async () => {
+      mockMarketQuery();
+      // SHORT at NO=0.30 → YES=0.70 (consensus too strong)
+      const result = await executor.processSignal(makeSignal({ direction: 'short', price: 0.30 }));
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/SHORT blocked.*consensus/i);
+    });
+
+    it('should allow SHORT when YES consensus is moderate (YES <= 0.6)', async () => {
+      mockMarketQuery();
+      // SHORT at NO=0.45 → YES=0.55 (within threshold)
+      const result = await executor.processSignal(makeSignal({ direction: 'short', price: 0.45 }));
+      expect(result.reason || '').not.toMatch(/SHORT blocked.*consensus/i);
+    });
+
+    it('should NOT gate LONG signals (gate is SHORT-only)', async () => {
+      mockMarketQuery();
+      // LONG at YES=0.70 — would be rejected if gate applied to LONG
+      const result = await executor.processSignal(makeSignal({ direction: 'long', price: 0.70 }));
+      expect(result.reason || '').not.toMatch(/SHORT blocked/i);
+    });
+
+    it('should respect custom shortMaxYesPrice threshold via config', async () => {
+      const strictExecutor = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortMaxYesPrice: 0.5 });
+      mockMarketQuery();
+      // SHORT at NO=0.45 → YES=0.55, exceeds custom threshold 0.5
+      const result = await strictExecutor.processSignal(makeSignal({ direction: 'short', price: 0.45 }));
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/SHORT blocked.*consensus/i);
+    });
+  });
 });
