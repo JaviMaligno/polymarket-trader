@@ -74,7 +74,7 @@ services:
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
-      MAX_TRACKED_MARKETS: "40"
+      MAX_TRACKED_MARKETS: "35"
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -93,9 +93,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 150M
+          memory: 200M
         reservations:
-          memory: 60M
+          memory: 80M
     logging:
       driver: "json-file"
       options:
@@ -164,9 +164,9 @@ services:
     deploy:
       resources:
         limits:
-          memory: 180M
+          memory: 150M
         reservations:
-          memory: 80M
+          memory: 60M
     logging:
       driver: "json-file"
       options:
