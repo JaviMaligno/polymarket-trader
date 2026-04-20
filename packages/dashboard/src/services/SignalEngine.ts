@@ -18,10 +18,10 @@ import type { SignalResult } from './AutoSignalExecutor.js';
 import {
   DEFAULT_DIRECTION_MULTIPLIER_POLICY,
   buildDirectionMultiplierMap,
-  resolveDirectionMultiplier,
   sanitizeDirectionMultiplierPolicy,
   type DirectionMultiplierPolicy,
 } from './DirectionMultiplierPolicy.js';
+import type { DirectionResolver, DirectionResolution } from './DirectionResolver.js';
 
 
 // Import from signals package
@@ -63,13 +63,45 @@ export interface SignalEngineConfig {
   computeIntervalMs: number;     // How often to compute signals (60000 = 1 min)
   maxMarketsPerCycle: number;    // Max markets to process per cycle
   minPriceBars: number;          // Minimum price bars needed
-  syncWeightsIntervalMs: number; // How often to sync weights from DB
+  syncWeightsIntervalMs?: number; // How often to sync weights from DB
   minCombinedConfidence?: number; // Open threshold — minimum confidence to enter a new position (0-1)
   minCombinedStrength?: number;   // Minimum combined signal strength (0-1)
   exitThreshold?: number;         // Exit threshold — minimum confidence to close an existing position (lower than open)
+  directionResolver: DirectionResolver; // Required — resolves per-market direction multiplier
 }
 
-const DEFAULT_CONFIG: SignalEngineConfig = {
+/**
+ * Enrich a combined signal output with direction resolution metadata.
+ * Strips old flat metadata keys and writes a consolidated `metadata.direction` object.
+ */
+export function enrichCombinedWithDirection<T extends {
+  metadata?: Record<string, unknown>;
+}>(
+  combined: T,
+  resolution: DirectionResolution,
+): T & { appliedDirectionMultiplier: number; wasExploration: boolean } {
+  const {
+    directionMultiplier: _a,
+    directionContextKey: _b,
+    directionPolicySegmentId: _c,
+    ...restMeta
+  } = (combined.metadata ?? {}) as Record<string, unknown>;
+  return {
+    ...combined,
+    appliedDirectionMultiplier: resolution.multiplier,
+    wasExploration: resolution.wasExploration,
+    metadata: {
+      ...restMeta,
+      direction: {
+        contextKey: resolution.contextKey,
+        segmentId: resolution.segmentId ?? 'global',
+        reason: resolution.reason,
+      },
+    },
+  };
+}
+
+const DEFAULT_CONFIG: Omit<SignalEngineConfig, 'directionResolver'> = {
   enabled: true,
   computeIntervalMs: 60000,      // 1 minute
   maxMarketsPerCycle: 50,
@@ -108,10 +140,12 @@ export class SignalEngine extends EventEmitter {
   private lastComputeTime: Date | null = null;
   private signalsGenerated = 0;
   private directionMultiplierPolicy: DirectionMultiplierPolicy = DEFAULT_DIRECTION_MULTIPLIER_POLICY;
+  private readonly directionResolver: DirectionResolver;
 
-  constructor(config?: Partial<SignalEngineConfig>) {
+  constructor(config: SignalEngineConfig) {
     super();
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.directionResolver = config.directionResolver;
 
     // Initialize signal generators
     this.initializeSignals();
@@ -446,7 +480,7 @@ export class SignalEngine extends EventEmitter {
     const combinedWeights = this.priceRangeModifier.modifyWeights(durationWeights, market.currentPrice);
     this.combiner.setWeights(combinedWeights);
 
-    const directionResolution = resolveDirectionMultiplier(this.directionMultiplierPolicy, {
+    const directionResolution = await this.directionResolver.resolve({
       marketType: market.marketType,
       currentPrice: market.currentPrice,
       endDate: market.endDate,
@@ -454,7 +488,7 @@ export class SignalEngine extends EventEmitter {
     });
     this.combiner.setDirectionMultiplier(
       directionResolution.multiplier,
-      directionResolution.contextKey
+      directionResolution.contextKey,
     );
 
     // Combine signals with market-type-specific weights and a separate direction context
@@ -475,22 +509,17 @@ export class SignalEngine extends EventEmitter {
     // Apply Bayesian confidence cap based on data availability
     const confidenceCap = this.computeBayesianConfidenceCap(context.priceBars);
     combined.confidence *= confidenceCap;
-    combined.metadata = {
-      ...(combined.metadata ?? {}),
-      directionMultiplier: directionResolution.multiplier,
-      directionContextKey: directionResolution.contextKey,
-      directionPolicySegmentId: directionResolution.segmentId ?? 'global',
-    };
+    const enriched = enrichCombinedWithDirection(combined, directionResolution);
 
     // Re-check confidence after cap — use exitThreshold as pass-through floor
     // (SignalEngine lets through anything ≥ exitThreshold; AutoSignalExecutor re-applies
     // the higher openThreshold for new positions, enabling hysteresis)
-    if (combined.confidence < (this.config.exitThreshold ?? 0.25)) {
+    if (enriched.confidence < (this.config.exitThreshold ?? 0.25)) {
       return null;
     }
 
     // Convert to SignalResult format for AutoSignalExecutor
-    return this.convertToSignalResult(combined, market);
+    return this.convertToSignalResult(enriched, market);
   }
 
   /**
@@ -1161,12 +1190,12 @@ let signalEngine: SignalEngine | null = null;
 
 export function getSignalEngine(): SignalEngine {
   if (!signalEngine) {
-    signalEngine = new SignalEngine();
+    throw new Error('[SignalEngine] Not initialized — call initializeSignalEngine() first');
   }
   return signalEngine;
 }
 
-export function initializeSignalEngine(config?: Partial<SignalEngineConfig>): SignalEngine {
+export function initializeSignalEngine(config: SignalEngineConfig): SignalEngine {
   signalEngine = new SignalEngine(config);
   return signalEngine;
 }
