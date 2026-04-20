@@ -63,7 +63,7 @@ export class AnthropicProvider implements LLMProvider {
   private apiKey: string;
 
   constructor(apiKey?: string) {
-    this.apiKey = apiKey || process.env.ANTHROPIC_API_KEY || '';
+    this.apiKey = apiKey ?? process.env.ANTHROPIC_API_KEY ?? '';
     this.client = new Anthropic({ apiKey: this.apiKey });
   }
 

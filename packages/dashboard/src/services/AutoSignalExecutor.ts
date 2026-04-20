@@ -136,6 +136,12 @@ const MAX_POSITIONS_PER_MARKET = 2;
 // 24h before reaching 5, so 5 was too lenient to stop the re-entry loop.
 const PER_MARKET_CONSECUTIVE_LOSS_BLOCK = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_BLOCK || '3', 10);
 const PER_MARKET_LOSS_BLOCK_WINDOW_MS = parseInt(process.env.EXECUTOR_PER_MARKET_LOSS_WINDOW_MS || String(24 * 60 * 60 * 1000), 10);
+// Second-tier ban for persistent losers that evade the 24h window (losses spaced >24h apart).
+// Trigger: ≥ LONG_TERM_MIN_LOSSES total losses in the last 7 days AND win rate < LONG_TERM_MAX_WIN_RATE.
+// e.g. WTI 1712297: 12 losses, 0 wins in 7 days — 1 trade/day → always clears 24h window.
+const LONG_TERM_LOSS_WINDOW_MS = parseInt(process.env.EXECUTOR_LONG_TERM_LOSS_WINDOW_MS || String(7 * 24 * 60 * 60 * 1000), 10);
+const LONG_TERM_MIN_LOSSES = parseInt(process.env.EXECUTOR_LONG_TERM_MIN_LOSSES || '5', 10);
+const LONG_TERM_MAX_WIN_RATE = parseFloat(process.env.EXECUTOR_LONG_TERM_MAX_WIN_RATE || '0.15');
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
 // Near-resolved price guard: block new opens when market is effectively decided
@@ -540,6 +546,37 @@ export class AutoSignalExecutor extends EventEmitter {
             return {
               executed: false,
               reason: `Market blocked: last ${PER_MARKET_CONSECUTIVE_LOSS_BLOCK} closed positions all lost (24h window)`,
+            };
+          }
+        }
+      } catch {
+        // Non-fatal: proceed without the check
+      }
+
+      // 4c. Long-term persistent loser ban (7-day window, rate-based)
+      // Catches markets that lose consistently but with gaps > 24h between trades,
+      // which evade the 24h consecutive block above.
+      try {
+        const longTermResult = await query<{ losses: string; wins: string }>(
+          `SELECT
+             COUNT(*) FILTER (WHERE realized_pnl < 0) AS losses,
+             COUNT(*) FILTER (WHERE realized_pnl >= 0) AS wins
+           FROM paper_positions
+           WHERE market_id = $1
+             AND closed_at IS NOT NULL
+             AND closed_at >= NOW() - $2::interval`,
+          [signal.marketId, `${LONG_TERM_LOSS_WINDOW_MS} milliseconds`]
+        );
+        if (longTermResult.rows.length > 0) {
+          const losses = parseInt(longTermResult.rows[0].losses, 10);
+          const wins = parseInt(longTermResult.rows[0].wins, 10);
+          const total = losses + wins;
+          const winRate = total > 0 ? wins / total : 0;
+          if (losses >= LONG_TERM_MIN_LOSSES && winRate < LONG_TERM_MAX_WIN_RATE) {
+            console.log(`[AutoExecutor] BLOCKED ${signal.marketId.substring(0, 12)}...: ${losses} losses, ${(winRate * 100).toFixed(0)}% win rate in 7-day window`);
+            return {
+              executed: false,
+              reason: `Market blocked: ${losses} losses with ${(winRate * 100).toFixed(0)}% win rate in 7-day window`,
             };
           }
         }
