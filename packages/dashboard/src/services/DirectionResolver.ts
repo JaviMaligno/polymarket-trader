@@ -65,13 +65,36 @@ export class DirectionResolver {
       };
     }
 
-    // Segment miss — exploration and breaker branches added in later tasks.
+    // Segment miss — consider exploration.
+    if (!this.deps.explorationConfig.enabled) {
+      return {
+        multiplier: policy.global,
+        contextKey: base.contextKey,
+        segmentId: null,
+        wasExploration: false,
+        reason: 'global',
+      };
+    }
+
+    const roll = this.rng();
+    if (roll >= this.deps.explorationConfig.epsilon) {
+      return {
+        multiplier: policy.global,
+        contextKey: base.contextKey,
+        segmentId: null,
+        wasExploration: false,
+        reason: 'global',
+      };
+    }
+
+    const { min, max } = this.deps.explorationConfig;
+    const sampled = min + this.rng() * (max - min);
     return {
-      multiplier: policy.global,
+      multiplier: sampled,
       contextKey: base.contextKey,
       segmentId: null,
-      wasExploration: false,
-      reason: 'global',
+      wasExploration: true,
+      reason: 'exploration',
     };
   }
 }
