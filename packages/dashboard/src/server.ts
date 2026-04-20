@@ -315,7 +315,6 @@ async function main(): Promise<void> {
         logger: logger as any,
         setTradingConfig: (key, value, reason) => tradingConfigRepo.set(key, value, reason),
         explorationConfig: {
-          enabled: process.env.ENABLE_DIRECTION_EXPLORATION !== 'false',
           epsilon: parseFloat(process.env.DIRECTION_EXPLORATION_EPSILON ?? '0.10'),
           min: parseFloat(process.env.DIRECTION_EXPLORATION_MIN ?? '0.0'),
           max: parseFloat(process.env.DIRECTION_EXPLORATION_MAX ?? '1.0'),

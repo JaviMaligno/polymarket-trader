@@ -48,10 +48,9 @@ DirectionResolver.resolve(context)
     ├─ Segment match via resolveDirectionMultiplier(context, policy)
     │     └─ segmentId found? → exploit (use segment multiplier)
     │
-    ├─ No match + exploration disabled → exploit (use global -1.0)
-    │
-    └─ No match + exploration enabled (roll < epsilon)
+    └─ No match + breaker not tripped + roll < epsilon
           └─ sample U(min, max) → explore (random multiplier)
+       Otherwise → exploit (use global -1.0, with reason='breaker_tripped' or 'global')
     │
     ▼
 { multiplier, segmentId, wasExploration, reason }
@@ -96,8 +95,7 @@ interface DirectionResolverDeps {
 }
 
 interface ExplorationConfig {
-  enabled: boolean;        // env: ENABLE_DIRECTION_EXPLORATION (default true)
-  epsilon: number;         // env: DIRECTION_EXPLORATION_EPSILON (default 0.10)
+  epsilon: number;         // env: DIRECTION_EXPLORATION_EPSILON (default 0.10; set to 0 to disable)
   min: number;             // env: DIRECTION_EXPLORATION_MIN (default 0.0)
   max: number;             // env: DIRECTION_EXPLORATION_MAX (default 1.0)
   breakerMinTrades: number;      // default 20
@@ -116,10 +114,9 @@ class DirectionResolver {
 
 1. Load active policy (via `policyProvider` — `trading_config.direction_multiplier_policy`).
 2. Call pure `resolveDirectionMultiplier(context, policy)` → `{ multiplier, segmentId }`. If `segmentId !== null`, return `{ multiplier, segmentId, wasExploration: false, reason: 'segment' }`.
-3. Check `explorationConfig.enabled`. If false → return `{ multiplier: policy.global, ..., reason: 'global' }`.
-4. Check circuit breaker (`isBreakerTripped`, cached). If tripped → return global with `reason: 'breaker_tripped'`.
-5. Roll `rng() < epsilon`. If miss → return global with `reason: 'global'`.
-6. Hit: `sampled = min + rng() * (max - min)` → return `{ multiplier: sampled, segmentId: null, wasExploration: true, reason: 'exploration' }`.
+3. Check circuit breaker (`isBreakerTripped`, cached). If tripped → return global with `reason: 'breaker_tripped'`.
+4. Roll `rng() < epsilon`. If miss → return global with `reason: 'global'`. (With `epsilon=0` this always misses — no separate kill-switch needed.)
+5. Hit: `sampled = min + rng() * (max - min)` → return `{ multiplier: sampled, segmentId: null, wasExploration: true, reason: 'exploration' }`.
 
 **Policy caching:** `policyProvider` is expected to cache internally (TTL ≥ 60s) since `resolve()` is called per-market per-signal-cycle (~15 markets × 60s cadence = 15 calls/min). The learner writes the policy every 6h, so a 60s–5min TTL is safe. The existing `tradingConfigRepo` has no cache — wrap it in a memoizer at the DirectionResolver's policyProvider or reuse any existing cache in SignalEngine for the same key. Decision deferred to implementation, but required.
 
@@ -286,7 +283,6 @@ Same SQL as above. `IF NOT EXISTS` guards make the statement idempotent so fresh
 New env vars (defaults in `docker-compose.gcp.yml`):
 
 ```yaml
-ENABLE_DIRECTION_EXPLORATION: "true"
 DIRECTION_EXPLORATION_EPSILON: "0.10"
 DIRECTION_EXPLORATION_MIN: "0.0"
 DIRECTION_EXPLORATION_MAX: "1.0"
@@ -295,7 +291,7 @@ DIRECTION_EXPLORATION_BREAKER_WINDOW_DAYS: "7"
 DIRECTION_EXPLORATION_BREAKER_MAX_CUM_LOSS: "-150"
 ```
 
-Kill switch: set `ENABLE_DIRECTION_EXPLORATION=false` and restart `dashboard-api` — exploration disabled without code change.
+Kill switch: set `DIRECTION_EXPLORATION_EPSILON=0` and restart `dashboard-api` — exploration disabled without code change.
 
 ## Success criteria (30-day evaluation window)
 

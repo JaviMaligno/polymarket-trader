@@ -309,7 +309,7 @@ export class WebSocketHandler {
       equity: portfolio.equity,
       cash: portfolio.cash,
       pnl: snapshot.trading.totalPnl,
-      positions: portfolio.positions.map((p) => ({
+      positions: portfolio.positions.map((p: { marketId: string; outcome: string; size: number; avgEntryPrice: number; currentPrice: number; unrealizedPnl: number }) => ({
         marketId: p.marketId,
         marketQuestion: p.marketId, // Would need market data
         outcome: p.outcome,
@@ -336,7 +336,7 @@ export class WebSocketHandler {
     if (!tradingSystem) return;
 
     // Position updates
-    tradingSystem.engine.on('position:opened', (position) => {
+    tradingSystem.engine.on('position:opened', (position: { marketId: string; outcome: string; size: number; avgEntryPrice: number; currentPrice: number; unrealizedPnl: number }) => {
       this.broadcast('positions', {
         type: 'position_update',
         channel: 'positions',
@@ -358,7 +358,7 @@ export class WebSocketHandler {
       });
     });
 
-    tradingSystem.engine.on('position:closed', (position) => {
+    tradingSystem.engine.on('position:closed', (position: { marketId: string; outcome: string; size: number; avgEntryPrice: number; currentPrice: number; unrealizedPnl: number }) => {
       this.broadcast('positions', {
         type: 'position_update',
         channel: 'positions',
@@ -381,7 +381,7 @@ export class WebSocketHandler {
     });
 
     // Order updates
-    tradingSystem.engine.on('order:filled', (order) => {
+    tradingSystem.engine.on('order:filled', (order: { id: string; marketId: string; side: string; size: number; filledSize: number; avgFillPrice: number }) => {
       this.broadcast('orders', {
         type: 'order_update',
         channel: 'orders',
@@ -399,7 +399,7 @@ export class WebSocketHandler {
     });
 
     // Alerts
-    tradingSystem.alertSystem.on('sent', (alert, _channel) => {
+    tradingSystem.alertSystem.on('sent', (alert: { id: string; severity: string; title: string; message: string; timestamp: Date | string }, _channel: unknown) => {
       this.broadcast('alerts', {
         type: 'alert',
         channel: 'alerts',
@@ -415,7 +415,14 @@ export class WebSocketHandler {
     });
 
     // Price updates
-    tradingSystem.feed.on('price', (data) => {
+    type PriceFeedEvent = {
+      marketId: string;
+      outcome: string;
+      price: number;
+      bid: number;
+      ask: number;
+    };
+    tradingSystem.feed.on('price', (data: PriceFeedEvent) => {
       this.broadcast(`market:${data.marketId}`, {
         type: 'price_update',
         channel: `market:${data.marketId}`,
@@ -432,7 +439,7 @@ export class WebSocketHandler {
     });
 
     // Risk warnings
-    tradingSystem.riskMonitor.on('limit:warning', (limitType, value, threshold) => {
+    tradingSystem.riskMonitor.on('limit:warning', (limitType: string, value: number, threshold: number) => {
       this.broadcast('risk', {
         type: 'risk_warning',
         channel: 'risk',
@@ -447,7 +454,7 @@ export class WebSocketHandler {
       });
     });
 
-    tradingSystem.riskMonitor.on('limit:breach', (limitType, value, threshold) => {
+    tradingSystem.riskMonitor.on('limit:breach', (limitType: string, value: number, threshold: number) => {
       this.broadcast('risk', {
         type: 'risk_warning',
         channel: 'risk',
