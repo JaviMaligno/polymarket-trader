@@ -69,7 +69,7 @@ describe('DirectionResolver — exploration sampling', () => {
     endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
   };
 
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); });
 
   it('returns global when segment misses and rng misses epsilon', async () => {
     const resolver = new DirectionResolver({
@@ -130,7 +130,7 @@ describe('DirectionResolver — circuit breaker', () => {
     endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
   };
 
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); });
 
   it('returns global with reason=breaker_tripped when exploration losses exceed threshold', async () => {
     const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 22, pnl: -172.45 }) };
@@ -187,7 +187,7 @@ describe('DirectionResolver — breaker status write', () => {
     endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
   };
 
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => { vi.clearAllMocks(); });
 
   it('writes status=tripped to trading_config when breaker first trips', async () => {
     const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 22, pnl: -172.45 }) };
