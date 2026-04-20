@@ -358,6 +358,64 @@ describe('AutoSignalExecutor', () => {
   });
 
   // =========================================================
+  // Long-term persistent loser ban (7-day window)
+  // =========================================================
+  describe('Long-term persistent loser ban', () => {
+    it('should block market with ≥5 losses and <15% win rate in 7 days', async () => {
+      // 1st: market metadata; 2nd: 24h consecutive check (0 rows - no short-term block);
+      // 3rd: 7-day rate check (7 losses, 0 wins = 0% win rate)
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '7', wins: '0' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/7-day window/i);
+    });
+
+    it('should not block when loss count is below threshold (< 5 losses)', async () => {
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '3', wins: '0' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.reason || '').not.toMatch(/7-day window/i);
+    });
+
+    it('should not block when win rate is at or above 15% threshold', async () => {
+      // 7 losses, 2 wins = 22% win rate — above the 15% threshold
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '7', wins: '2' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.reason || '').not.toMatch(/7-day window/i);
+    });
+
+    it('should not block when 24h consecutive check already triggered', async () => {
+      // 24h check fires first — 7-day check is never reached
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [
+          { realized_pnl: '-5.00' },
+          { realized_pnl: '-3.50' },
+          { realized_pnl: '-8.00' },
+        ] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await executor.processSignal(makeSignal());
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/last 3 closed positions all lost/i);
+    });
+  });
+
+  // =========================================================
   // SHORT YES-price gate (asymmetric entry filter)
   //
   // Rationale: empirical analysis (5 days, 24 SHORTs) showed 0% win rate when
