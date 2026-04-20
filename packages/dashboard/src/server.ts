@@ -8,10 +8,16 @@
 import pino from 'pino';
 import { createDashboardServer } from './api/server.js';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
-import { signalWeightsRepo, tradingConfigRepo } from './database/repositories.js';
+import { signalWeightsRepo, tradingConfigRepo, paperPositionsRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializeDirectionMultiplierLearningService } from './services/DirectionMultiplierLearningService.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
+import { DirectionResolver } from './services/DirectionResolver.js';
+import {
+  sanitizeDirectionMultiplierPolicy,
+  DEFAULT_DIRECTION_MULTIPLIER_POLICY,
+  type DirectionMultiplierPolicy,
+} from './services/DirectionMultiplierPolicy.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
 import { initializePositionCleanupService } from './services/PositionCleanupService.js';
@@ -180,6 +186,14 @@ async function main(): Promise<void> {
         $fn$ LANGUAGE plpgsql
       `).catch(() => {});
 
+      // Ensure direction multiplier exploration columns exist
+      await query(`
+        ALTER TABLE paper_positions
+          ADD COLUMN IF NOT EXISTS applied_direction_multiplier NUMERIC(5,3),
+          ADD COLUMN IF NOT EXISTS was_exploration BOOLEAN NOT NULL DEFAULT false
+      `);
+      console.log('paper_positions direction exploration columns ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
@@ -283,6 +297,35 @@ async function main(): Promise<void> {
       await directionMultiplierLearning.start();
       console.log('DirectionMultiplierLearningService started');
 
+      // Cached policy provider (60s TTL) — avoids querying trading_config on every signal resolve
+      let cachedPolicy: { data: DirectionMultiplierPolicy; fetchedAt: number } | null = null;
+      const POLICY_TTL_MS = 60_000;
+      const policyProvider = async (): Promise<DirectionMultiplierPolicy> => {
+        const now = Date.now();
+        if (cachedPolicy && now - cachedPolicy.fetchedAt < POLICY_TTL_MS) return cachedPolicy.data;
+        const rawPolicy = await tradingConfigRepo.get<DirectionMultiplierPolicy>('direction_multiplier_policy');
+        const data = sanitizeDirectionMultiplierPolicy(rawPolicy ?? DEFAULT_DIRECTION_MULTIPLIER_POLICY);
+        cachedPolicy = { data, fetchedAt: now };
+        return data;
+      };
+
+      const directionResolver = new DirectionResolver({
+        policyProvider,
+        paperPositionsRepo,
+        logger: logger as any,
+        setTradingConfig: (key, value, reason) => tradingConfigRepo.set(key, value, reason),
+        explorationConfig: {
+          enabled: process.env.ENABLE_DIRECTION_EXPLORATION !== 'false',
+          epsilon: parseFloat(process.env.DIRECTION_EXPLORATION_EPSILON ?? '0.10'),
+          min: parseFloat(process.env.DIRECTION_EXPLORATION_MIN ?? '0.0'),
+          max: parseFloat(process.env.DIRECTION_EXPLORATION_MAX ?? '1.0'),
+          breakerMinTrades: parseInt(process.env.DIRECTION_EXPLORATION_BREAKER_MIN_TRADES ?? '20', 10),
+          breakerWindowDays: parseInt(process.env.DIRECTION_EXPLORATION_BREAKER_WINDOW_DAYS ?? '7', 10),
+          breakerMaxCumLoss: parseFloat(process.env.DIRECTION_EXPLORATION_BREAKER_MAX_CUM_LOSS ?? '-150'),
+          breakerCacheTtlMs: 300_000,
+        },
+      });
+
       const signalEngine = initializeSignalEngine({
         enabled: true,
         computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),
@@ -290,6 +333,7 @@ async function main(): Promise<void> {
         minPriceBars: 3,           // Bayesian confidence cap handles data scarcity
         minCombinedConfidence: optimizedParams.minCombinedConfidence,
         minCombinedStrength: optimizedParams.minCombinedStrength,
+        directionResolver,
       });
 
       // Start market classifier (classifies new markets via Haiku every 30min)

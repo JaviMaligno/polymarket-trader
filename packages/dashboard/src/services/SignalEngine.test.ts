@@ -201,3 +201,44 @@ describe('SignalEngine — 50/50 Market Filter', () => {
     expect(filterMarkets(markets)).toBe(0);
   });
 });
+
+describe('SignalEngine — DirectionResolver integration', () => {
+  it('passes resolver multiplier to combiner and exposes wasExploration + metadata.direction on output', async () => {
+    const stubCombined = {
+      signalId: 'combined',
+      marketId: 'mkt1',
+      tokenId: 'tok1',
+      direction: 'long' as const,
+      strength: 0.3,
+      confidence: 0.6,
+      timestamp: new Date(),
+      ttlMs: 60_000,
+      componentSignals: [],
+      weights: {},
+      appliedDirectionMultiplier: 0.6,
+      metadata: { combinerType: 'weighted_average' },
+    };
+
+    const { enrichCombinedWithDirection } = await import('./SignalEngine.js');
+    const enriched = enrichCombinedWithDirection(stubCombined as any, {
+      multiplier: 0.6,
+      contextKey: 'event_long-20to40-medium',
+      segmentId: null,
+      wasExploration: true,
+      reason: 'exploration',
+    });
+
+    expect(enriched.appliedDirectionMultiplier).toBe(0.6);
+    expect(enriched.wasExploration).toBe(true);
+    expect(enriched.metadata).toMatchObject({
+      direction: {
+        contextKey: 'event_long-20to40-medium',
+        segmentId: 'global',
+        reason: 'exploration',
+      },
+    });
+    expect(enriched.metadata).not.toHaveProperty('directionMultiplier');
+    expect(enriched.metadata).not.toHaveProperty('directionContextKey');
+    expect(enriched.metadata).not.toHaveProperty('directionPolicySegmentId');
+  });
+});

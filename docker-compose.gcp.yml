@@ -153,6 +153,14 @@ services:
       ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Direction Exploration
+      ENABLE_DIRECTION_EXPLORATION: "true"
+      DIRECTION_EXPLORATION_EPSILON: "0.10"
+      DIRECTION_EXPLORATION_MIN: "0.0"
+      DIRECTION_EXPLORATION_MAX: "1.0"
+      DIRECTION_EXPLORATION_BREAKER_MIN_TRADES: "20"
+      DIRECTION_EXPLORATION_BREAKER_WINDOW_DAYS: "7"
+      DIRECTION_EXPLORATION_BREAKER_MAX_CUM_LOSS: "-150"
     ports:
       - "3001:3001"
     healthcheck:

@@ -15,6 +15,32 @@ function createSignal(signalId: string, strength: number): SignalOutput {
   };
 }
 
+function baseWeights(): Record<string, number> {
+  return { momentum: 1 };
+}
+
+function params(): Record<string, unknown> {
+  return { minCombinedStrength: 0.01, minCombinedConfidence: 0.01 };
+}
+
+function buildSignal(opts: {
+  signalId: string;
+  direction: 'long' | 'short';
+  strength: number;
+  confidence: number;
+}): SignalOutput {
+  return {
+    signalId: opts.signalId,
+    marketId: 'market-1',
+    tokenId: 'token-1',
+    direction: opts.direction.toUpperCase() as 'LONG' | 'SHORT',
+    strength: opts.direction === 'long' ? Math.abs(opts.strength) : -Math.abs(opts.strength),
+    confidence: opts.confidence,
+    timestamp: new Date(),
+    ttlMs: 60_000,
+  };
+}
+
 describe('WeightedAverageCombiner direction context', () => {
   it('uses market type for signal weights and direction context for multiplier overrides', () => {
     const combiner = new WeightedAverageCombiner(
@@ -60,5 +86,25 @@ describe('WeightedAverageCombiner direction context', () => {
     expect(combined).not.toBeNull();
     expect(combined?.strength).toBeCloseTo(-0.8, 5);
     expect(combined?.direction).toBe('SHORT');
+  });
+});
+
+describe('WeightedAverageCombiner — applied direction multiplier', () => {
+  it('exposes applied multiplier in CombinedSignalOutput', () => {
+    const combiner = new WeightedAverageCombiner(baseWeights(), params());
+    combiner.setDirectionMultiplier(0.5, 'test-ctx');
+    const signals = [buildSignal({ signalId: 'momentum', direction: 'long', strength: 0.6, confidence: 0.8 })];
+    const result = combiner.combine(signals, undefined, 'event_long', 'test-ctx');
+    expect(result).not.toBeNull();
+    expect(result!.appliedDirectionMultiplier).toBe(0.5);
+  });
+
+  it('exposes appliedDirectionMultiplier matching the explicitly set global multiplier', () => {
+    const combiner = new WeightedAverageCombiner(baseWeights(), params());
+    combiner.setDirectionMultiplier(1.0);  // explicit global; does not touch context map
+    const signals = [buildSignal({ signalId: 'momentum', direction: 'long', strength: 0.6, confidence: 0.8 })];
+    const result = combiner.combine(signals);
+    expect(result).not.toBeNull();
+    expect(result!.appliedDirectionMultiplier).toBe(1.0);
   });
 });

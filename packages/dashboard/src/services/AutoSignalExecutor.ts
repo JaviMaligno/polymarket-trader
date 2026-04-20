@@ -72,6 +72,8 @@ export interface SignalResult {
   price: number;
   marketType?: string;  // crypto_intraday, crypto_daily, event_short, event_long
   metadata?: Record<string, unknown>;
+  appliedDirectionMultiplier?: number;  // multiplier used by SignalEngine (from DirectionResolver)
+  wasExploration?: boolean;             // true when this trade is an exploration branch
 }
 
 export interface ExecutorConfig {
@@ -836,6 +838,8 @@ export class AutoSignalExecutor extends EventEmitter {
           market_score_at_entry: marketScoreAtEntry,
           score_dimensions_at_entry: scoreDimensionsAtEntry ?? undefined,
           execution_mode: executionMode,
+          applied_direction_multiplier: signal.appliedDirectionMultiplier ?? null,
+          was_exploration: signal.wasExploration ?? false,
         },
         actualValue,
         actualFee,
