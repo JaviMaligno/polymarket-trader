@@ -81,6 +81,7 @@ type ResolveReason = 'segment' | 'global' | 'exploration' | 'breaker_tripped';
 
 interface DirectionResolution {
   multiplier: number;
+  contextKey: string;          // preserved from pure resolveDirectionMultiplier for combiner.setDirectionMultiplier(multiplier, contextKey)
   segmentId: string | null;
   wasExploration: boolean;
   reason: ResolveReason;
@@ -187,21 +188,23 @@ No other learner logic changes. Promotion thresholds (`minSegmentTrades=24`, `mi
 Location: `packages/dashboard/src/services/SignalEngine.ts`
 
 - Inject `DirectionResolver` via constructor.
-- Replace existing direct call to `resolveDirectionMultiplier` with `directionResolver.resolve(context)`.
-- After `combiner.combine()` returns, enrich the output:
+- Replace synchronous `resolveDirectionMultiplier(policy, ctx)` at line 449 with `await this.directionResolver.resolve(ctx)`.
+- Existing `combiner.setDirectionMultiplier(resolution.multiplier, resolution.contextKey)` call at line 455 stays intact (resolver preserves `contextKey`).
+- **Consolidate metadata.** Current code at lines 478-483 writes three separate keys (`metadata.directionMultiplier`, `metadata.directionContextKey`, `metadata.directionPolicySegmentId`). Those become top-level on the output (`appliedDirectionMultiplier`, `wasExploration`) plus a single grouped `metadata.direction` for diagnostics. No external consumers read the old keys (grep verified), so this is an internal consolidation:
 
 ```ts
-return {
-  ...combined,
-  wasExploration: resolution.wasExploration,
-  metadata: {
-    ...combined.metadata,
-    direction: {
-      segmentId: resolution.segmentId,
-      reason: resolution.reason,
-    },
+// After combiner.combine() returns into `combined`:
+combined.appliedDirectionMultiplier = resolution.multiplier;
+combined.wasExploration = resolution.wasExploration;
+combined.metadata = {
+  ...(combined.metadata ?? {}),
+  direction: {
+    contextKey: resolution.contextKey,
+    segmentId: resolution.segmentId ?? 'global',
+    reason: resolution.reason,
   },
 };
+// REMOVED: directionMultiplier, directionContextKey, directionPolicySegmentId (superseded by the above)
 ```
 
 ### 4. `WeightedAverageCombiner` (modify)
@@ -224,30 +227,41 @@ Combiner does **not** know about exploration. `wasExploration` is attached upstr
 
 Location: `packages/dashboard/src/services/AutoSignalExecutor.ts`
 
-- On position open, pass two new fields to repo:
+- On position open, extend the `PaperPosition` object passed into `openPositionAtomically`:
 ```ts
-await paperPositionsRepo.open({
-  // ... existing
-  appliedDirectionMultiplier: signal.appliedDirectionMultiplier,
-  wasExploration: signal.wasExploration ?? false,
-});
+await paperPositionsRepo.openPositionAtomically({
+  // ... existing fields
+  applied_direction_multiplier: signal.appliedDirectionMultiplier,
+  was_exploration: signal.wasExploration ?? false,
+}, cost, fee);
 ```
 
-### 6. `paperPositionsRepo.open()` (modify)
+### 6. `paperPositionsRepo` + `PaperPosition` interface (modify)
 
-Location: `packages/dashboard/src/repos/paperPositionsRepo.ts` (or equivalent).
+Location: `packages/dashboard/src/database/repositories.ts`
 
-- Extend parameter type with two new fields (both optional in the signature for manual-script callers; defaults `NULL` and `false`).
-- Extend the INSERT SQL:
-```sql
-INSERT INTO paper_positions (
-  ..., applied_direction_multiplier, was_exploration
-) VALUES (..., $N, $N+1)
+- Extend `PaperPosition` interface (currently around line 310-335):
+```ts
+interface PaperPosition {
+  // ... existing fields
+  applied_direction_multiplier?: number | null;   // nullable: legacy inserts without direction context
+  was_exploration?: boolean;                      // default false when omitted
+}
 ```
 
-### 7. DB migration (startup DDL)
+- **Two INSERT sites must be updated** (confirmed by grep):
+  1. `paperPositionsRepo.insert()` at line 341 (also reached via deprecated `upsert()` used by `routes.ts` and `PaperTradingService`)
+  2. `paperPositionsRepo.openPositionAtomically()` at line 421 (canonical path from `AutoSignalExecutor`)
+- Both INSERT column lists + VALUES clauses get `applied_direction_multiplier, was_exploration` appended.
+- Both sites pass `position.applied_direction_multiplier ?? null` and `position.was_exploration ?? false` — backward-compatible for existing callers.
 
-Location: `packages/dashboard/src/server.ts` — alongside existing `trading_config` CREATE TABLE IF NOT EXISTS block.
+Consumers that must compile without change (don't need to populate the new fields): `routes.ts`, `PaperTradingService`, test fixtures. `AutoSignalExecutor` is the only site that supplies real values.
+
+### 7. DB migration (dual path — fresh deployments + existing VM)
+
+**Fresh deployments** — new migration file following the existing numbered pattern:
+
+Location: `packages/data-collector/src/database/init/017_direction_multiplier_exploration_columns.sql`
 
 ```sql
 ALTER TABLE paper_positions
@@ -255,8 +269,17 @@ ALTER TABLE paper_positions
   ADD COLUMN IF NOT EXISTS was_exploration BOOLEAN NOT NULL DEFAULT false;
 ```
 
-- `applied_direction_multiplier`: NULLABLE (pre-migration rows remain NULL — distinguishes "unknown legacy" from explicit `0`).
-- `was_exploration`: NOT NULL DEFAULT false (semantic default for all historical rows and non-signal inserts).
+These files run once on first volume init (per project convention) — they won't execute on the existing VM whose volume was initialized months ago.
+
+**Existing deployments** — startup DDL in `dashboard-api`:
+
+Location: `packages/dashboard/src/server.ts` — alongside existing `trading_config` CREATE TABLE IF NOT EXISTS block.
+
+Same SQL as above. `IF NOT EXISTS` guards make the statement idempotent so fresh and legacy deployments converge to the same schema.
+
+**Column semantics:**
+- `applied_direction_multiplier`: NULLABLE (pre-migration rows remain NULL — distinguishes "unknown legacy" from an explicit `0`).
+- `was_exploration`: NOT NULL DEFAULT false (semantic default for historical rows and non-signal inserts).
 
 ## Configuration
 
@@ -312,16 +335,16 @@ Kill switch: set `ENABLE_DIRECTION_EXPLORATION=false` and restart `dashboard-api
 ## Implementation sequence
 
 Single PR; tasks will be detailed in the implementation plan:
-1. DB migration DDL in `server.ts` startup (must run before any service that inserts into `paper_positions`)
-2. `paperPositionsRepo.open()` signature + INSERT extension
-3. `WeightedAverageCombiner` output extension (typed field + tests)
-4. `DirectionResolver` module + unit tests (deterministic RNG, mocked repo, breaker state transitions)
+1. DB migration — create init file `017_direction_multiplier_exploration_columns.sql` **and** add matching startup DDL in `server.ts` (must run before any service that inserts into `paper_positions`)
+2. Extend `PaperPosition` interface + BOTH INSERT sites (`insert` and `openPositionAtomically`) in `repositories.ts`
+3. `WeightedAverageCombiner` output extension (top-level `appliedDirectionMultiplier`, typed field + tests)
+4. `DirectionResolver` module + unit tests (deterministic RNG, mocked policy provider, mocked repo for breaker state transitions)
 5. `DirectionMultiplierLearningService` updates:
    - `DEFAULT_CONFIG` range + `maxPositiveMultiplier`
    - `bucketDirectionMultiplier` new buckets
-   - Learner SQL query: prefer `pp.applied_direction_multiplier` via COALESCE
-6. `SignalEngine` integration: inject resolver, replace sync `resolveDirectionMultiplier` with `await resolver.resolve()`, enrich output with `wasExploration` + `metadata.direction`
-7. `AutoSignalExecutor` propagates `appliedDirectionMultiplier` and `wasExploration` to repo
+   - Learner SQL: prefer `pp.applied_direction_multiplier` via COALESCE
+6. `SignalEngine` integration: inject resolver, replace sync `resolveDirectionMultiplier(policy, ctx)` call with `await resolver.resolve(ctx)`, set `appliedDirectionMultiplier` + `wasExploration` top-level on output, consolidate metadata into `metadata.direction`
+7. `AutoSignalExecutor` propagates new fields into the `PaperPosition` object passed to `openPositionAtomically`
 8. Env vars in `docker-compose.gcp.yml`
-9. Audit of non-signal callers of `paperPositionsRepo.open()` (`start-paper-trading.js`, any test harness); leave legacy defaults where present
+9. Audit of non-signal INSERT callers (`routes.ts` POST handlers, `PaperTradingService`, `scripts/start-paper-trading.js`); leave them using backward-compatible defaults (`null` / `false`)
 10. Integration test: end-to-end signal flow with mocked RNG hitting exploration branch, and a breaker-trip scenario that falls back to global
