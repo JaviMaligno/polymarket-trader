@@ -26,7 +26,7 @@ describe('Direction exploration — end-to-end integration', () => {
     const resolver = new DirectionResolver({
       policyProvider: async () => policy,
       explorationConfig: {
-        enabled: true, epsilon: 1.0, min: 0.0, max: 1.0,
+        epsilon: 1.0, min: 0.0, max: 1.0,
         breakerMinTrades: 20, breakerWindowDays: 7, breakerMaxCumLoss: -150, breakerCacheTtlMs: 300_000,
       },
       rng: (() => { let i = 0; const vals = [0.0, 0.6]; return () => vals[i++ % 2]; })(),
@@ -72,7 +72,7 @@ describe('Direction exploration — end-to-end integration', () => {
     const resolver = new DirectionResolver({
       policyProvider: async () => policy,
       explorationConfig: {
-        enabled: true, epsilon: 1.0, min: 0.0, max: 1.0,
+        epsilon: 1.0, min: 0.0, max: 1.0,
         breakerMinTrades: 20, breakerWindowDays: 7, breakerMaxCumLoss: -150, breakerCacheTtlMs: 300_000,
       },
       rng: () => 0.0,  // would trigger exploration otherwise

@@ -15,7 +15,8 @@ export interface DirectionResolution {
 }
 
 export interface DirectionExplorationConfig {
-  enabled: boolean;
+  /** Fraction of segment-miss resolves that enter the exploration slot.
+   *  Set to 0 to disable exploration entirely (kill switch). */
   epsilon: number;
   min: number;
   max: number;
@@ -106,16 +107,7 @@ export class DirectionResolver {
     }
 
     // Segment miss — consider exploration.
-    if (!this.deps.explorationConfig.enabled) {
-      return {
-        multiplier: policy.global,
-        contextKey: base.contextKey,
-        segmentId: null,
-        wasExploration: false,
-        reason: 'global',
-      };
-    }
-
+    // Kill switch: DIRECTION_EXPLORATION_EPSILON=0 makes `roll < epsilon` always false → global fallthrough.
     if (await this.isBreakerTripped()) {
       return {
         multiplier: policy.global,

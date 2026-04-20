@@ -7,7 +7,6 @@ const stubRepo = {
 };
 
 const stubConfig = {
-  enabled: true,
   epsilon: 0.1,
   min: 0.0,
   max: 1.0,
@@ -105,11 +104,11 @@ describe('DirectionResolver — exploration sampling', () => {
     expect(result.segmentId).toBeNull();
   });
 
-  it('returns global with reason=global when exploration is disabled, regardless of rng', async () => {
+  it('returns global with reason=global when epsilon=0 (kill switch), regardless of rng', async () => {
     const resolver = new DirectionResolver({
       policyProvider: async () => policy,
-      explorationConfig: { ...stubConfig, enabled: false },
-      rng: () => 0.0,  // would normally trigger exploration
+      explorationConfig: { ...stubConfig, epsilon: 0 },
+      rng: () => 0.0,  // rng() >= epsilon (0 >= 0) so epsilon=0 always misses
       paperPositionsRepo: stubRepo as any,
       logger,
     });
