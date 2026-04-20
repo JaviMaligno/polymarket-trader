@@ -46,9 +46,25 @@ export interface DirectionResolverDeps {
 
 export class DirectionResolver {
   private readonly rng: () => number;
+  private breakerCache: { tripped: boolean; fetchedAt: number; stats: { count: number; pnl: number } } | null = null;
 
   constructor(private readonly deps: DirectionResolverDeps) {
     this.rng = deps.rng ?? Math.random;
+  }
+
+  private async isBreakerTripped(): Promise<boolean> {
+    const now = Date.now();
+    if (this.breakerCache && now - this.breakerCache.fetchedAt < this.deps.explorationConfig.breakerCacheTtlMs) {
+      return this.breakerCache.tripped;
+    }
+    const stats = await this.deps.paperPositionsRepo.getExplorationStats(
+      this.deps.explorationConfig.breakerWindowDays,
+    );
+    const tripped =
+      stats.count >= this.deps.explorationConfig.breakerMinTrades &&
+      stats.pnl < this.deps.explorationConfig.breakerMaxCumLoss;
+    this.breakerCache = { tripped, fetchedAt: now, stats };
+    return tripped;
   }
 
   async resolve(context: DirectionMultiplierContext): Promise<DirectionResolution> {
@@ -73,6 +89,16 @@ export class DirectionResolver {
         segmentId: null,
         wasExploration: false,
         reason: 'global',
+      };
+    }
+
+    if (await this.isBreakerTripped()) {
+      return {
+        multiplier: policy.global,
+        contextKey: base.contextKey,
+        segmentId: null,
+        wasExploration: false,
+        reason: 'breaker_tripped',
       };
     }
 

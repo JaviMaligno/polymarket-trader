@@ -119,3 +119,60 @@ describe('DirectionResolver — exploration sampling', () => {
     expect(result.reason).toBe('global');
   });
 });
+
+describe('DirectionResolver — circuit breaker', () => {
+  const policy: DirectionMultiplierPolicy = {
+    global: -1.0, minMultiplier: -1.25, maxMultiplier: 1.0, segments: [],
+  };
+  const ctx = {
+    marketType: 'event_long',
+    currentPrice: 0.3,
+    endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns global with reason=breaker_tripped when exploration losses exceed threshold', async () => {
+    const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 22, pnl: -172.45 }) };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.05,  // would sample exploration otherwise
+      paperPositionsRepo: repo as any,
+      logger,
+    });
+    const result = await resolver.resolve(ctx);
+    expect(result.reason).toBe('breaker_tripped');
+    expect(result.wasExploration).toBe(false);
+    expect(result.multiplier).toBe(-1.0);
+  });
+
+  it('does not trip when count below minTrades', async () => {
+    const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 19, pnl: -500 }) };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.05,
+      paperPositionsRepo: repo as any,
+      logger,
+    });
+    const result = await resolver.resolve(ctx);
+    // Should proceed to sampling, not breaker_tripped
+    expect(result.reason).toBe('exploration');
+  });
+
+  it('caches breaker state and does not requery within TTL', async () => {
+    const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 22, pnl: -200 }) };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: { ...stubConfig, breakerCacheTtlMs: 60_000 },
+      rng: () => 0.05,
+      paperPositionsRepo: repo as any,
+      logger,
+    });
+    await resolver.resolve(ctx);
+    await resolver.resolve(ctx);
+    await resolver.resolve(ctx);
+    expect(repo.getExplorationStats).toHaveBeenCalledTimes(1);
+  });
+});
