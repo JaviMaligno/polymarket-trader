@@ -180,6 +180,14 @@ async function main(): Promise<void> {
         $fn$ LANGUAGE plpgsql
       `).catch(() => {});
 
+      // Ensure direction multiplier exploration columns exist
+      await query(`
+        ALTER TABLE paper_positions
+          ADD COLUMN IF NOT EXISTS applied_direction_multiplier NUMERIC(5,3),
+          ADD COLUMN IF NOT EXISTS was_exploration BOOLEAN NOT NULL DEFAULT false
+      `);
+      console.log('paper_positions direction exploration columns ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
