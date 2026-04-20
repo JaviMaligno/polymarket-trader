@@ -498,6 +498,22 @@ export const paperPositionsRepo = {
       );
     }
   },
+
+  async getExplorationStats(windowDays: number): Promise<{ count: number; pnl: number }> {
+    const result = await query<{ count: string; pnl: string | null }>(
+      `SELECT COUNT(*) AS count, COALESCE(SUM(realized_pnl), 0) AS pnl
+       FROM paper_positions
+       WHERE was_exploration = true
+         AND closed_at >= NOW() - ($1 || ' days')::interval
+         AND realized_pnl IS NOT NULL`,
+      [String(windowDays)],
+    );
+    const row = result.rows[0];
+    return {
+      count: Number(row.count ?? 0),
+      pnl: Number(row.pnl ?? 0),
+    };
+  },
 };
 
 // ============================================

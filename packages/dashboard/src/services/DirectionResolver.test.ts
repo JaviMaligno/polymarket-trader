@@ -176,3 +176,63 @@ describe('DirectionResolver — circuit breaker', () => {
     expect(repo.getExplorationStats).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('DirectionResolver — breaker status write', () => {
+  const policy: DirectionMultiplierPolicy = {
+    global: -1.0, minMultiplier: -1.25, maxMultiplier: 1.0, segments: [],
+  };
+  const ctx = {
+    marketType: 'event_long',
+    currentPrice: 0.3,
+    endDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
+  };
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('writes status=tripped to trading_config when breaker first trips', async () => {
+    const repo = { getExplorationStats: vi.fn().mockResolvedValue({ count: 22, pnl: -172.45 }) };
+    const setConfig = vi.fn().mockResolvedValue(undefined);
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.05,
+      paperPositionsRepo: repo as any,
+      logger,
+      setTradingConfig: setConfig,
+    });
+    await resolver.resolve(ctx);
+    expect(setConfig).toHaveBeenCalledWith(
+      'direction_exploration_status',
+      expect.objectContaining({
+        state: 'tripped',
+        exploreCount: 22,
+        explorePnl: -172.45,
+        thresholdTrades: 20,
+        thresholdLoss: -150,
+      }),
+      expect.any(String),
+    );
+  });
+
+  it('writes status=active when breaker un-trips after previously tripped', async () => {
+    // First call: tripped. Second call (after cache expires): no longer tripped.
+    const repo = {
+      getExplorationStats: vi.fn()
+        .mockResolvedValueOnce({ count: 22, pnl: -172 })
+        .mockResolvedValueOnce({ count: 8, pnl: -30 }),
+    };
+    const setConfig = vi.fn().mockResolvedValue(undefined);
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: { ...stubConfig, breakerCacheTtlMs: 0 },  // disable cache for test
+      rng: () => 0.05,
+      paperPositionsRepo: repo as any,
+      logger,
+      setTradingConfig: setConfig,
+    });
+    await resolver.resolve(ctx);
+    await resolver.resolve(ctx);
+    const calls = setConfig.mock.calls.map(c => c[1].state);
+    expect(calls).toEqual(['tripped', 'active']);
+  });
+});

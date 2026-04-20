@@ -42,6 +42,7 @@ export interface DirectionResolverDeps {
   paperPositionsRepo: DirectionResolverPaperPositionsRepo;
   logger: Logger;
   rng?: () => number;
+  setTradingConfig?: (key: string, value: unknown, changeReason: string) => Promise<void>;
 }
 
 export class DirectionResolver {
@@ -63,7 +64,30 @@ export class DirectionResolver {
     const tripped =
       stats.count >= this.deps.explorationConfig.breakerMinTrades &&
       stats.pnl < this.deps.explorationConfig.breakerMaxCumLoss;
+
+    const prevTripped = this.breakerCache?.tripped ?? null;
     this.breakerCache = { tripped, fetchedAt: now, stats };
+
+    if (this.deps.setTradingConfig && (prevTripped === null || prevTripped !== tripped)) {
+      const status = {
+        state: tripped ? 'tripped' : 'active',
+        transitionAt: new Date(now).toISOString(),
+        exploreCount: stats.count,
+        explorePnl: stats.pnl,
+        thresholdTrades: this.deps.explorationConfig.breakerMinTrades,
+        thresholdLoss: this.deps.explorationConfig.breakerMaxCumLoss,
+      };
+      try {
+        await this.deps.setTradingConfig(
+          'direction_exploration_status',
+          status,
+          `Direction exploration breaker ${status.state}`,
+        );
+      } catch (err) {
+        this.deps.logger.warn({ err }, 'Failed to persist direction_exploration_status');
+      }
+    }
+
     return tripped;
   }
 
