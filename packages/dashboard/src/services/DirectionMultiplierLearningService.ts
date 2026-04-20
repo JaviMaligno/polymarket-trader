@@ -291,7 +291,7 @@ export class DirectionMultiplierLearningService extends EventEmitter {
            ELSE 'long'
          END AS duration_band,
          COALESCE(pp.realized_pnl, 0) AS realized_pnl,
-         COALESCE(dm.weight, $2) AS direction_multiplier
+         COALESCE(pp.applied_direction_multiplier, dm.weight, $2) AS direction_multiplier
        FROM paper_positions pp
        JOIN markets m ON m.id = pp.market_id
        LEFT JOIN LATERAL (

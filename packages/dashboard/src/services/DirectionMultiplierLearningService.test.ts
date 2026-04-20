@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { bucketDirectionMultiplier, DEFAULT_CONFIG, deriveDirectionMultiplierPolicy, type DirectionLearningRow } from './DirectionMultiplierLearningService.js';
 
 function repeat(row: DirectionLearningRow, count: number): DirectionLearningRow[] {
@@ -102,5 +102,27 @@ describe('DirectionMultiplierLearningService — widened buckets', () => {
     expect(DEFAULT_CONFIG.maxMultiplier).toBe(1.0);
     expect(DEFAULT_CONFIG.maxPositiveMultiplier).toBe(1.0);
     expect(DEFAULT_CONFIG.minMultiplier).toBe(-1.25);
+  });
+});
+
+describe('DirectionMultiplierLearningService — query COALESCE', () => {
+  it('learner query prefers pp.applied_direction_multiplier over signal_weights_history', async () => {
+    // Inspect the SQL text the service would run — we do not need a live DB.
+    // The service uses `query` from index.js; we stub it and assert the SQL contains
+    // the COALESCE in the required order.
+    const indexMod = await import('../database/index.js');
+    const querySpy = vi.spyOn(indexMod, 'query').mockResolvedValue({ rows: [] } as any);
+    const isDatabaseConfiguredSpy = vi.spyOn(indexMod, 'isDatabaseConfigured').mockReturnValue(true);
+    const signalWeightsMod = await import('../database/repositories.js');
+    vi.spyOn(signalWeightsMod.signalWeightsRepo, 'get').mockResolvedValue({ weight: -1.0 } as any);
+
+    const { DirectionMultiplierLearningService } = await import('./DirectionMultiplierLearningService.js');
+    const svc = new DirectionMultiplierLearningService();
+    await svc.evaluate();
+
+    const sqlExecuted = querySpy.mock.calls.map(c => c[0] as string).join('\n');
+    expect(sqlExecuted).toMatch(/COALESCE\s*\(\s*pp\.applied_direction_multiplier\s*,\s*dm\.weight\s*,\s*\$2\s*\)/i);
+    querySpy.mockRestore();
+    isDatabaseConfiguredSpy.mockRestore();
   });
 });
