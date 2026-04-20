@@ -333,6 +333,8 @@ export interface PaperPosition {
   market_score_at_entry?: number | null;
   score_dimensions_at_entry?: Record<string, unknown> | null;
   execution_mode?: string;
+  applied_direction_multiplier?: number | null;
+  was_exploration?: boolean;
 }
 
 export const paperPositionsRepo = {
@@ -342,8 +344,8 @@ export const paperPositionsRepo = {
        (market_id, token_id, side, size, avg_entry_price, current_price,
         unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
         opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry,
-        execution_mode)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+        execution_mode, applied_direction_multiplier, was_exploration)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
       [
         position.market_id,
         position.token_id,
@@ -362,6 +364,8 @@ export const paperPositionsRepo = {
         position.market_score_at_entry ?? null,
         position.score_dimensions_at_entry != null ? JSON.stringify(position.score_dimensions_at_entry) : null,
         position.execution_mode ?? 'paper',
+        position.applied_direction_multiplier ?? null,
+        position.was_exploration ?? false,
       ]
     );
   },
@@ -422,8 +426,8 @@ export const paperPositionsRepo = {
            (market_id, token_id, side, size, avg_entry_price, current_price,
             unrealized_pnl, unrealized_pnl_pct, realized_pnl, stop_loss, take_profit,
             opened_at, signal_type, metadata, market_score_at_entry, score_dimensions_at_entry,
-            execution_mode)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+            execution_mode, applied_direction_multiplier, was_exploration)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
           [
             position.market_id, position.token_id, position.side, position.size,
             position.avg_entry_price, position.current_price,
@@ -433,6 +437,8 @@ export const paperPositionsRepo = {
             position.market_score_at_entry ?? null,
             position.score_dimensions_at_entry != null ? JSON.stringify(position.score_dimensions_at_entry) : null,
             position.execution_mode ?? 'paper',
+            position.applied_direction_multiplier ?? null,
+            position.was_exploration ?? false,
           ]
         );
         return { opened: true };
