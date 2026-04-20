@@ -479,4 +479,72 @@ describe('AutoSignalExecutor', () => {
       expect(longSharesA).toBe(longSharesB);
     });
   });
+
+  // =========================================================
+  // T11: direction multiplier + exploration flag propagation
+  // =========================================================
+  describe('AutoSignalExecutor — direction multiplier propagation', () => {
+    function fullMockChain() {
+      (query as any).mockImplementation((sql: string) => {
+        if (sql.includes('FROM markets WHERE id')) {
+          return Promise.resolve({ rows: [{ is_active: true, is_resolved: false, end_date: null }] });
+        }
+        if (sql.includes('FROM paper_account')) {
+          return Promise.resolve({ rows: [{ available_capital: '100000', current_capital: '10000' }] });
+        }
+        if (sql.includes('market_score') && sql.includes('current_price_yes')) {
+          return Promise.resolve({ rows: [{ market_score: '0.5', current_price_yes: '0.5', volume_24h: '1000', spread: '0.01', end_date: null }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+    }
+
+    function buildCombinedSignal(overrides: Partial<SignalResult> & { appliedDirectionMultiplier?: number; wasExploration?: boolean }): SignalResult {
+      const { appliedDirectionMultiplier, wasExploration, ...rest } = overrides;
+      const base = makeSignal(rest);
+      return {
+        ...base,
+        ...(appliedDirectionMultiplier !== undefined ? { appliedDirectionMultiplier } : {}),
+        ...(wasExploration !== undefined ? { wasExploration } : {}),
+      } as SignalResult;
+    }
+
+    function buildExecutor() {
+      return new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
+    }
+
+    it('passes appliedDirectionMultiplier and wasExploration to paperPositionsRepo', async () => {
+      const openSpy = vi.spyOn(paperPositionsRepo, 'openPositionAtomically')
+        .mockResolvedValue({ opened: true });
+      fullMockChain();
+      const signal = buildCombinedSignal({
+        direction: 'long',
+        strength: 0.4,
+        confidence: 0.7,
+        appliedDirectionMultiplier: 0.75,
+        wasExploration: true,
+      });
+      const executor = buildExecutor();
+      await executor.processSignal(signal);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+      const positionArg = openSpy.mock.calls[0][0];
+      expect(positionArg.applied_direction_multiplier).toBe(0.75);
+      expect(positionArg.was_exploration).toBe(true);
+      openSpy.mockRestore();
+    });
+
+    it('defaults both fields to null/false when signal omits them', async () => {
+      const openSpy = vi.spyOn(paperPositionsRepo, 'openPositionAtomically')
+        .mockResolvedValue({ opened: true });
+      fullMockChain();
+      const signal = buildCombinedSignal({ direction: 'long', strength: 0.4, confidence: 0.7 });
+      const executor = buildExecutor();
+      await executor.processSignal(signal);
+      expect(openSpy).toHaveBeenCalledTimes(1);
+      const positionArg = openSpy.mock.calls[0][0];
+      expect(positionArg.applied_direction_multiplier ?? null).toBeNull();
+      expect(positionArg.was_exploration ?? false).toBe(false);
+      openSpy.mockRestore();
+    });
+  });
 });
