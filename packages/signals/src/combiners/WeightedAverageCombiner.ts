@@ -53,7 +53,8 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   private parameters: WeightedAverageParams;
   /** Multiplier applied to combined strength before direction determination.
    *  -1 = flip all signals (contrarian). Context overrides are stored separately
-   *  so market-type-specific signal weights remain independent from direction policy. */
+   *  so market-type-specific signal weights remain independent from direction policy.
+   *  Default -1 (contrarian/flip); callers can override per context key for exploration. */
   private directionMultiplier: number = -1;
   private contextDirectionMultipliers: Record<string, number> = {};
 
@@ -196,6 +197,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       ttlMs: Math.min(...usedSignals.map(s => s.signal.ttlMs)),
       componentSignals: usedSignals.map(s => s.signal),
       weights: this.getCurrentWeights(usedSignals),
+      appliedDirectionMultiplier: multiplier,
       metadata: {
         combinerType: 'weighted_average',
         signalCount: usedSignals.length,

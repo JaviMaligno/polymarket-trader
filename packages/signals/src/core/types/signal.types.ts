@@ -168,8 +168,15 @@ export interface CombinedSignalOutput extends SignalOutput {
   /** Individual signals that contributed */
   componentSignals: SignalOutput[];
 
-  /** Weights used for each signal */
+  /** Weights used in combination */
   weights: Record<string, number>;
+
+  /** Multiplier applied to combined strength (post-flip value). Defaults to 1.0. */
+  appliedDirectionMultiplier: number;
+
+  /** Whether the multiplier came from epsilon-greedy exploration slot.
+   *  False for segment hits, global fallback, and breaker-tripped fallback. */
+  wasExploration?: boolean;
 }
 
 export interface ISignalCombiner {
