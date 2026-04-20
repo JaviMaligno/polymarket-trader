@@ -198,6 +198,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       componentSignals: usedSignals.map(s => s.signal),
       weights: this.getCurrentWeights(usedSignals),
       appliedDirectionMultiplier: multiplier,
+      wasExploration: false,  // enrichCombinedWithDirection overwrites this when exploration is active
       metadata: {
         combinerType: 'weighted_average',
         signalCount: usedSignals.length,

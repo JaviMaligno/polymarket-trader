@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import fs from 'fs';
+import path from 'path';
 import { DirectionResolver } from '../DirectionResolver.js';
 import { enrichCombinedWithDirection } from '../SignalEngine.js';
 import type { DirectionMultiplierPolicy } from '../DirectionMultiplierPolicy.js';
@@ -81,5 +83,21 @@ describe('Direction exploration — end-to-end integration', () => {
     expect(resolution.reason).toBe('breaker_tripped');
     expect(resolution.wasExploration).toBe(false);
     expect(resolution.multiplier).toBe(-1.0);
+  });
+});
+
+describe('convertToSignalResult propagation (source-pinning)', () => {
+  it('preserves appliedDirectionMultiplier and wasExploration from enriched output to SignalResult', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../SignalEngine.ts'),
+      'utf8',
+    );
+    const fnStart = source.indexOf('convertToSignalResult(');
+    expect(fnStart).toBeGreaterThan(-1);
+    // Find the end of the function body by looking for the next JSDoc comment
+    const fnEnd = source.indexOf('/**\n   * Send signals', fnStart);
+    const fnBody = source.substring(fnStart, fnEnd);
+    expect(fnBody).toContain('appliedDirectionMultiplier');
+    expect(fnBody).toContain('wasExploration');
   });
 });

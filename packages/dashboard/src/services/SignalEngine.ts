@@ -15,12 +15,7 @@ import { signalWeightsRepo, tradingConfigRepo } from '../database/repositories.j
 import { getTradingAutomation } from './TradingAutomation.js';
 import { getDbEventListener } from './DbEventListener.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
-import {
-  DEFAULT_DIRECTION_MULTIPLIER_POLICY,
-  buildDirectionMultiplierMap,
-  sanitizeDirectionMultiplierPolicy,
-  type DirectionMultiplierPolicy,
-} from './DirectionMultiplierPolicy.js';
+import { DEFAULT_DIRECTION_MULTIPLIER_POLICY } from './DirectionMultiplierPolicy.js';
 import type { DirectionResolver, DirectionResolution } from './DirectionResolver.js';
 
 
@@ -139,7 +134,6 @@ export class SignalEngine extends EventEmitter {
   private activeMarkets: ActiveMarket[] = [];
   private lastComputeTime: Date | null = null;
   private signalsGenerated = 0;
-  private directionMultiplierPolicy: DirectionMultiplierPolicy = DEFAULT_DIRECTION_MULTIPLIER_POLICY;
   private readonly directionResolver: DirectionResolver;
 
   constructor(config: SignalEngineConfig) {
@@ -311,18 +305,11 @@ export class SignalEngine extends EventEmitter {
         ? parseFloat(String(dmEntry.weight))
         : DEFAULT_DIRECTION_MULTIPLIER_POLICY.global;
 
-      const configuredPolicy = await tradingConfigRepo.get<Partial<DirectionMultiplierPolicy>>(
-        'direction_multiplier_policy'
-      );
-      this.directionMultiplierPolicy = sanitizeDirectionMultiplierPolicy(
-        configuredPolicy,
-        globalDirectionMultiplier
-      );
-
+      // Per-market direction is now owned by DirectionResolver.resolve() on every signal;
+      // only the global fallback multiplier (for the combiner's internal default) is synced here.
       if (dmEntry) {
         this.combiner.setDirectionMultiplier(globalDirectionMultiplier);
       }
-      this.combiner.setDirectionMultipliers(buildDirectionMultiplierMap(this.directionMultiplierPolicy));
     } catch (error) {
       console.error('[SignalEngine] Failed to sync weights:', error);
     }
@@ -1053,7 +1040,7 @@ export class SignalEngine extends EventEmitter {
    * Returns null if market price is extreme (no profitable trade possible)
    */
   private convertToSignalResult(
-    output: SignalOutput,
+    output: SignalOutput & { appliedDirectionMultiplier?: number; wasExploration?: boolean },
     market: ActiveMarket
   ): SignalResult | null {
     // Dynamic price filter based on market type
@@ -1098,6 +1085,8 @@ export class SignalEngine extends EventEmitter {
       price,
       marketType: market.marketType,
       metadata: output.metadata,
+      appliedDirectionMultiplier: output.appliedDirectionMultiplier,
+      wasExploration: output.wasExploration ?? false,
     };
   }
 

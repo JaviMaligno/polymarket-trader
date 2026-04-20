@@ -176,7 +176,7 @@ export interface CombinedSignalOutput extends SignalOutput {
 
   /** Whether the multiplier came from epsilon-greedy exploration slot.
    *  False for segment hits, global fallback, and breaker-tripped fallback. */
-  wasExploration?: boolean;
+  wasExploration: boolean;
 }
 
 export interface ISignalCombiner {
