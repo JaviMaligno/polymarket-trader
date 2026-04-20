@@ -120,6 +120,12 @@ class DirectionResolver {
 5. Roll `rng() < epsilon`. If miss → return global with `reason: 'global'`.
 6. Hit: `sampled = min + rng() * (max - min)` → return `{ multiplier: sampled, segmentId: null, wasExploration: true, reason: 'exploration' }`.
 
+**Policy caching:** `policyProvider` is expected to cache internally (TTL ≥ 60s) since `resolve()` is called per-market per-signal-cycle (~15 markets × 60s cadence = 15 calls/min). The learner writes the policy every 6h, so a 60s–5min TTL is safe. The existing `tradingConfigRepo` has no cache — wrap it in a memoizer at the DirectionResolver's policyProvider or reuse any existing cache in SignalEngine for the same key. Decision deferred to implementation, but required.
+
+**Natural bias of sampled distribution:** `WeightedAverageCombiner` discards any combined signal where `|strength * multiplier| < minCombinedStrength` (0.27). For a raw strength of ~0.5 (typical), exploration multipliers below ~0.55 produce no trade. Effective exploration is thus weighted toward the upper half of `[0, 1.0]`. This is a desirable filter — near-zero multipliers correspond to "no signal" and shouldn't trade anyway — but it means we won't get data points in `near_zero` bucket from exploration alone. The `near_zero` bucket will only see meaningful trades via the learner promoting into it, which is self-consistent.
+
+**Async transition:** `SignalEngine`'s current call to `resolveDirectionMultiplier(policy, ctx)` is synchronous; `directionResolver.resolve(ctx)` is async (must await policy + breaker). The per-market generation path already awaits other repos; adding one more await is mechanical but must be threaded through any sync-only helpers.
+
 **Circuit breaker logic (`isBreakerTripped`):**
 
 ```sql
@@ -131,7 +137,20 @@ WHERE was_exploration = true
   AND realized_pnl IS NOT NULL;
 ```
 
-Tripped iff `explore_count >= breakerMinTrades AND explore_pnl < breakerMaxCumLoss`. Result cached for `breakerCacheTtlMs` (default 5 min) to avoid per-signal queries. On trip, emits event `direction_exploration:breaker_tripped` and writes a note to `trading_config` key `direction_exploration_status`.
+Tripped iff `explore_count >= breakerMinTrades AND explore_pnl < breakerMaxCumLoss`. Result cached for `breakerCacheTtlMs` (default 5 min) to avoid per-signal queries. On trip, emits event `direction_exploration:breaker_tripped` and writes a status object to `trading_config` key `direction_exploration_status`:
+
+```json
+{
+  "state": "tripped",
+  "trippedAt": "2026-04-25T14:22:10Z",
+  "exploreCount": 22,
+  "explorePnl": -172.45,
+  "thresholdTrades": 20,
+  "thresholdLoss": -150
+}
+```
+
+When the breaker un-trips (because the 7-day rolling window has evicted the losing trades), the next `resolve()` call that finds it un-tripped rewrites the status with `{ "state": "active", ... }`. This state transition is observable by the daily review script via a simple `SELECT value FROM trading_config WHERE key = 'direction_exploration_status'`.
 
 ### 2. `DirectionMultiplierLearningService` (modify)
 
@@ -151,6 +170,15 @@ if (multiplier < 0.25)  return 'near_zero';
 if (multiplier < 0.75)  return 'weak_positive';
 return 'strong_positive';
 ```
+
+**Learner query modification (critical):** the existing query joins `signal_weights_history` to recover the multiplier-at-trade-time. That column only tracks **global** multiplier changes and would mis-attribute every exploration trade to whichever global value was active at the time (e.g. `-1.0`), making multi-bucket data invisible to the learner. Fix:
+
+```sql
+-- COALESCE prefers the per-trade applied value; falls back to historical global for legacy rows
+COALESCE(pp.applied_direction_multiplier, dm.weight, $2) AS direction_multiplier
+```
+
+This ensures exploration trades and future per-segment overrides are bucketed by the multiplier actually applied to them, not by the contemporaneous global.
 
 No other learner logic changes. Promotion thresholds (`minSegmentTrades=24`, `minCandidateTrades=8`, `minImprovementPerTrade=0.75`, `minWinRateLift=0.08`) unchanged — we do **not** relax promotion criteria.
 
@@ -284,11 +312,16 @@ Kill switch: set `ENABLE_DIRECTION_EXPLORATION=false` and restart `dashboard-api
 ## Implementation sequence
 
 Single PR; tasks will be detailed in the implementation plan:
-1. DB migration DDL in `server.ts` startup
-2. `DirectionResolver` module + unit tests (deterministic RNG, mocked repo)
-3. `DirectionMultiplierLearningService` config + bucket updates (with test coverage for new buckets)
-4. `WeightedAverageCombiner` output extension (typed field + tests)
-5. `SignalEngine` integration (wire resolver, enrich output)
-6. `AutoSignalExecutor` + `paperPositionsRepo.open()` param propagation
-7. Env vars in `docker-compose.gcp.yml`
-8. Integration test: end-to-end signal flow with mocked RNG hitting exploration branch
+1. DB migration DDL in `server.ts` startup (must run before any service that inserts into `paper_positions`)
+2. `paperPositionsRepo.open()` signature + INSERT extension
+3. `WeightedAverageCombiner` output extension (typed field + tests)
+4. `DirectionResolver` module + unit tests (deterministic RNG, mocked repo, breaker state transitions)
+5. `DirectionMultiplierLearningService` updates:
+   - `DEFAULT_CONFIG` range + `maxPositiveMultiplier`
+   - `bucketDirectionMultiplier` new buckets
+   - Learner SQL query: prefer `pp.applied_direction_multiplier` via COALESCE
+6. `SignalEngine` integration: inject resolver, replace sync `resolveDirectionMultiplier` with `await resolver.resolve()`, enrich output with `wasExploration` + `metadata.direction`
+7. `AutoSignalExecutor` propagates `appliedDirectionMultiplier` and `wasExploration` to repo
+8. Env vars in `docker-compose.gcp.yml`
+9. Audit of non-signal callers of `paperPositionsRepo.open()` (`start-paper-trading.js`, any test harness); leave legacy defaults where present
+10. Integration test: end-to-end signal flow with mocked RNG hitting exploration branch, and a breaker-trip scenario that falls back to global
