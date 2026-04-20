@@ -67,6 +67,48 @@ describe('paperPositionsRepo.get', () => {
   });
 });
 
+describe('paperPositionsRepo — direction multiplier fields', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(query).mockResolvedValue({ rows: [], rowCount: 0 } as any);
+  });
+
+  it('includes applied_direction_multiplier and was_exploration in INSERT', async () => {
+    await paperPositionsRepo.insert({
+      market_id: 'mkt1',
+      token_id: 'tok1',
+      side: 'long',
+      size: 10,
+      avg_entry_price: 0.5,
+      current_price: 0.5,
+      opened_at: new Date('2026-04-20T12:00:00Z'),
+      applied_direction_multiplier: 0.75,
+      was_exploration: true,
+    });
+    const sql = vi.mocked(query).mock.calls[0][0] as string;
+    const params = vi.mocked(query).mock.calls[0][1] as unknown[];
+    expect(sql).toContain('applied_direction_multiplier');
+    expect(sql).toContain('was_exploration');
+    expect(params).toContain(0.75);
+    expect(params).toContain(true);
+  });
+
+  it('defaults applied_direction_multiplier to null and was_exploration to false when omitted', async () => {
+    await paperPositionsRepo.insert({
+      market_id: 'mkt1',
+      token_id: 'tok1',
+      side: 'long',
+      size: 10,
+      avg_entry_price: 0.5,
+      current_price: 0.5,
+      opened_at: new Date(),
+    });
+    const params = vi.mocked(query).mock.calls[0][1] as unknown[];
+    expect(params).toContain(null);
+    expect(params).toContain(false);
+  });
+});
+
 describe('paperPositionsRepo.openPositionAtomically', () => {
   let mockClient: { query: ReturnType<typeof vi.fn> };
 

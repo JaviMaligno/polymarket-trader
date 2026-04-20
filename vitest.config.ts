@@ -7,6 +7,7 @@ export default defineConfig({
     // resolve them without a pre-built dist/ directory.
     alias: {
       '@polymarket-trader/backtest': path.resolve(__dirname, 'packages/backtest/src/index.ts'),
+      '@polymarket-trader/signals': path.resolve(__dirname, 'packages/signals/src/index.ts'),
     },
   },
   test: {

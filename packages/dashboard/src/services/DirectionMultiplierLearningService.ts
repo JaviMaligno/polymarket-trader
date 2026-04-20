@@ -63,7 +63,7 @@ export interface DirectionMultiplierLearningSummary {
   segments: SegmentSummary[];
 }
 
-const DEFAULT_CONFIG: DirectionMultiplierLearningConfig = {
+export const DEFAULT_CONFIG: DirectionMultiplierLearningConfig = {
   enabled: true,
   evaluationIntervalMs: 6 * 60 * 60 * 1000,
   lookbackDays: 30,
@@ -73,14 +73,15 @@ const DEFAULT_CONFIG: DirectionMultiplierLearningConfig = {
   minWinRateLift: 0.08,
   maxSegments: 8,
   minMultiplier: -1.25,
-  maxMultiplier: 0.1,
-  maxPositiveMultiplier: 0.1,
+  maxMultiplier: 1.0,
+  maxPositiveMultiplier: 1.0,
 };
 
-function bucketDirectionMultiplier(multiplier: number): string {
-  if (multiplier <= -1.1) return 'strong_negative';
-  if (multiplier < -0.25) return 'weak_negative';
-  return 'non_negative';
+export function bucketDirectionMultiplier(multiplier: number): string {
+  if (multiplier <= -0.5) return 'strong_negative';
+  if (multiplier < 0.25)  return 'near_zero';
+  if (multiplier < 0.75)  return 'weak_positive';
+  return 'strong_positive';
 }
 
 function scoreCandidate(stats: CandidateStats): number {
@@ -290,7 +291,7 @@ export class DirectionMultiplierLearningService extends EventEmitter {
            ELSE 'long'
          END AS duration_band,
          COALESCE(pp.realized_pnl, 0) AS realized_pnl,
-         COALESCE(dm.weight, $2) AS direction_multiplier
+         COALESCE(pp.applied_direction_multiplier, dm.weight, $2) AS direction_multiplier
        FROM paper_positions pp
        JOIN markets m ON m.id = pp.market_id
        LEFT JOIN LATERAL (
