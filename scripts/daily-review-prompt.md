@@ -256,9 +256,38 @@ The issue should have:
 
 Do NOT send email or Slack notifications yourself. The workflow handles that automatically after your step using `format-review.js` and `send-review-email.js`. Focus on creating the issue and implementing fixes.
 
+## No Reactive Parameter Tuning
+
+Before creating ANY PR that bumps a threshold, extends a cooldown, raises a memory limit, tweaks a magic number in code, or changes an env var in `docker-compose.gcp.yml`, run these three checks:
+
+1. **Structural cause identified?** Re-read the root-cause paragraph you wrote in the issue. If it names a structural problem (wrong signal class for this market type, missing gate on a feature dimension, strategy mismatch with market shape, expiry-aware logic absent, etc.), the parameter bump is NOT the fix. Document the structural fix in the issue and do NOT create a PR. A human will design it.
+
+2. **Recent tuning of the same knob?** Check merged PRs in the last 14 days:
+   ```bash
+   gh pr list --state merged --search "<parameter_name_or_file>" --limit 5
+   ```
+   If the same parameter (or the blocker/gate/service it belongs to) was tuned in that window → you are in a tuning loop. STOP. Submit the issue only, prefix the alert with `[TUNING LOOP]`, and propose a structural alternative.
+
+3. **Would a class-level gate kill the whole pattern?** If the problem is phrased as "market X slipped through the blocker", and a feature-based gate (market type × time-to-resolution × price zone × signal type, or similar) would kill the pattern for all future markets of that class, that is the correct fix. A per-market threshold chase is not.
+
+If any check says "yes to structural fix" or "yes, recent tuning" → the parameter bump is forbidden. Leave the structural design for human review in the issue.
+
+### Containment PRs — STRICT criteria
+
+A `temporary containment` PR (threshold bump, cooldown extension, memory knob, env var tweak) is acceptable ONLY when ALL of these hold:
+
+- Bleed is acute: >2% capital/day OR an invariant is actively being violated
+- Root cause is genuinely unknown (no structural hypothesis has been identified in the issue)
+- No related parameter was tuned by a merged PR in the last 14 days
+- A follow-up issue exists (or is created in this run) with a concrete structural-fix proposal
+
+If any criterion fails → issue only, no PR. Label `temporary containment` is NOT a license to patch; it is a last resort when the three checks above all pass.
+
 ## Step 4: Implement Fixes as PRs
 
 **Only fix what you fully understand.** If you can't explain the root cause, document it in the issue for manual investigation — don't guess with a PR.
+
+**Before touching any parameter, threshold, cooldown, memory limit, or env var, pass the three checks in "No Reactive Parameter Tuning" above.** If the checks forbid the PR, skip Step 4 for that item and leave it in the issue for human review.
 
 ### PR Discipline
 
@@ -268,7 +297,7 @@ Do NOT send email or Slack notifications yourself. The workflow handles that aut
 - **Test the invariants** after your fix — don't just check "containers healthy"
 - **Do NOT merge PRs yourself** — leave them open for human review. The auto-merge step in the workflow will handle small PRs that meet the criteria.
 - **Do NOT use `Fixes #N` or `Closes #N`** in commit messages or PR bodies — the daily review issue must stay open for tracking. Use `Related to #N` instead.
-- **Do NOT submit mitigation-only PRs as if they were root fixes.** If the change merely reduces blast radius (thresholds, memory knobs, cooldown tuning), label it clearly as `temporary containment` in the PR body.
+- **Do NOT submit mitigation-only PRs as if they were root fixes.** Thresholds, memory knobs, cooldown tuning, and env-var tweaks are governed by the "No Reactive Parameter Tuning" section above. The `temporary containment` label alone does NOT authorize the PR — it must also pass the three structural checks. When in doubt, skip the PR and leave the structural proposal in the issue.
 
 ### 4a. Create branch and implement
 
