@@ -148,6 +148,11 @@ services:
       EXECUTOR_MARKET_COOLDOWN_MS: "1800000"
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
+      # Raise 7-day loser-ban win-rate threshold from default 15% to 35%.
+      # Markets with ≥5 losses AND win-rate < 35% over 7 days are blocked.
+      # Catches markets like 1712302 (WTI $70 LOW) with ~25-33% win-rate that
+      # slip through the 15% gate. Temporary containment — revisit after April WTI expiry.
+      EXECUTOR_LONG_TERM_MAX_WIN_RATE: "0.35"
       # Market type gate: only trade these types live, shadow-trade the rest
       # Includes event_financial (WTI, Fed, indices) — markets with continuous underlying
       ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial"
