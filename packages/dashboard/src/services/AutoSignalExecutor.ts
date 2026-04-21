@@ -232,7 +232,10 @@ export class AutoSignalExecutor extends EventEmitter {
    * Record a shadow trade for a signal blocked by the market type gate.
    * Fire-and-forget — errors are logged but don't affect signal processing.
    */
-  private async insertShadowTrade(signal: SignalResult): Promise<void> {
+  private async insertShadowTrade(
+    signal: SignalResult,
+    signalTypeOverride?: string
+  ): Promise<void> {
     // Compute theoretical position size using the same logic as openPosition
     let weight = 0.5;
     try {
@@ -259,7 +262,7 @@ export class AutoSignalExecutor extends EventEmitter {
         shares,
         Math.abs(signal.strength),
         signal.confidence,
-        signal.signalId,
+        signalTypeOverride ?? signal.signalId,
       ]
     );
   }
