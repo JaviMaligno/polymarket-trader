@@ -151,9 +151,18 @@ describe('EventOTMGate (gate 0e)', () => {
   });
 
   it('passes at exact TTR boundary (strict less-than)', async () => {
-    mockMarketWithTTR(240); // exactly the default threshold
-    const result = await executor.processSignal(makeSignal({ price: 0.12 }));
-    expect(result.reason || '').not.toMatch(/event_otm_near_expiry/);
+    // Freeze Date.now() so the TTR seen by the executor matches the TTR set by the mock.
+    // Without this, the elapsed time between mockMarketWithTTR(240) and the executor's
+    // Date.now() reading drops the computed TTR below 240h, triggering the gate unexpectedly.
+    const frozenNow = Date.now();
+    const dateNowSpy = vi.spyOn(Date, 'now').mockReturnValue(frozenNow);
+    try {
+      mockMarketWithTTR(240); // exactly the default threshold
+      const result = await executor.processSignal(makeSignal({ price: 0.12 }));
+      expect(result.reason || '').not.toMatch(/event_otm_near_expiry/);
+    } finally {
+      dateNowSpy.mockRestore();
+    }
   });
 
   it('passes at exact PRICE_LO boundary (strict less-than)', async () => {

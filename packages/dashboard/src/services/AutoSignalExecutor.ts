@@ -144,6 +144,19 @@ const PER_MARKET_LOSS_BLOCK_WINDOW_MS = parseInt(process.env.EXECUTOR_PER_MARKET
 const LONG_TERM_LOSS_WINDOW_MS = parseInt(process.env.EXECUTOR_LONG_TERM_LOSS_WINDOW_MS || String(7 * 24 * 60 * 60 * 1000), 10);
 const LONG_TERM_MIN_LOSSES = parseInt(process.env.EXECUTOR_LONG_TERM_MIN_LOSSES || '5', 10);
 const LONG_TERM_MAX_WIN_RATE = parseFloat(process.env.EXECUTOR_LONG_TERM_MAX_WIN_RATE || '0.15');
+// Parse an env var as a finite number; warn and fall back to the default if it parses to NaN/Infinity.
+// Prevents typo'd env vars from silently disabling gates via NaN comparisons (e.g., `NaN > 0 === false`).
+function parseFiniteEnvNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    console.warn(`[AutoExecutor] Invalid ${name}=${raw}; using default ${fallback}`);
+    return fallback;
+  }
+  return parsed;
+}
+
 // Gate 0e: event_financial markets with bounded expiry and extreme-band prices
 // are fair-valued asymmetric priors, not mispricing. Block opens on the conjunction.
 // Structural: market types subject to the gate.
@@ -154,10 +167,10 @@ const EVENT_OTM_MARKET_TYPES = new Set(
     .filter(Boolean)
 );
 // Tunable: hours-to-resolution threshold. Default 240 = 10 days.
-const EVENT_OTM_TTR_HOURS = parseFloat(process.env.EXECUTOR_EVENT_OTM_TTR_HOURS || '240');
-// Tunable: extreme-price bounds. Prices outside [LO, HI] are considered extreme.
-const EVENT_OTM_PRICE_LO = parseFloat(process.env.EXECUTOR_EVENT_OTM_PRICE_LO || '0.20');
-const EVENT_OTM_PRICE_HI = parseFloat(process.env.EXECUTOR_EVENT_OTM_PRICE_HI || '0.80');
+const EVENT_OTM_TTR_HOURS = parseFiniteEnvNumber('EXECUTOR_EVENT_OTM_TTR_HOURS', 240);
+// Tunable: extreme-price bounds. Prices (strictly) outside [LO, HI] are considered extreme.
+const EVENT_OTM_PRICE_LO = parseFiniteEnvNumber('EXECUTOR_EVENT_OTM_PRICE_LO', 0.20);
+const EVENT_OTM_PRICE_HI = parseFiniteEnvNumber('EXECUTOR_EVENT_OTM_PRICE_HI', 0.80);
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
 // Near-resolved price guard: block new opens when market is effectively decided
