@@ -144,6 +144,20 @@ const PER_MARKET_LOSS_BLOCK_WINDOW_MS = parseInt(process.env.EXECUTOR_PER_MARKET
 const LONG_TERM_LOSS_WINDOW_MS = parseInt(process.env.EXECUTOR_LONG_TERM_LOSS_WINDOW_MS || String(7 * 24 * 60 * 60 * 1000), 10);
 const LONG_TERM_MIN_LOSSES = parseInt(process.env.EXECUTOR_LONG_TERM_MIN_LOSSES || '5', 10);
 const LONG_TERM_MAX_WIN_RATE = parseFloat(process.env.EXECUTOR_LONG_TERM_MAX_WIN_RATE || '0.15');
+// Gate 0e: event_financial markets with bounded expiry and extreme-band prices
+// are fair-valued asymmetric priors, not mispricing. Block opens on the conjunction.
+// Structural: market types subject to the gate.
+const EVENT_OTM_MARKET_TYPES = new Set(
+  (process.env.EXECUTOR_EVENT_OTM_MARKET_TYPES || 'event_financial')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+// Tunable: hours-to-resolution threshold. Default 240 = 10 days.
+const EVENT_OTM_TTR_HOURS = parseFloat(process.env.EXECUTOR_EVENT_OTM_TTR_HOURS || '240');
+// Tunable: extreme-price bounds. Prices outside [LO, HI] are considered extreme.
+const EVENT_OTM_PRICE_LO = parseFloat(process.env.EXECUTOR_EVENT_OTM_PRICE_LO || '0.20');
+const EVENT_OTM_PRICE_HI = parseFloat(process.env.EXECUTOR_EVENT_OTM_PRICE_HI || '0.80');
 const NEAR_RESOLUTION_HOURS = 24;
 const MIN_CONFIDENCE_NEAR_RESOLUTION = 0.65;
 // Near-resolved price guard: block new opens when market is effectively decided
@@ -433,6 +447,51 @@ export class AutoSignalExecutor extends EventEmitter {
         // If we can't check positions, block the trade for safety
         console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : market_type_not_allowed (${effectiveMarketType}, position check failed)`);
         return { executed: false, reason: `market_type_not_allowed: ${effectiveMarketType}` };
+      }
+    }
+
+    // 0e. EventOTMGate: event_financial markets near expiry with extreme prices are
+    // fair-valued asymmetric priors, not mispricing. Block new opens; allow closes.
+    // Design: docs/plans/2026-04-21-event-otm-gate-design.md
+    if (
+      market &&
+      market.end_date &&
+      signal.marketType &&
+      EVENT_OTM_MARKET_TYPES.has(signal.marketType) &&
+      EVENT_OTM_TTR_HOURS > 0
+    ) {
+      const hoursToResolution =
+        (new Date(market.end_date).getTime() - Date.now()) / 3600000;
+      const priceExtreme =
+        signal.price < EVENT_OTM_PRICE_LO || signal.price > EVENT_OTM_PRICE_HI;
+
+      if (
+        hoursToResolution > 0 &&
+        hoursToResolution < EVENT_OTM_TTR_HOURS &&
+        priceExtreme
+      ) {
+        try {
+          const openPositions = await paperPositionsRepo.getAll();
+          const hasOpenPosition = openPositions.some((p) => p.market_id === signal.marketId);
+          if (!hasOpenPosition) {
+            console.log(
+              `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+                `event_otm_near_expiry (TTR=${hoursToResolution.toFixed(1)}h, price=${signal.price.toFixed(4)})`
+            );
+            this.insertShadowTrade(signal, 'event_otm_gated').catch(() => {});
+            return {
+              executed: false,
+              reason: `event_otm_near_expiry: TTR=${hoursToResolution.toFixed(1)}h, price=${signal.price.toFixed(4)}`,
+            };
+          }
+        } catch {
+          // If position check fails, block for safety (matches 0d behavior)
+          console.log(
+            `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+              `event_otm_near_expiry (position check failed)`
+          );
+          return { executed: false, reason: 'event_otm_near_expiry: position check failed' };
+        }
       }
     }
 
