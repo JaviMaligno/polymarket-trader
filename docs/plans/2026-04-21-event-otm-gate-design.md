@@ -112,7 +112,7 @@ Note: `insertShadowTrade` currently uses `signal.signalId` as `signal_type`. To 
 | Condition | Behavior |
 |-----------|----------|
 | `signal.marketType` null/undefined | Gate does not fire (0d already blocks unclassified) |
-| `market.end_date` null | Gate does not fire; `[AutoExecutor]` logs once per market |
+| `market.end_date` null | Gate does not fire (outer `&&` short-circuits) |
 | `hoursToResolution` negative (market expired) | Gate does not fire; 0a handles expired/resolved markets |
 | `EVENT_OTM_TTR_HOURS = 0` | Gate disabled — rollback mechanism |
 | `shadow_trades` INSERT fails | Fire-and-forget — signal still blocked; no blocking on logging |
@@ -195,8 +195,8 @@ Expected: shadow count > 0 within ~30 min (WTI signals generate every ~60s), and
 
 ## Out of scope
 
-- Adding a gate for upper extreme prices (>0.80) on the assumption of symmetric pathology. The design already handles it via `EVENT_OTM_PRICE_HI`. Empirical confirmation comes from production shadow data.
 - Force-close of existing open positions — rejected in brainstorm Q5 for consistency with existing gate patterns.
+- Asymmetric bounds (different ranges for lower vs upper extreme). The design treats the pathology as symmetric; empirical data on upper-extreme `event_financial` markets is sparse. Shadow-trade counts post-deploy will reveal if asymmetry is needed.
 - Broadening to `event_short`/`event_long` proactively — those types are currently blocked by `market_type` gate; this gate only runs on market types that pass `0d`. Future re-enabling of those types is a separate decision.
 - Refactor of entry-eligibility gates into a dedicated service — scope creep; current pattern is clear enough.
 - Optuna param-space expansion — intentionally deferred to a follow-up PR so initial defaults can be observed unperturbed.
