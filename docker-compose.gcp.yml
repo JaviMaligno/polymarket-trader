@@ -148,6 +148,12 @@ services:
       EXECUTOR_MARKET_COOLDOWN_MS: "1800000"
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
+      # Gate 0e: EventOTMGate — block opens on event_financial markets near expiry
+      # with extreme-band prices. See docs/plans/2026-04-21-event-otm-gate-design.md
+      EXECUTOR_EVENT_OTM_MARKET_TYPES: "event_financial"
+      EXECUTOR_EVENT_OTM_TTR_HOURS: "240"
+      EXECUTOR_EVENT_OTM_PRICE_LO: "0.20"
+      EXECUTOR_EVENT_OTM_PRICE_HI: "0.80"
       # Market type gate: only trade these types live, shadow-trade the rest
       # Includes event_financial (WTI, Fed, indices) — markets with continuous underlying
       ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial"
