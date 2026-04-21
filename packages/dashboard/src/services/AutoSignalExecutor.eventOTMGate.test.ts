@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../database/index.js', () => ({
   query: vi.fn(),
@@ -78,7 +78,6 @@ function mockMarketWithTTR(hoursFromNow: number | null, overrides?: {
 
 describe('EventOTMGate (gate 0e)', () => {
   let executor: AutoSignalExecutor;
-  const originalEnv = { ...process.env };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -91,10 +90,6 @@ describe('EventOTMGate (gate 0e)', () => {
     (paperPositionsRepo.getAll as any).mockResolvedValue([]);
   });
 
-  afterEach(() => {
-    process.env = { ...originalEnv };
-  });
-
   it('blocks WTI-like classic trap: event_financial, TTR 9d, price 0.12', async () => {
     mockMarketWithTTR(216); // 9 days
     const result = await executor.processSignal(makeSignal({ price: 0.12 }));
@@ -104,6 +99,8 @@ describe('EventOTMGate (gate 0e)', () => {
 
   it('records a shadow trade tagged event_otm_gated when gate blocks an open', async () => {
     mockMarketWithTTR(216);
+    // Depends on insertShadowTrade's shares>=1 gate: default weight 0.5 + price 0.12 keeps
+    // shares well above the floor. Changing signal defaults or maxPositionSize could void this.
     await executor.processSignal(makeSignal({ price: 0.12 }));
     // Locate the shadow_trades INSERT call among all query calls
     const shadowCalls = (query as any).mock.calls.filter(
@@ -145,7 +142,7 @@ describe('EventOTMGate (gate 0e)', () => {
   it('allows closing an existing position on a matching market', async () => {
     mockMarketWithTTR(216);
     (paperPositionsRepo.getAll as any).mockResolvedValue([
-      { market_id: 'market-wti-1712302', size: 10, closed_at: null },
+      { market_id: 'market-wti-1712302', size: 10 },
     ]);
     const result = await executor.processSignal(
       makeSignal({ price: 0.12, direction: 'short' }) // short = close of long
@@ -178,17 +175,13 @@ describe('EventOTMGate (gate 0e)', () => {
     expect(result.reason).toMatch(/event_otm_near_expiry/);
   });
 
-  it('is disabled when EXECUTOR_EVENT_OTM_TTR_HOURS=0', async () => {
-    process.env.EXECUTOR_EVENT_OTM_TTR_HOURS = '0';
-    // Rebuild executor to pick up env var at module-import time — NOT possible without
-    // module reload. The constants are read at module import, so env changes mid-test
-    // do not take effect. This test documents the rollback mechanism; actual
-    // verification happens via env override at deploy time. See failing-note below.
-    // (Left as a skipped placeholder; the module-level constants pattern is the
-    // project convention and not changed here.)
+  it.skip('is disabled when EXECUTOR_EVENT_OTM_TTR_HOURS=0 (env override not testable at runtime)', async () => {
+    // Gate constants are read at module import time, so mid-test env changes have
+    // no effect. Rollback is verified at deploy time via docker-compose env overrides.
+    // See docs/plans/2026-04-21-event-otm-gate-plan.md Task 1 for the limitation note.
   });
 
-  it('blocks custom market types when EXECUTOR_EVENT_OTM_MARKET_TYPES includes them', async () => {
-    // Same module-import-time caveat as above; leaving as a skipped placeholder.
+  it.skip('blocks custom market types when EXECUTOR_EVENT_OTM_MARKET_TYPES includes them', async () => {
+    // Same module-import-time caveat as the previous test.
   });
 });
