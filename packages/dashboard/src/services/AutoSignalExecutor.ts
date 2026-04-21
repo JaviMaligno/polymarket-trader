@@ -359,6 +359,7 @@ export class AutoSignalExecutor extends EventEmitter {
     //   - CLOB API's condition_id (stored as 'condition_id' in DB)
     // We search by BOTH to handle signals from PolymarketService (uses condition_id)
     let isNearResolution = false;
+    let market: { is_active: boolean; is_resolved: boolean; end_date: string | null } | null = null;
     try {
       const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date: string | null }>(
         `SELECT is_active, is_resolved, end_date FROM markets WHERE id = $1`,
@@ -370,7 +371,7 @@ export class AutoSignalExecutor extends EventEmitter {
         return { executed: false, reason: 'Market not found in database' };
       }
 
-      const market = marketCheck.rows[0];
+      market = marketCheck.rows[0];
       if (market.is_active === false) {
         console.log(`[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : Market is inactive`);
         return { executed: false, reason: 'Market is inactive' };
