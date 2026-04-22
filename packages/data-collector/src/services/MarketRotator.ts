@@ -253,7 +253,12 @@ export class MarketRotator {
       result.promoted++;
     }
 
-    // Step 4: Fetch cold candidates for demotion comparison and warming fill
+    // Step 4: Fetch cold candidates for demotion comparison and warming fill.
+    // Extreme-price markets (Yes <5% or >95%) are excluded at the source:
+    // MarketScorer can give them scores of 0.8+ via volume/liquidity alone, and
+    // without this filter they dominate the top of the candidate ranking and
+    // starve tradeable markets from all warming slots. Null price is treated as
+    // non-extreme (safe default, consistent with isExtremePrice in demotion).
     const candidateRes = await query<MarketRow>(
       `SELECT id, market_score, tracking_status, tracking_status_changed_at,
               current_price_yes, false as has_open_positions, 0 as bars_24h
@@ -262,6 +267,7 @@ export class MarketRotator {
          AND is_active = true AND is_resolved = false
          AND clob_token_id_yes IS NOT NULL
          AND market_score >= $1
+         AND (current_price_yes IS NULL OR (current_price_yes >= 0.05 AND current_price_yes <= 0.95))
        ORDER BY market_score DESC
        LIMIT 50`,
       [MIN_CANDIDATE_SCORE]

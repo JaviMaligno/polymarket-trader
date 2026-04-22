@@ -434,6 +434,42 @@ describe('MarketRotator', () => {
       expect(result.newWarming).toBeGreaterThanOrEqual(1);
     });
 
+    it('excludes extreme-price (untradeable) markets from cold candidate query', async () => {
+      // Rationale: the rotator ranks cold candidates by market_score DESC and fills
+      // warming slots with the top N. Prior to this gate, markets with prices <5% or
+      // >95% were scoring 0.8+ on volume/liquidity alone (tradeability = 0 is not
+      // sufficient to exclude them from the ranking). They starved tradeable markets
+      // from all warming slots — crypto markets received zero price data for 9+ days
+      // because every warming slot was consumed by extreme-price event markets.
+      //
+      // Fix: the candidate SQL must filter out extreme-price markets at the source.
+      const trackedRows = Array.from({ length: 25 }, (_, i) =>
+        makeMarket({ id: `active-${i}`, market_score: 0.60, tracking_status: 'active', bars_24h: 10 })
+      );
+
+      let candidateSql: string | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: trackedRows, command: 'SELECT', rowCount: trackedRows.length, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await rotator.rotate();
+
+      expect(candidateSql).not.toBeNull();
+      // Must reference current_price_yes in a filter clause
+      expect(candidateSql).toMatch(/current_price_yes/i);
+      // Must bound the tradeable range: lower bound in [0.05, 0.06], upper in [0.94, 0.95]
+      expect(candidateSql).toMatch(/0\.0[56]/);
+      expect(candidateSql).toMatch(/0\.9[45]/);
+    });
+
     it('skips demotions in emergency mode', async () => {
       const trackedRows = [
         makeMarket({ id: 'active-weak', market_score: 0.05, tracking_status: 'active', has_open_positions: false, bars_24h: 10 }),
