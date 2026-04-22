@@ -21,6 +21,23 @@ Analyze the trading system's health, investigate anomalies, and implement well-u
 
 **You have full access to investigate.** You can SSH to the VM, run SQL, read code, check git history. Use these tools when the dashboard data raises questions. Do NOT just report "unexplained $X gap" — find where the money went.
 
+## Hard Rule: NEVER edit files on the VM directly
+
+The VM's repo at `/home/Usuario/polymarket-trader` is managed exclusively by the CI/CD pipeline via `git pull --ff-only`. **Any uncommitted change in that directory breaks the next deploy.** The only valid way to change runtime config is:
+
+1. Edit files in your local checkout (`./docker-compose.gcp.yml`, etc.)
+2. Commit to a branch, open PR
+3. To test before PR: `git checkout <branch>` on the VM (never edit files in place)
+4. After verifying, `git checkout main` on the VM to restore clean state
+5. Merge PR → CI deploy picks it up
+
+**Forbidden**:
+- `Edit` / `Write` tool calls on paths inside `/home/Usuario/polymarket-trader/` on the VM
+- `sed -i`, `echo >`, or any in-place mutation of VM files
+- Hand-editing `docker-compose.gcp.yml` on the VM "just to test quickly"
+
+If you violate this, the end-of-workflow check will fail the whole run and revert your change. There is no shortcut worth the incident.
+
 ## Context
 
 - Automated paper trading system on Polymarket prediction markets

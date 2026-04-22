@@ -58,12 +58,12 @@ Present to user concisely (NOT as a GitHub issue):
 **PR verdict** (per PR):
 - Mergeable? Why/why not?
 - Code quality, test coverage, boundary cases
-
-**Blind spots** — things the auto-review missed:
-- Persistent issues flagged across multiple reviews without fix
-- Gradual degradation trends (compare with recent issues)
-- Whether previous fixes actually worked
-- Whether today's PRs prioritized mitigation over the actual infra/control root cause
+- **Patch vs root-cause depth** (MANDATORY for every PR): Does this fix the actual cause, or just make the symptom disappear? Ask:
+  - What problem upstream had to fail for this symptom to surface? Is that problem addressed?
+  - If this PR ships, does the same class of issue reappear in 1-7 days from a different angle?
+  - Is there a "longer-term investigation needed" sentence in the PR body? → That's almost always the real work, deferred.
+  - Is the fix an env var / threshold / allowlist tweak? → High prior for "patch". Flag and ask if the structural fix is tractable.
+  - Explicitly classify each PR: `root-cause` / `containment` / `patch` — and call out parches sold as solutions.
 
 **Real PnL check** (mandatory):
 Run this query to separate real from phantom PnL:
@@ -134,6 +134,7 @@ gcloud compute ssh polymarket-vm --zone=us-east1-b -- "docker stats --no-stream 
 - **No fix verification**: Never checks if merged PRs actually resolved the problem
 - **Over-classification of pre-reset artifacts**: Spends issue space on known gaps
 - **Phantom PnL blindness**: Reports headline PnL without checking for price inversions
+- **Direct VM edits (deploy footgun)**: Edits `/home/Usuario/polymarket-trader/docker-compose.gcp.yml` directly on the VM instead of via PR + CI. This leaves uncommitted changes that make the next CI `git pull --ff-only` fail. Always check `git status` on VM as part of the analysis.
 
 ## Historical Context: Price Inversion Bug
 

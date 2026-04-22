@@ -172,6 +172,36 @@ jobs:
               -d @slack.json "$SLACK_WEBHOOK_URL" && echo "Slack alert sent" || echo "::warning::Slack send failed"
           fi
 
+      - name: Verify VM working tree is clean
+        id: verify_vm_clean
+        if: always() && steps.gather.outputs.data_collected == 'true'
+        run: |
+          # Detect and revert any in-place edits the review made to VM-tracked files.
+          # These break the next CI `git pull --ff-only` and are explicitly forbidden
+          # by the prompt (see "Hard Rule: NEVER edit files on the VM directly").
+          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=30"
+
+          # Capture current state: any modified tracked files + any untracked files worth flagging.
+          DIRTY=$($SSH --command="cd /home/Usuario/polymarket-trader && git status --porcelain" 2>/dev/null || true)
+
+          if [ -z "$DIRTY" ]; then
+            echo "VM working tree is clean ✅"
+            echo "vm_clean=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "::error::VM working tree is dirty — daily-review edited files directly on the VM."
+          echo "Dirty files on VM:"
+          echo "$DIRTY"
+          echo ""
+
+          # Revert all tracked changes so the next CI deploy's `git pull --ff-only` works.
+          $SSH --command="cd /home/Usuario/polymarket-trader && git checkout -- . && git status --porcelain" 2>&1 | tee vm-revert.log
+
+          echo "vm_clean=false" >> $GITHUB_OUTPUT
+          # Fail the workflow so the violation is visible. The revert already happened.
+          exit 1
+
       - name: Capture Claude session ID
         id: capture_session
         if: always()
