@@ -155,8 +155,9 @@ services:
       EXECUTOR_EVENT_OTM_PRICE_LO: "0.20"
       EXECUTOR_EVENT_OTM_PRICE_HI: "0.80"
       # Market type gate: only trade these types live, shadow-trade the rest
-      # Includes event_financial (WTI, Fed, indices) — markets with continuous underlying
-      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial"
+      # event_financial: WTI, Fed, indices (continuous underlying)
+      # event_short: event markets with short resolution windows (better win rate than event_long)
+      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial,event_short"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Direction Exploration — set EPSILON=0 to disable
