@@ -176,27 +176,29 @@ jobs:
         id: verify_vm_clean
         if: always() && steps.gather.outputs.data_collected == 'true'
         run: |
-          # Detect and revert any in-place edits the review made to VM-tracked files.
-          # These break the next CI `git pull --ff-only` and are explicitly forbidden
-          # by the prompt (see "Hard Rule: NEVER edit files on the VM directly").
+          # Detect and revert any in-place edits the review made to tracked files
+          # in the VM repo. Only tracked modifications break the next CI
+          # `git pull --ff-only`; untracked files (e.g. review-history.json,
+          # pre-existing docker-compose.override.yml) are ignored.
           SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=30"
 
-          # Capture current state: any modified tracked files + any untracked files worth flagging.
-          DIRTY=$($SSH --command="cd /home/Usuario/polymarket-trader && git status --porcelain" 2>/dev/null || true)
+          # `git status --porcelain` lines beginning with '??' are untracked.
+          # Filter them out — we only care about modified/added/deleted tracked files.
+          DIRTY=$($SSH --command="cd /home/Usuario/polymarket-trader && git status --porcelain" 2>/dev/null | grep -v '^??' || true)
 
           if [ -z "$DIRTY" ]; then
-            echo "VM working tree is clean ✅"
+            echo "VM working tree is clean (no tracked modifications) ✅"
             echo "vm_clean=true" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "::error::VM working tree is dirty — daily-review edited files directly on the VM."
-          echo "Dirty files on VM:"
+          echo "::error::VM working tree has tracked modifications — daily-review edited repo files directly on the VM."
+          echo "Modified tracked files on VM:"
           echo "$DIRTY"
           echo ""
 
-          # Revert all tracked changes so the next CI deploy's `git pull --ff-only` works.
-          $SSH --command="cd /home/Usuario/polymarket-trader && git checkout -- . && git status --porcelain" 2>&1 | tee vm-revert.log
+          # Revert tracked modifications so the next CI deploy's `git pull --ff-only` works.
+          $SSH --command="cd /home/Usuario/polymarket-trader && git checkout -- . && git status --porcelain | grep -v '^??' || true" 2>&1 | tee vm-revert.log
 
           echo "vm_clean=false" >> $GITHUB_OUTPUT
           # Fail the workflow so the violation is visible. The revert already happened.
