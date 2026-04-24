@@ -564,6 +564,12 @@ export class MarketScorer {
     const trackedRows = trackedResult.rows;
     logger.info({ count: trackedRows.length }, 'Pass 2: enriching tracked markets');
 
+    // Pre-warm the loadWeights cache for all distinct market_types in the tracked set.
+    // Without this, serial per-row awaits would fire one DB query per new type before
+    // cache hits kick in. With this, all distinct-type misses resolve in parallel.
+    const distinctPass2Types = [...new Set(trackedRows.map(r => r.market_type ?? null))];
+    await Promise.all(distinctPass2Types.map(t => MarketScorer.loadWeights(t)));
+
     const enrichUpdates: EnrichUpdate[] = [];
 
     for (const row of trackedRows) {
