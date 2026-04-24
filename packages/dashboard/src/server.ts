@@ -313,6 +313,14 @@ async function main(): Promise<void> {
       `);
       console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
 
+      // Sub-project B.2: signal consensus discount floor.
+      // See docs/plans/2026-04-25-signal-consensus-design.md.
+      await query(`
+        ALTER TABLE signal_weights
+          ADD COLUMN IF NOT EXISTS consensus_discount_floor FLOAT NOT NULL DEFAULT 0.5;
+      `);
+      console.log('signal_weights.consensus_discount_floor ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
