@@ -93,6 +93,8 @@ function typeExpectedValue(
 
 Range ≈ [0.50, 0.83] — ~2.5× wider than current `prior` (1.00–1.15), allowing the optimizer to assign meaningful weight.
 
+Compression caveat: with current data the tradeable types span only [0.75, 0.83] (spread ≈ 0.08). That is narrow. The mapping was sized for an anticipated long-run Sharpe range of roughly [-1, +0.5] — sustained +0.5 Sharpe across 100+ trades would saturate to near 1.0. If after a few weeks the observed inter-type spread stays below ~0.10, recalibrate the mapping to a steeper slope (e.g., divide by 0.3 instead of 1.5) to give the optimizer more separation. Treated as an Open Item below.
+
 #### When and where computed
 
 Computed **on the fly** each Pass 1 scoring run. `MarketScorer.scoreAllMarkets()` preloads `category_performance` into a `Map<marketType, {sharpe, n_trades}>` before iterating markets; each market's type looks up once. Zero persistence in `markets` (no stale-state risk). `category_performance` itself is updated nightly by `compute-market-priors`.
@@ -134,30 +136,32 @@ Constraints:
 
 #### Historical trade backfill
 
-One-shot migration at deploy time. Only touches post-reset trades:
+One-shot migration at deploy time. Only touches post-reset trades. Must mirror the runtime `typeExpectedValue` function bit-for-bit — including the neutral (0.5) return for types with `n_trades < MIN_N` or missing Sharpe:
 
 ```sql
 UPDATE paper_positions pp
 SET score_dimensions_at_entry = score_dimensions_at_entry ||
   jsonb_build_object('typeExpectedValue',
-    GREATEST(0.0, LEAST(1.0,
-      ((COALESCE(cp.sharpe_ratio, 0) * COALESCE(cp.n_trades, 0) /
-        NULLIF(COALESCE(cp.n_trades, 0) + 20, 0)) + 1.0) / 1.5
-    ))
+    CASE
+      WHEN cp.n_trades IS NULL OR cp.n_trades < 5 OR cp.sharpe_ratio IS NULL THEN 0.5
+      ELSE GREATEST(0.0, LEAST(1.0,
+        ((cp.sharpe_ratio * cp.n_trades / (cp.n_trades + 20.0)) + 1.0) / 1.5
+      ))
+    END
   )
 FROM markets m
 LEFT JOIN category_performance cp ON cp.market_type = m.market_type
 WHERE m.id = pp.market_id
   AND pp.closed_at IS NOT NULL
   AND pp.score_dimensions_at_entry IS NOT NULL
-  AND pp.closed_at >= (SELECT last_reset_at FROM paper_account);
+  AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1);
 ```
 
 Leakage note: backfill uses current `category_performance`, which includes each trade's own contribution. Per-type impact: event_long 0.08% weight, event_short 0.25%, event_financial 0.7%. Negligible for training.
 
-Temporal filter (`>= last_reset_at`) excludes pre-reset data where strategy and parameters differed.
+Temporal filter (`>= last_reset_at`) excludes pre-reset data where strategy and parameters differed. `ORDER BY id LIMIT 1` guards against paper_account accidentally having more than one row in the future.
 
-Expected result: ~1829 rows updated, split roughly 1290 event_long / 386 event_short / 147 event_financial / small remainder.
+Expected result: ~1829 rows updated, split roughly 1290 event_long / 386 event_short / 147 event_financial / small remainder. crypto_daily trades (n=4 at category level) receive the neutral 0.5 via the CASE branch; crypto_intraday (n=7) computes normally.
 
 ### 3. MarketScorer changes
 
@@ -378,7 +382,7 @@ DELETE FROM scorer_weights WHERE market_type != '__global__';
 -- '__global__' row remains and is used for all markets (pre-A behavior with typeExpectedValue still in composite).
 ```
 
-The `typeExpectedValue` dimension itself stays — it's additive and cannot worsen scoring. If the dimension is the problem (unlikely given empirical support), further rollback:
+The `typeExpectedValue` dimension itself stays — it is additive, so its harm is bounded by its allocated weight. If the optimizer has assigned it non-trivial weight and the dimension turns out to be miscalibrated (e.g., because `category_performance` is drifting faster than weekly optimization can track), further rollback:
 
 ```sql
 UPDATE scorer_weights SET type_expected_value = 0 WHERE market_type = '__global__';
@@ -401,3 +405,5 @@ Full code rollback: revert the PR. The migration's backfill writes can be left i
 - Cache TTL for `loadWeights()` per type. Proposed 5 min; could be invalidated explicitly when optimizer writes new weights.
 - Whether to add a `last_reset_at` filter to `loadClosedTrades()` in the optimizer. Arguments both ways: filter protects against regime change, no-filter maximizes training data. Default: filter included, env-var to disable.
 - Whether per-type rows need `best_value` column (yes, for monitoring) and whether `scorer_weights_history` table is needed. Proposed: skip history table for A; adds complexity and the scheduler's stats dump / weekly summary are sufficient short-term.
+- Calibration of the `(shrunk + 1) / 1.5` mapping. Narrow inter-type spread in current data (~0.08 across tradeable types) may leave the optimizer unable to meaningfully differentiate. Action item: re-inspect the observed `typeExpectedValue` distribution after one retraining cycle. If the spread stays < 0.10, tighten the mapping (e.g. divide by 0.3 to spread the typical `[-0.05, +0.25]` shrunk range across the full [0, 1]). Keep the clamp.
+- Whether the 2-week gate uses in-sample `best_value` from the optimizer or out-of-sample correlation on post-deploy trades. Default: in-sample + trend (best_value monotonic over consecutive Monday retrains), because strict OOS requires holding out a future window that the weekly-retrain cycle doesn't produce. A separate OOS-monitoring script is follow-up work, not part of Sub-project A.
