@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as connection from '../database/connection.js';
+import { query } from '../database/connection.js';
 import {
   MarketScorer,
   WEIGHTS,
   type ScoreDimensions,
   type ScorerWeights,
 } from './MarketScorer.js';
+
+vi.mock('../database/connection.js', () => ({ query: vi.fn() }));
 
 describe('MarketScorer', () => {
   // ─── tradeabilityScore ───────────────────────────────────────────────
@@ -674,6 +677,47 @@ describe('MarketScorer', () => {
       const sum = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.volatility +
                   WEIGHTS.ttr + WEIGHTS.dataQuality + WEIGHTS.typeExpectedValue;
       expect(sum).toBeCloseTo(1.0, 5);
+    });
+  });
+
+  // ─── loadCategoryMetrics ────────────────────────────────────────────────
+  describe('MarketScorer.loadCategoryMetrics', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('loads a Map keyed by market_type', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
+          { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
+        ],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.get('event_financial')).toEqual({ sharpe: 0.27, n: 159 });
+      expect(map.get('event_long')).toEqual({ sharpe: 0.17, n: 1317 });
+    });
+
+    it('returns empty Map when table is empty', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({ rows: [] });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.size).toBe(0);
+    });
+
+    it('coerces string numerics from pg to numbers', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [{ market_type: 'event_short', sharpe_ratio: '0.13' as unknown as number, n_trades: '419' as unknown as number }],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      const entry = map.get('event_short');
+      expect(entry?.sharpe).toBe(0.13);
+      expect(entry?.n).toBe(419);
+    });
+
+    it('preserves null sharpe_ratio (insufficient data in category_performance)', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [{ market_type: 'crypto_daily', sharpe_ratio: null, n_trades: 4 }],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.get('crypto_daily')).toEqual({ sharpe: null, n: 4 });
     });
   });
 

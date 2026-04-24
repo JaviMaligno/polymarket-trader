@@ -305,6 +305,30 @@ export class MarketScorer {
     }
   }
 
+  // ─── Static method: load category metrics from DB ─────────────────
+  /**
+   * Load current category_performance keyed by market_type.
+   * Used once per scoring run to compute typeExpectedValue per market.
+   * Returned numerics are coerced from pg strings.
+   */
+  static async loadCategoryMetrics(): Promise<Map<string, { sharpe: number | null; n: number }>> {
+    const result = await query<{
+      market_type: string;
+      sharpe_ratio: number | string | null;
+      n_trades: number | string;
+    }>(
+      `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
+    );
+    const map = new Map<string, { sharpe: number | null; n: number }>();
+    for (const r of result.rows) {
+      map.set(r.market_type, {
+        sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
+        n: Number(r.n_trades),
+      });
+    }
+    return map;
+  }
+
   // ─── Instance method: score all markets from DB ────────────────────
   /**
    * Two-pass scoring of all active markets.
