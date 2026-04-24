@@ -225,7 +225,7 @@ static async loadWeights(marketType?: string): Promise<ScorerWeights> {
 
 The n_trades guard is defense-in-depth — the optimizer only writes a per-type row when it has ≥ MIN_TRADES, so this branch rarely fires. Defends against a stale row left behind if an operator manually seeds a per-type row.
 
-Cache: `Map<string, {weights, loadedAt}>` keyed by market_type (or `'__global__'`) in MarketScorer, TTL 5 min. Explicitly invalidated by the optimizer on successful `saveWeights()`.
+Cache: `Map<string, {weights, loadedAt}>` keyed by market_type (or `'__global__'`) in MarketScorer, TTL 5 min. No explicit cross-class invalidation — a freshly retrained per-type row is picked up within at most one cache TTL, which is well under the hourly Pass 1 / Pass 2 scoring cadence. Stale-weights window bounded to 5 minutes is acceptable given the weekly retrain schedule.
 
 #### `scoreAllMarkets()` Pass 1
 
@@ -250,6 +250,23 @@ for (const { market_type } of allTypes.rows) {
 ```
 
 `<typeEV expr>` is a numeric literal (typeExpectedValue computed once per type, interpolated into SQL). Performance: 5–6 UPDATEs of ~14k rows each, same index path as current. Expected overhead <100ms total.
+
+#### Pass 2 (tracked markets, JS-side)
+
+Pass 2 iterates tracked markets (`warming`/`active`/`cooling`), computes full `ScoreDimensions` in JS (including `volatility` and `dataQuality` from recent price history), and batch-updates. It must also use per-type weights. Plan: reuse the same `loadWeights(marketType)` path with its cache. Expected pattern in the loop body:
+
+```typescript
+for (const row of trackedRows) {
+  const weights = await MarketScorer.loadWeights(row.market_type);
+  const dims = { ...computedDims, typeExpectedValue: typeEVForType(row.market_type) };
+  const score = MarketScorer.compositeScore(dims, weights);
+  enrichUpdates.push({ ...row, score, dimensions: dims });
+}
+```
+
+With the 5-min TTL cache, N calls to `loadWeights` across ~40 tracked markets reduce to ≤ 6 DB queries (one per distinct type).
+
+The existing `EnrichUpdate` interface and the `market_score_history` persistence path both need to carry the new `typeExpectedValue` field through. Concrete code changes in those paths are an implementation-plan detail, noted here so they are not missed.
 
 ### 4. ScorerWeightOptimizer changes
 
