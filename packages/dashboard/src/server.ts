@@ -263,6 +263,23 @@ async function main(): Promise<void> {
       `);
       console.log('market_score_history score_type_expected_value column ensured');
 
+      // Sub-project B.1: realized volatility columns + scoring/history columns.
+      // See docs/plans/2026-04-24-realized-volatility-design.md.
+      await query(`
+        ALTER TABLE markets
+          ADD COLUMN IF NOT EXISTS realized_volatility_24h FLOAT,
+          ADD COLUMN IF NOT EXISTS realized_volatility_bar_count SMALLINT;
+      `);
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS realized_volatility FLOAT NOT NULL DEFAULT 0;
+      `);
+      await query(`
+        ALTER TABLE market_score_history
+          ADD COLUMN IF NOT EXISTS score_realized_volatility FLOAT;
+      `);
+      console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
