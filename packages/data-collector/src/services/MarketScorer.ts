@@ -342,23 +342,29 @@ export class MarketScorer {
    * Load current category_performance keyed by market_type.
    * Used once per scoring run to compute typeExpectedValue per market.
    * Returned numerics are coerced from pg strings.
+   * Falls back to empty Map on any error (table missing, DB down, etc.).
    */
   static async loadCategoryMetrics(): Promise<Map<string, { sharpe: number | null; n: number }>> {
-    const result = await query<{
-      market_type: string;
-      sharpe_ratio: number | string | null;
-      n_trades: number | string;
-    }>(
-      `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
-    );
-    const map = new Map<string, { sharpe: number | null; n: number }>();
-    for (const r of result.rows) {
-      map.set(r.market_type, {
-        sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
-        n: Number(r.n_trades),
-      });
+    try {
+      const result = await query<{
+        market_type: string;
+        sharpe_ratio: number | string | null;
+        n_trades: number | string;
+      }>(
+        `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
+      );
+      const map = new Map<string, { sharpe: number | null; n: number }>();
+      for (const r of result.rows) {
+        map.set(r.market_type, {
+          sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
+          n: Number(r.n_trades),
+        });
+      }
+      return map;
+    } catch {
+      // Missing table or DB error → neutral typeEV (0.5) for all types.
+      return new Map();
     }
-    return map;
   }
 
   // ─── Instance method: score all markets from DB ────────────────────
@@ -401,16 +407,6 @@ export class MarketScorer {
         AND tracking_status NOT IN ('warming', 'active', 'cooling')
     `);
 
-    // Query distinct market_types present in cold candidates.
-    const distinctTypesResult = await query<{ market_type: string }>(
-      `SELECT DISTINCT market_type FROM markets
-       WHERE market_type IS NOT NULL
-         AND is_active = true
-         AND is_resolved = false
-         AND tracking_status NOT IN ('warming', 'active', 'cooling')`,
-    );
-    const distinctTypes = distinctTypesResult.rows.map(r => r.market_type);
-
     // Group candidates by market_type (null goes into its own group).
     const byType = new Map<string | null, Pass1CandidateRow[]>();
     for (const row of pass1Candidates.rows) {
@@ -422,8 +418,10 @@ export class MarketScorer {
     let scored = 0;
 
     // ── Per-type UPDATEs ──────────────────────────────────────────────
-    for (const marketType of distinctTypes) {
-      const rows = byType.get(marketType) ?? [];
+    // Derive distinct types from the already-grouped candidates.
+    // This eliminates the second DB round-trip and any staleness window.
+    for (const [marketType, rows] of byType.entries()) {
+      if (marketType === null) continue; // handled by fallback block below
       if (rows.length === 0) continue;
 
       const weights = await MarketScorer.loadWeights(marketType);
@@ -727,37 +725,38 @@ export class MarketScorer {
    * Per-type variant of batchUpdateScores used by Pass 1.
    *
    * Embeds the market_type scope in the WHERE clause so each UPDATE only
-   * touches markets of that type. The typeEV value is interpolated as a
-   * numeric literal in the SQL comment for audit / test assertion purposes.
+   * touches markets of that type. Uses parameter binding for market_type:
+   * NULL matches via ($1::text IS NULL); non-null values match on equality.
    *
-   * For the NULL market_type fallback, marketType is null — the WHERE clause
-   * uses `m.market_type IS NULL` instead.
+   * For the NULL market_type fallback, marketType is null — the clause
+   * evaluates to true only for rows with market_type IS NULL.
    */
   private async batchUpdateScoresForType(
     updates: EnrichUpdate[],
     marketType: string | null,
     typeEV: number,
   ): Promise<void> {
-    const typeClause = marketType !== null
-      ? `AND m.market_type = '${marketType.replace(/'/g, "''")}'`
-      : `AND m.market_type IS NULL`;
+    // Use parameter binding for market_type. NULL matches NULL via the
+    // ($1::text IS NULL) branch; non-null values match on equality.
+    const typeClauseParameterized = `AND ($1::text IS NULL OR m.market_type = $1)`;
 
     for (let i = 0; i < updates.length; i += BATCH_SIZE) {
       const batch = updates.slice(i, i + BATCH_SIZE);
 
+      // The type param is prepended as $1; condition_id/score pairs shift to $2..$2N+1.
       const values = batch
-        .map((u, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2}::double precision)`)
+        .map((u, idx) => `($${idx * 2 + 2}, $${idx * 2 + 3}::double precision)`)
         .join(', ');
-      const params = batch.flatMap((u) => [u.conditionId, u.score]);
+      const params: unknown[] = [marketType, ...batch.flatMap((u) => [u.conditionId, u.score])];
 
-      // typeEV=${typeEV} is interpolated as a numeric literal for audit
+      logger.debug({ marketType, typeEV, batchSize: batch.length }, 'Pass 1 per-type batch update');
+
       await query(
         `UPDATE markets AS m
          SET    market_score = v.score
-         -- typeEV=${typeEV}
          FROM   (VALUES ${values}) AS v(condition_id, score)
          WHERE  m.condition_id = v.condition_id
-           ${typeClause}`,
+           ${typeClauseParameterized}`,
         params,
       );
     }
