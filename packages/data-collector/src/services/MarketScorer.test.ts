@@ -463,38 +463,6 @@ describe('MarketScorer', () => {
     });
   });
 
-  // ─── loadCategoryPriors ─────────────────────────────────────────────
-  describe('loadCategoryPriors', () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-      MarketScorer.clearWeightsCache();
-    });
-    afterEach(() => {
-      vi.clearAllMocks();
-      MarketScorer.clearWeightsCache();
-    });
-
-    it('returns empty map when DB query throws', async () => {
-      vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
-      const priors = await MarketScorer.loadCategoryPriors();
-      expect(priors.size).toBe(0);
-    });
-
-    it('returns map of market_type → prior from DB', async () => {
-      vi.spyOn(connection, 'query').mockResolvedValueOnce({
-        rows: [
-          { market_type: 'crypto_daily', prior: 1.2 },
-          { market_type: 'event_short', prior: 0.8 },
-        ],
-        rowCount: 2,
-      } as any);
-      const priors = await MarketScorer.loadCategoryPriors();
-      expect(priors.get('crypto_daily')).toBeCloseTo(1.2);
-      expect(priors.get('event_short')).toBeCloseTo(0.8);
-      expect(priors.get('unknown_type')).toBeUndefined();
-    });
-  });
-
   // ─── compositeScore with custom weights ─────────────────────────────
   describe('compositeScore with custom weights', () => {
     it('uses provided weights to compute weighted average across all dims', () => {

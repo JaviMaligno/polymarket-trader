@@ -6,6 +6,7 @@ const logger = pino({ name: 'ScorerWeightOptimizer' });
 
 export const MIN_TRADES = 30;
 const N_TRIALS = 300;
+const GLOBAL_MARKET_TYPE = '__global__';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -37,8 +38,6 @@ export function computeObjective(weights: ScorerWeights, trades: ClosedTrade[]):
 // ── Random-search optimizer ────────────────────────────────────────────────
 
 function randomWeights(): ScorerWeights {
-  // Sample 3 positive floats for optimizable dims (tradeability, liquidity, ttr)
-  // volatility and dataQuality stay at current defaults — not yet captured at entry
   const r = () => Math.random() * 0.6 + 0.05; // uniform [0.05, 0.65]
   return {
     tradeability:      r(),
@@ -46,22 +45,27 @@ function randomWeights(): ScorerWeights {
     volatility:        WEIGHTS.volatility,
     ttr:               r(),
     dataQuality:       WEIGHTS.dataQuality,
-    typeExpectedValue: WEIGHTS.typeExpectedValue,
+    typeExpectedValue: r(), // now randomized (was hardcoded to WEIGHTS.typeExpectedValue)
   };
 }
 
 // ── DB helpers ─────────────────────────────────────────────────────────────
 
-async function loadClosedTrades(): Promise<ClosedTrade[]> {
+async function loadClosedTrades(marketType: string | null): Promise<ClosedTrade[]> {
   const result = await query<{
     score_dimensions_at_entry: Record<string, number | null>;
     realized_pnl: string;
   }>(
-    `SELECT score_dimensions_at_entry, realized_pnl
-     FROM paper_positions
-     WHERE closed_at IS NOT NULL
-       AND score_dimensions_at_entry IS NOT NULL
-       AND realized_pnl IS NOT NULL`,
+    `SELECT pp.score_dimensions_at_entry, pp.realized_pnl
+     FROM paper_positions pp
+     LEFT JOIN markets m ON m.id = pp.market_id
+     WHERE pp.closed_at IS NOT NULL
+       AND pp.score_dimensions_at_entry IS NOT NULL
+       AND pp.score_dimensions_at_entry ? 'typeExpectedValue'
+       AND pp.realized_pnl IS NOT NULL
+       AND ($1::text IS NULL OR m.market_type = $1)
+       AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)`,
+    [marketType],
   );
   return result.rows.map((r) => {
     const d = r.score_dimensions_at_entry;
@@ -81,35 +85,35 @@ async function loadClosedTrades(): Promise<ClosedTrade[]> {
 
 async function saveWeights(
   weights: ScorerWeights,
+  marketType: string,
   meta: { nTrades: number; nTrials: number; bestValue: number },
 ): Promise<void> {
-  const result = await query(
-    `UPDATE scorer_weights
-     SET tradeability = $1, liquidity = $2, volatility = $3, ttr = $4, data_quality = $5,
-         n_trades = $6, n_trials = $7, best_value = $8, updated_at = NOW()
-     WHERE id = (SELECT id FROM scorer_weights ORDER BY id DESC LIMIT 1)`,
+  await query(
+    `INSERT INTO scorer_weights
+       (market_type, tradeability, liquidity, volatility, ttr, data_quality,
+        type_expected_value, n_trades, n_trials, best_value, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
+     ON CONFLICT (market_type) DO UPDATE SET
+       tradeability        = EXCLUDED.tradeability,
+       liquidity           = EXCLUDED.liquidity,
+       volatility          = EXCLUDED.volatility,
+       ttr                 = EXCLUDED.ttr,
+       data_quality        = EXCLUDED.data_quality,
+       type_expected_value = EXCLUDED.type_expected_value,
+       n_trades            = EXCLUDED.n_trades,
+       n_trials            = EXCLUDED.n_trials,
+       best_value          = EXCLUDED.best_value,
+       updated_at          = NOW()`,
     [
+      marketType,
       weights.tradeability, weights.liquidity, weights.volatility,
-      weights.ttr, weights.dataQuality,
+      weights.ttr, weights.dataQuality, weights.typeExpectedValue,
       meta.nTrades, meta.nTrials, meta.bestValue,
     ],
   );
-  if ((result.rowCount ?? 0) === 0) {
-    logger.warn('saveWeights: scorer_weights table is empty — migration not applied? Weights not saved.');
-  }
 }
 
-// ── Main entry point ───────────────────────────────────────────────────────
-
-export async function optimizeScorerWeights(): Promise<void> {
-  const trades = await loadClosedTrades();
-  logger.info({ n: trades.length }, 'Loaded closed trades for scorer weight optimization');
-
-  if (trades.length < MIN_TRADES) {
-    logger.info({ n: trades.length, required: MIN_TRADES }, 'Not enough trades — skipping optimization');
-    return;
-  }
-
+function runRandomSearch(trades: ClosedTrade[]): { weights: ScorerWeights; bestValue: number } {
   let bestValue = -Infinity;
   let bestWeights: ScorerWeights = { ...WEIGHTS };
 
@@ -122,22 +126,60 @@ export async function optimizeScorerWeights(): Promise<void> {
     }
   }
 
-  // Normalize the 3 optimized dims to sum to (1.0 - volatility - dataQuality)
+  // Normalize the 4 optimized dims to sum to (1 - volatility - dataQuality)
   // so that loadWeights() doesn't log a warning on every scoring run
-  const optimizableSum = bestWeights.tradeability + bestWeights.liquidity + bestWeights.ttr;
-  const targetSum = 1.0 - WEIGHTS.volatility - WEIGHTS.dataQuality; // 0.70
+  const optimizableSum =
+    bestWeights.tradeability + bestWeights.liquidity +
+    bestWeights.ttr + bestWeights.typeExpectedValue;
+  const targetSum = 1 - WEIGHTS.volatility - WEIGHTS.dataQuality; // 0.75
   if (optimizableSum > 0) {
     const scale = targetSum / optimizableSum;
     bestWeights = {
       ...bestWeights,
-      tradeability: bestWeights.tradeability * scale,
-      liquidity:    bestWeights.liquidity    * scale,
-      ttr:          bestWeights.ttr          * scale,
+      tradeability:      bestWeights.tradeability      * scale,
+      liquidity:         bestWeights.liquidity         * scale,
+      ttr:               bestWeights.ttr               * scale,
+      typeExpectedValue: bestWeights.typeExpectedValue * scale,
     };
   }
 
-  logger.info({ bestValue, bestWeights }, 'Optimization complete');
+  return { weights: bestWeights, bestValue };
+}
 
-  await saveWeights(bestWeights, { nTrades: trades.length, nTrials: N_TRIALS, bestValue });
-  logger.info('Scorer weights updated in DB');
+// ── Main entry point ───────────────────────────────────────────────────────
+
+export async function optimizeScorerWeights(): Promise<void> {
+  const knownTypesRes = await query<{ market_type: string }>(
+    `SELECT DISTINCT market_type FROM markets WHERE market_type IS NOT NULL`,
+  );
+
+  for (const { market_type } of knownTypesRes.rows) {
+    const trades = await loadClosedTrades(market_type);
+    logger.info({ marketType: market_type, n: trades.length }, 'Loaded trades for type');
+    if (trades.length < MIN_TRADES) {
+      logger.info(
+        { marketType: market_type, n: trades.length, required: MIN_TRADES },
+        'Insufficient trades — skipping type',
+      );
+      continue;
+    }
+    const { weights, bestValue } = runRandomSearch(trades);
+    await saveWeights(weights, market_type, { nTrades: trades.length, nTrials: N_TRIALS, bestValue });
+    logger.info({ marketType: market_type, bestValue, weights }, 'Type optimization complete');
+  }
+
+  // Always refresh the global fallback row from pooled data
+  const globalTrades = await loadClosedTrades(null);
+  logger.info({ n: globalTrades.length }, 'Loaded pooled trades for global row');
+  if (globalTrades.length >= MIN_TRADES) {
+    const { weights, bestValue } = runRandomSearch(globalTrades);
+    await saveWeights(weights, GLOBAL_MARKET_TYPE,
+      { nTrades: globalTrades.length, nTrials: N_TRIALS, bestValue });
+    logger.info({ bestValue, weights }, 'Global optimization complete');
+  } else {
+    logger.info(
+      { n: globalTrades.length, required: MIN_TRADES },
+      'Insufficient pooled trades — global row not refreshed',
+    );
+  }
 }

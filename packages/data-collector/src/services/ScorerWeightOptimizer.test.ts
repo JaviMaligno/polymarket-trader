@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import { pearsonCorrelation, computeObjective, MIN_TRADES } from './ScorerWeightOptimizer.js';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { pearsonCorrelation, computeObjective, MIN_TRADES, optimizeScorerWeights } from './ScorerWeightOptimizer.js';
 import type { ScorerWeights } from './MarketScorer.js';
+
+vi.mock('../database/connection.js', () => ({
+  query: vi.fn(),
+}));
+
+import { query } from '../database/connection.js';
 
 describe('pearsonCorrelation', () => {
   it('returns 1.0 for perfectly correlated series', () => {
@@ -48,5 +54,61 @@ describe('computeObjective', () => {
 describe('MIN_TRADES', () => {
   it('is 30', () => {
     expect(MIN_TRADES).toBe(30);
+  });
+});
+
+describe('optimizeScorerWeights per-type', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('skips types with fewer than MIN_TRADES trades', async () => {
+    (query as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'crypto_daily' }] };
+      }
+      if (sql.includes('FROM paper_positions pp')) {
+        // Regardless of filter, return empty — not enough trades
+        return { rows: [] };
+      }
+      if (sql.startsWith('INSERT INTO scorer_weights')) {
+        return { rowCount: 1, rows: [] };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    await optimizeScorerWeights();
+
+    const inserts = (query as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('INSERT INTO scorer_weights'),
+    );
+    // crypto_daily has no trades → skipped. Only the __global__ fallback attempted,
+    // and since pooled is also empty, even global is skipped.
+    expect(inserts.length).toBe(0);
+  });
+
+  it('runs optimization per eligible type and writes the global row', async () => {
+    const syntheticTrades = Array.from({ length: 50 }, () => ({
+      score_dimensions_at_entry: {
+        tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7,
+      },
+      realized_pnl: '10',
+    }));
+
+    (query as unknown as ReturnType<typeof vi.fn>).mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'event_long' }, { market_type: 'event_financial' }] };
+      }
+      if (sql.includes('FROM paper_positions pp')) {
+        return { rows: syntheticTrades };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+
+    await optimizeScorerWeights();
+
+    const inserts = (query as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('INSERT INTO scorer_weights'),
+    );
+    const marketTypes = inserts.map((c: unknown[]) => (c[1] as unknown[])[0] as string).sort();
+    expect(marketTypes).toEqual(['__global__', 'event_financial', 'event_long']);
   });
 });

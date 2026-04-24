@@ -317,27 +317,6 @@ export class MarketScorer {
     return weights;
   }
 
-  // ─── Static method: load category priors from DB ─────────────────
-  /**
-   * Reads from `category_performance` table.
-   * Returns Map<market_type, prior>.
-   * Falls back to empty Map on any error (table missing, DB down, etc.).
-   */
-  static async loadCategoryPriors(): Promise<Map<string, number>> {
-    try {
-      const result = await query<{ market_type: string; prior: number }>(
-        `SELECT market_type, prior FROM category_performance WHERE n_trades >= 5`,
-      );
-      const map = new Map<string, number>();
-      for (const row of result.rows) {
-        map.set(row.market_type, row.prior);
-      }
-      return map;
-    } catch {
-      return new Map();
-    }
-  }
-
   // ─── Static method: load category metrics from DB ─────────────────
   /**
    * Load current category_performance keyed by market_type.
