@@ -71,6 +71,14 @@ function typeExpectedValueLocal(sharpe: number | null, nTrades: number): number 
   return Math.min(1, Math.max(0, (shrunk + 1) / 1.5));
 }
 
+/** Mirrors MarketScorer.mapRealizedVolatility. Returns null when barCount < 5. */
+function mapRealizedVolatilityLocal(raw: number | null, barCount: number | null): number | null {
+  const VOL_REF = Number(process.env.REALIZED_VOL_REF ?? 0.02);
+  const ref = Number.isFinite(VOL_REF) && VOL_REF > 0 ? VOL_REF : 0.02;
+  if (raw === null || barCount === null || barCount < 5) return null;
+  return Math.min(1, Math.max(0, raw / ref));
+}
+
 export interface SignalResult {
   signalId: string;
   marketId: string;
@@ -828,8 +836,11 @@ export class AutoSignalExecutor extends EventEmitter {
         spread: string | null;
         end_date: string | null;
         market_type: string | null;
+        realized_volatility_24h: number | string | null;
+        realized_volatility_bar_count: number | null;
       }>(
-        `SELECT market_score, current_price_yes, volume_24h, spread, end_date, market_type
+        `SELECT market_score, current_price_yes, volume_24h, spread, end_date, market_type,
+                realized_volatility_24h, realized_volatility_bar_count
          FROM   markets
          WHERE  id = $1`,
         [signal.marketId],
@@ -863,13 +874,19 @@ export class AutoSignalExecutor extends EventEmitter {
           }
         }
 
+        const realizedVolatility = mapRealizedVolatilityLocal(
+          m.realized_volatility_24h !== null ? Number(m.realized_volatility_24h) : null,
+          m.realized_volatility_bar_count,
+        );
+
         scoreDimensionsAtEntry = {
           tradeability: computeTradeability(price),
           liquidity:    computeLiquidity(vol, sprd),
           ttr:          computeTtr(endDate),
           volatility:   null,
           dataQuality:  null,
-          typeExpectedValue: typeEV, // NEW
+          typeExpectedValue: typeEV,
+          realizedVolatility,
         };
       }
     } catch (err) {
