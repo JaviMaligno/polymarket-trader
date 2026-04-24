@@ -98,18 +98,42 @@ Alternative estimators considered and rejected:
 
 ### 3. Schema
 
+Three tables get schema additions, each idempotent via `ADD COLUMN IF NOT EXISTS` at dashboard startup (same pattern as A):
+
+**`markets` — raw vol storage**
 ```sql
 ALTER TABLE markets
   ADD COLUMN IF NOT EXISTS realized_volatility_24h FLOAT,
   ADD COLUMN IF NOT EXISTS realized_volatility_bar_count SMALLINT;
 ```
 
-Two columns:
-
 - `realized_volatility_24h`: raw stddev (not mapped). Stored for analysis / re-mapping.
-- `realized_volatility_bar_count`: number of Δp observations that contributed. Quality signal for downstream filtering or future weighting.
+- `realized_volatility_bar_count`: number of Δp observations that contributed. Quality signal.
+- No default. NULL allowed. Markets without sufficient price data have NULL until the compute job populates them.
 
-No default. NULL allowed. Markets without sufficient price data simply have NULL until the compute job can populate them.
+**`scorer_weights` — optimizer output per type**
+```sql
+ALTER TABLE scorer_weights
+  ADD COLUMN IF NOT EXISTS realized_volatility FLOAT NOT NULL DEFAULT 0;
+```
+
+- Stores the optimized weight for the new dim per market_type (and `'__global__'`).
+- Default 0 for existing rows — they keep old behavior until re-optimized (next Monday cron or manual trigger).
+- `saveWeights()` INSERT/UPDATE extended to include this column. Without this, `saveWeights()` breaks on the first post-B.1 run.
+
+**`market_score_history` — score snapshot persistence**
+```sql
+ALTER TABLE market_score_history
+  ADD COLUMN IF NOT EXISTS score_realized_volatility FLOAT;
+```
+
+- Nullable (consistent with existing per-dim columns like `score_volatility`, `score_data_quality`).
+- `writeScoreHistory()` INSERT extended to include this column. Without this, the snapshot INSERT fails silently (fire-and-forget wrapper logs warn).
+
+Matching init SQL files created for fresh-DB installs:
+- `packages/data-collector/src/database/init/020_realized_volatility_markets.sql`
+- `packages/data-collector/src/database/init/021_realized_volatility_scorer_weights.sql`
+- `packages/data-collector/src/database/init/022_realized_volatility_score_history.sql`
 
 ### 4. Compute job
 
@@ -327,8 +351,23 @@ Full code revert is the practical path. The `markets.realized_volatility_24h` an
 - Final VOL_REF value (0.02 proposed). Log distribution on first run to confirm.
 - Exact default weight allocation (proposed above; the implementation plan can fine-tune within the 0.10–0.15 range for the new dim).
 - Whether the `mapRealizedVolatility` helper lives in MarketScorer (imported cross-package) or is duplicated locally in the dashboard package (following typeExpectedValueLocal's pattern). Decide based on existing imports.
+- Backfill SQL form: prefer a scalar correlated subquery in `SET` over `LATERAL` + `FROM markets m`. PostgreSQL's LATERAL access to UPDATE-target columns is version-dependent and less readable. Scalar correlated subquery is cleaner:
+  ```sql
+  UPDATE paper_positions pp
+  SET score_dimensions_at_entry = score_dimensions_at_entry || jsonb_build_object(
+    'realizedVolatility',
+    (SELECT CASE WHEN COUNT(d) < 5 THEN NULL::FLOAT
+                  ELSE LEAST(1.0, GREATEST(0.0, STDDEV_POP(d) / 0.02)) END
+     FROM (SELECT close - LAG(close) OVER (ORDER BY time) AS d
+           FROM price_history ph
+           WHERE ph.token_id = (SELECT clob_token_id_yes FROM markets WHERE id = pp.market_id)
+             AND ph.time BETWEEN pp.opened_at - INTERVAL '24 hours' AND pp.opened_at) diffs)
+  )
+  WHERE pp.closed_at IS NOT NULL ...;
+  ```
 - Whether the backfill SQL needs batching. Default: single statement, with fallback plan to batch if >60s.
-- Whether the compute job should also UPDATE markets to NULL when token has no recent data. Default: yes, as drafted — keeps the field accurate rather than preserving stale values.
+- Compute job secondary UPDATE should filter `WHERE realized_volatility_24h IS NOT NULL` in the NULL-out clause to avoid spurious no-op writes. Cosmetic perf optimization.
+- Whether to log cross-type distribution of realized volatility on the first compute-job run for baseline observability (similar to how we discussed typeExpectedValue baseline logging). Recommended.
 
 ## Relationship to Sub-project A
 
