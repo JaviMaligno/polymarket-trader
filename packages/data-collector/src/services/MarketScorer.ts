@@ -365,9 +365,13 @@ export class MarketScorer {
   /**
    * Two-pass scoring of all active markets.
    *
-   * Pass 1 — cheap dimensions (tradeability, liquidity, TTR):
-   *   Reads from `markets` table for ALL active, unresolved markets.
+   * Pass 1 — cheap dimensions (tradeability, liquidity, TTR, typeExpectedValue):
+   *   Reads from `markets` table for ALL active, unresolved, cold markets.
    *   Computes composite with volatility=null, dataQuality=null.
+   *   Issues one UPDATE per distinct market_type (per-type weights + typeEV
+   *   from category_performance) plus one fallback UPDATE for markets with
+   *   NULL market_type (global weights, neutral typeEV=0.5).
+   *   typeExpectedValue replaces the old category_performance.prior multiplier.
    *
    * Pass 2 — enrich tracked markets:
    *   For markets with tracking_status IN (warming, active, cooling),
@@ -379,8 +383,10 @@ export class MarketScorer {
    * @returns { scored, enriched } counts
    */
   async scoreAllMarkets(): Promise<{ scored: number; enriched: number }> {
-    const weights = await MarketScorer.loadWeights();
-    const categoryPriors = await MarketScorer.loadCategoryPriors();
+    // Load category metrics (sharpe + n_trades per type) for typeExpectedValue computation.
+    const categoryMetrics = await MarketScorer.loadCategoryMetrics();
+
+    // Fetch all cold candidates.
     const pass1Candidates = await query<Pass1CandidateRow>(`
       SELECT condition_id,
              current_price_yes,
@@ -395,45 +401,128 @@ export class MarketScorer {
         AND tracking_status NOT IN ('warming', 'active', 'cooling')
     `);
 
-    const pass1Updates: EnrichUpdate[] = pass1Candidates.rows.map((row) => {
-      const tradeability = MarketScorer.tradeabilityScore(
-        row.current_price_yes != null ? Number(row.current_price_yes) : null,
-      );
-      const liquidity = MarketScorer.liquidityScore(
-        row.volume_24h != null ? Number(row.volume_24h) : null,
-        row.spread != null ? Number(row.spread) : null,
-      );
-      const ttr = MarketScorer.ttrScore(
-        row.end_date ? new Date(row.end_date) : null,
-      );
-      const prior = categoryPriors.get(row.market_type ?? '') ?? 1.0;
-      const score = MarketScorer.compositeScore({
-        tradeability,
-        liquidity,
-        volatility: null,
-        ttr,
-        dataQuality: null,
-        typeExpectedValue: 0,
-      }, weights) * prior;
+    // Query distinct market_types present in cold candidates.
+    const distinctTypesResult = await query<{ market_type: string }>(
+      `SELECT DISTINCT market_type FROM markets
+       WHERE market_type IS NOT NULL
+         AND is_active = true
+         AND is_resolved = false
+         AND tracking_status NOT IN ('warming', 'active', 'cooling')`,
+    );
+    const distinctTypes = distinctTypesResult.rows.map(r => r.market_type);
 
-      return {
-        conditionId: row.condition_id,
-        trackingStatus: 'cold',
-        score,
-        tradeability,
-        liquidity,
-        ttr,
-        volatility: null,
-        dataQuality: null,
-        currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
-        volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
-        marketType: row.market_type ?? null,
-      };
-    });
+    // Group candidates by market_type (null goes into its own group).
+    const byType = new Map<string | null, Pass1CandidateRow[]>();
+    for (const row of pass1Candidates.rows) {
+      const key = row.market_type ?? null;
+      if (!byType.has(key)) byType.set(key, []);
+      byType.get(key)!.push(row);
+    }
 
-    await this.batchUpdateScores(pass1Updates);
-    const scored = pass1Updates.length;
-    logger.info({ scored }, 'Pass 1: scored cold markets via batched updates');
+    let scored = 0;
+
+    // ── Per-type UPDATEs ──────────────────────────────────────────────
+    for (const marketType of distinctTypes) {
+      const rows = byType.get(marketType) ?? [];
+      if (rows.length === 0) continue;
+
+      const weights = await MarketScorer.loadWeights(marketType);
+      const metrics = categoryMetrics.get(marketType);
+      const typeEV = MarketScorer.typeExpectedValue(
+        metrics?.sharpe ?? null,
+        metrics?.n ?? 0,
+      );
+
+      const updates = rows.map((row) => {
+        const tradeability = MarketScorer.tradeabilityScore(
+          row.current_price_yes != null ? Number(row.current_price_yes) : null,
+        );
+        const liquidity = MarketScorer.liquidityScore(
+          row.volume_24h != null ? Number(row.volume_24h) : null,
+          row.spread != null ? Number(row.spread) : null,
+        );
+        const ttr = MarketScorer.ttrScore(
+          row.end_date ? new Date(row.end_date) : null,
+        );
+        const score = MarketScorer.compositeScore({
+          tradeability,
+          liquidity,
+          volatility: null,
+          ttr,
+          dataQuality: null,
+          typeExpectedValue: typeEV,
+        }, weights);
+
+        return {
+          conditionId: row.condition_id,
+          trackingStatus: 'cold',
+          score,
+          tradeability,
+          liquidity,
+          ttr,
+          volatility: null,
+          dataQuality: null,
+          currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
+          volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
+          marketType: row.market_type ?? null,
+        } satisfies EnrichUpdate;
+      });
+
+      await this.batchUpdateScoresForType(updates, marketType, typeEV);
+      scored += updates.length;
+    }
+
+    // ── Fallback UPDATE for NULL market_type ──────────────────────────
+    const nullRows = byType.get(null) ?? [];
+    if (nullRows.length > 0) {
+      const weights = await MarketScorer.loadWeights(null);
+      const typeEV = 0.5; // neutral for unknown type
+
+      const updates = nullRows.map((row) => {
+        const tradeability = MarketScorer.tradeabilityScore(
+          row.current_price_yes != null ? Number(row.current_price_yes) : null,
+        );
+        const liquidity = MarketScorer.liquidityScore(
+          row.volume_24h != null ? Number(row.volume_24h) : null,
+          row.spread != null ? Number(row.spread) : null,
+        );
+        const ttr = MarketScorer.ttrScore(
+          row.end_date ? new Date(row.end_date) : null,
+        );
+        const score = MarketScorer.compositeScore({
+          tradeability,
+          liquidity,
+          volatility: null,
+          ttr,
+          dataQuality: null,
+          typeExpectedValue: typeEV,
+        }, weights);
+
+        return {
+          conditionId: row.condition_id,
+          trackingStatus: 'cold',
+          score,
+          tradeability,
+          liquidity,
+          ttr,
+          volatility: null,
+          dataQuality: null,
+          currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
+          volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
+          marketType: null,
+        } satisfies EnrichUpdate;
+      });
+
+      await this.batchUpdateScoresForType(updates, null, typeEV);
+      scored += updates.length;
+    }
+
+    logger.info({ scored }, 'Pass 1: scored cold markets via per-type batched updates');
+
+    // ── Pass 2 — enrich tracked markets (T8: will be refactored to per-type) ─
+    // Keep using global weights + categoryPriors multiplier for now (T8 will replace).
+    const pass2Weights = await MarketScorer.loadWeights();
+    const categoryPriors = await MarketScorer.loadCategoryPriors();
 
     const trackedResult = await query<{
       condition_id: string;
@@ -508,7 +597,7 @@ export class MarketScorer {
         ttr,
         dataQuality,
         typeExpectedValue: 0,
-      }, weights) * prior;
+      }, pass2Weights) * prior;
 
       enrichUpdates.push({
         conditionId: row.condition_id,
@@ -629,6 +718,46 @@ export class MarketScorer {
          SET    market_score = v.score
          FROM   (VALUES ${values}) AS v(condition_id, score)
          WHERE  m.condition_id = v.condition_id`,
+        params,
+      );
+    }
+  }
+
+  /**
+   * Per-type variant of batchUpdateScores used by Pass 1.
+   *
+   * Embeds the market_type scope in the WHERE clause so each UPDATE only
+   * touches markets of that type. The typeEV value is interpolated as a
+   * numeric literal in the SQL comment for audit / test assertion purposes.
+   *
+   * For the NULL market_type fallback, marketType is null — the WHERE clause
+   * uses `m.market_type IS NULL` instead.
+   */
+  private async batchUpdateScoresForType(
+    updates: EnrichUpdate[],
+    marketType: string | null,
+    typeEV: number,
+  ): Promise<void> {
+    const typeClause = marketType !== null
+      ? `AND m.market_type = '${marketType.replace(/'/g, "''")}'`
+      : `AND m.market_type IS NULL`;
+
+    for (let i = 0; i < updates.length; i += BATCH_SIZE) {
+      const batch = updates.slice(i, i + BATCH_SIZE);
+
+      const values = batch
+        .map((u, idx) => `($${idx * 2 + 1}, $${idx * 2 + 2}::double precision)`)
+        .join(', ');
+      const params = batch.flatMap((u) => [u.conditionId, u.score]);
+
+      // typeEV=${typeEV} is interpolated as a numeric literal for audit
+      await query(
+        `UPDATE markets AS m
+         SET    market_score = v.score
+         -- typeEV=${typeEV}
+         FROM   (VALUES ${values}) AS v(condition_id, score)
+         WHERE  m.condition_id = v.condition_id
+           ${typeClause}`,
         params,
       );
     }

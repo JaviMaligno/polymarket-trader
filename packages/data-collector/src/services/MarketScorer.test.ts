@@ -595,11 +595,20 @@ describe('MarketScorer', () => {
           } as any;
         }
 
+        // New: category metrics for typeExpectedValue (replaces prior multiplier)
+        if (text.includes('FROM category_performance') && text.includes('sharpe_ratio')) {
+          // event_short has no data → typeEV = 0.5 (neutral)
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        // Old priors query — used by Pass 2 only
         if (text.includes('SELECT market_type, prior FROM category_performance')) {
-          return {
-            rows: [{ market_type: 'event_short', prior: 0.8 }],
-            rowCount: 1,
-          } as any;
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        // New: DISTINCT market_type query
+        if (text.includes('SELECT DISTINCT market_type FROM markets')) {
+          return { rows: [{ market_type: 'event_short' }], rowCount: 1 } as any;
         }
 
         if (text.includes('FROM markets') && text.includes(`tracking_status NOT IN ('warming', 'active', 'cooling')`)) {
@@ -630,7 +639,11 @@ describe('MarketScorer', () => {
           return { rows: [], rowCount: 0 } as any;
         }
 
-        if (text.includes('UPDATE markets AS m')) {
+        if (text.includes('UPDATE markets AS m') || text.includes('UPDATE markets\n')) {
+          return { rows: [], rowCount: (params?.length ?? 0) / 2 } as any;
+        }
+
+        if (text.trim().startsWith('UPDATE markets')) {
           return { rows: [], rowCount: (params?.length ?? 0) / 2 } as any;
         }
 
@@ -652,29 +665,133 @@ describe('MarketScorer', () => {
       expect(queries.some(q => q.includes('UPDATE markets SET market_score = ('))).toBe(false);
       expect(queries.some(q => q.includes('UPDATE markets SET market_score = market_score * COALESCE('))).toBe(false);
 
-      const batchUpdateCall = querySpy.mock.calls.find(([sql]) => String(sql).includes('UPDATE markets AS m'));
-      expect(batchUpdateCall).toBeDefined();
+      // Now we get separate UPDATE calls per type — at least 2 (event_short + NULL fallback)
+      const updateCalls = querySpy.mock.calls.filter(([sql]) => String(sql).trim().startsWith('UPDATE markets'));
+      expect(updateCalls.length).toBeGreaterThanOrEqual(2);
 
-      const updateParams = batchUpdateCall?.[1] as Array<string | number>;
-      // cold-1 and cold-2: price=0.5, vol=30M, spread=0.01, end_date=30 days out
+      // cold-1 (event_short) and cold-2 (null): price=0.5, vol=30M, spread=0.01, end=30d
       //   tradeability = 1.0  (balanced zone)
-      //   liquidity    = log(30_000_000) / log(30_000_000) = 1.0, spread ≤ 0.03 → no penalty → 1.0
+      //   liquidity    = log(30M) / log(30M) = 1.0, spread ≤ 0.03 → no penalty → 1.0
       //   ttr          = 1.0  (30 days → 7-60 day optimal window)
       //   volatility   = null, dataQuality = null → excluded
-      //   typeExpectedValue = 0  (Pass 1 placeholder)
+      //   typeEV = 0.5 (neutral — no category_performance data for event_short, neutral for NULL)
       // non-null weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
-      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0*0.20 = 0.55
-      // composite = 0.55 / 0.75 = 0.7333...
-      //
-      // cold-1: market_type='event_short' → prior=0.8 → score = 0.7333 * 0.8 = 0.5867
-      // cold-2: market_type=null → prior=1.0 (default) → score = 0.7333 * 1.0 = 0.7333
-      expect(updateParams?.length).toBe(4);
-      expect(updateParams?.[0]).toBe('cold-1');
-      expect(updateParams?.[2]).toBe('cold-2');
-      expect(updateParams?.[1] as number).toBeCloseTo(0.5867, 3);
-      expect(updateParams?.[3] as number).toBeCloseTo(0.7333, 3);
+      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.5*0.20 = 0.65
+      // composite = 0.65 / 0.75 = 0.8667
+      // No prior multiplier — typeEV is now a composite dimension.
+
+      // Find the event_short UPDATE (contains cold-1)
+      const eventShortCall = querySpy.mock.calls.find(
+        ([sql]) => String(sql).includes('event_short'),
+      );
+      expect(eventShortCall).toBeDefined();
+      const eventShortParams = eventShortCall?.[1] as Array<string | number>;
+      expect(eventShortParams?.[0]).toBe('cold-1');
+      expect(eventShortParams?.[1] as number).toBeCloseTo(0.8667, 3);
+
+      // Find the NULL-type UPDATE (contains cold-2)
+      const nullTypeCall = querySpy.mock.calls.find(
+        ([sql]) => String(sql).includes('market_type IS NULL'),
+      );
+      expect(nullTypeCall).toBeDefined();
+      const nullTypeParams = nullTypeCall?.[1] as Array<string | number>;
+      expect(nullTypeParams?.[0]).toBe('cold-2');
+      expect(nullTypeParams?.[1] as number).toBeCloseTo(0.8667, 3);
 
       vi.restoreAllMocks();
+    });
+  });
+
+  // ─── Pass 1 per-type ────────────────────────────────────────────────────
+  describe('MarketScorer.scoreAllMarkets Pass 1 per-type', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
+    it('issues one UPDATE per distinct market_type plus one fallback for NULL market_type', async () => {
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+          return { rows: [{ market_type: 'event_long' }, { market_type: 'event_financial' }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [
+            { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
+            { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
+          ] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 }] };
+        }
+        // Cold candidates query
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [
+            { condition_id: 'el-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_long' },
+            { condition_id: 'ef-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_financial' },
+            { condition_id: 'null-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: null },
+          ] };
+        }
+        // Pass 2's tracked query — return empty to skip Pass 2
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT market_type, prior FROM category_performance')) {
+          return { rows: [] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      const updateCalls = (query as unknown as vi.Mock).mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].trim().startsWith('UPDATE markets'),
+      );
+      // 2 per-type UPDATEs + 1 fallback UPDATE for NULL market_type = 3
+      expect(updateCalls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('interpolates typeExpectedValue numeric literal per type', async () => {
+      let captured: string[] = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
+          captured.push(sql);
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+          return { rows: [{ market_type: 'event_financial' }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          // event_financial: sharpe=0.27, n=159 → shrunk=0.2397 → (1.2397/1.5) ≈ 0.8265
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [
+            { condition_id: 'ef-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_financial' },
+          ] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) return { rows: [] };
+        if (typeof sql === 'string' && sql.includes('SELECT market_type, prior FROM category_performance')) {
+          return { rows: [] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      const perTypeUpdate = captured.find(s => s.includes('event_financial') || s.includes('$1'));
+      expect(perTypeUpdate).toBeDefined();
+      // Interpolated numeric should be near 0.8265 (event_financial's typeEV).
+      // Matcher is loose because the exact number stored as string might be 0.826543... etc.
+      expect(perTypeUpdate).toMatch(/0\.826[0-9]/);
     });
   });
 
