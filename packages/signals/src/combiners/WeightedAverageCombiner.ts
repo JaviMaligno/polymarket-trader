@@ -24,6 +24,60 @@ interface WeightedAverageParams {
 }
 
 /**
+ * Compute Shannon-entropy-based consensus on directional tallies.
+ * Returns null if fewer than 3 informative (non-NEUTRAL) signals — not enough
+ * granularity. NEUTRAL signals are excluded from the tally.
+ * Formula: consensus = 1 - H(p_long, p_short) where H is Shannon entropy in
+ * log base 2 (so H ∈ [0,1] naturally for 2 categories).
+ *   - Unanimous (5,0) → consensus = 1.0
+ *   - Balanced (3,2)  → consensus ≈ 0.029
+ *   - Balanced (2,3)  → consensus ≈ 0.029 (symmetric)
+ */
+export function signalConsensus(signals: SignalOutput[]): {
+  consensus: number | null;
+  longCount: number;
+  shortCount: number;
+  neutralCount: number;
+} {
+  let longCount = 0;
+  let shortCount = 0;
+  let neutralCount = 0;
+  for (const s of signals) {
+    if (s.direction === 'LONG') longCount++;
+    else if (s.direction === 'SHORT') shortCount++;
+    else if (s.direction === 'NEUTRAL') neutralCount++;
+  }
+  const N = longCount + shortCount;
+  if (N < 3) {
+    return { consensus: null, longCount, shortCount, neutralCount };
+  }
+  const pL = longCount / N;
+  const pS = shortCount / N;
+  const H = -(pL > 0 ? pL * Math.log2(pL) : 0) - (pS > 0 ? pS * Math.log2(pS) : 0);
+  return {
+    consensus: 1 - H,
+    longCount,
+    shortCount,
+    neutralCount,
+  };
+}
+
+/**
+ * Linear floor-shifted discount: discount(c) = floor + (1-floor) * c.
+ * Returns 1.0 when consensus is null (no-op — matches pre-B.2 behavior).
+ * - floor=1.0 → always 1.0 (consensus has no effect)
+ * - floor=0.5 → 50/50 signal gets 0.5×, unanimous 1.0× (initial default)
+ * - floor=0.0 → consensus fully scales confidence (aggressive filtering)
+ */
+export function consensusDiscount(
+  consensus: number | null,
+  floor: number,
+): number {
+  if (consensus === null) return 1.0;
+  return floor + (1 - floor) * consensus;
+}
+
+/**
  * Weighted Average Combiner
  *
  * Combines multiple trading signals into a single signal using weighted averaging.
