@@ -454,6 +454,20 @@ async function main(): Promise<void> {
         },
       });
 
+      // Load consensus_discount_floor from signal_weights (same row-per-config pattern
+      // as direction_multiplier — see DirectionMultiplierLearningService:268).
+      // Row seeded at startup (commit a4f3472). Fallback to 0.5 is defense-in-depth.
+      let consensusDiscountFloor = 0.5;
+      try {
+        const consensusRow = await signalWeightsRepo.get('consensus_discount_floor');
+        if (consensusRow?.weight !== undefined && consensusRow.weight !== null) {
+          consensusDiscountFloor = Number(consensusRow.weight);
+        }
+        console.log('Loaded consensusDiscountFloor from signal_weights:', consensusDiscountFloor);
+      } catch (error) {
+        console.warn('Failed to load consensus_discount_floor, using default 0.5:', error);
+      }
+
       const signalEngine = initializeSignalEngine({
         enabled: true,
         computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),
@@ -461,6 +475,7 @@ async function main(): Promise<void> {
         minPriceBars: 3,           // Bayesian confidence cap handles data scarcity
         minCombinedConfidence: optimizedParams.minCombinedConfidence,
         minCombinedStrength: optimizedParams.minCombinedStrength,
+        consensusDiscountFloor,
         directionResolver,
       });
 

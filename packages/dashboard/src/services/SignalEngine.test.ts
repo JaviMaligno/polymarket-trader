@@ -202,6 +202,47 @@ describe('SignalEngine — 50/50 Market Filter', () => {
   });
 });
 
+/**
+ * Test the consensus_discount_floor loader logic extracted from server.ts.
+ * Mirrors the pattern in the production loader: signalWeightsRepo.get() → Number(weight) → fallback 0.5.
+ * Does not import server.ts (boot-time side effects); replicates the pure extraction logic instead.
+ */
+function loadConsensusDiscountFloor(
+  row: { weight: number | null | undefined } | null
+): number {
+  if (row?.weight !== undefined && row.weight !== null) {
+    return Number(row.weight);
+  }
+  return 0.5;
+}
+
+describe('server.ts loader — consensusDiscountFloor from signal_weights', () => {
+  it('uses row weight when present', () => {
+    expect(loadConsensusDiscountFloor({ weight: 0.42 })).toBe(0.42);
+  });
+
+  it('falls back to 0.5 when row is null (missing)', () => {
+    expect(loadConsensusDiscountFloor(null)).toBe(0.5);
+  });
+
+  it('falls back to 0.5 when row.weight is null', () => {
+    expect(loadConsensusDiscountFloor({ weight: null })).toBe(0.5);
+  });
+
+  it('falls back to 0.5 when row.weight is undefined', () => {
+    expect(loadConsensusDiscountFloor({ weight: undefined })).toBe(0.5);
+  });
+
+  it('coerces numeric string from DB to number', () => {
+    // DB drivers may return NUMERIC columns as strings
+    expect(loadConsensusDiscountFloor({ weight: '0.75' as any })).toBe(0.75);
+  });
+
+  it('accepts floor of 1.0 (no-op — full consensus always passes)', () => {
+    expect(loadConsensusDiscountFloor({ weight: 1.0 })).toBe(1.0);
+  });
+});
+
 describe('SignalEngine — DirectionResolver integration', () => {
   it('passes resolver multiplier to combiner and exposes wasExploration + metadata.direction on output', async () => {
     const stubCombined = {
