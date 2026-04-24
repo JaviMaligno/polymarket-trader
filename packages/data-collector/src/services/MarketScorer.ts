@@ -5,11 +5,12 @@ const logger = pino({ name: 'MarketScorer' });
 
 // ─── Constants ─────────────────────────────────────────────────────────
 export const WEIGHTS = {
-  tradeability: 0.30,
-  liquidity: 0.25,
-  volatility: 0.20,
-  ttr: 0.15,
+  tradeability: 0.25,
+  liquidity: 0.20,
+  volatility: 0.15,
+  ttr: 0.10,
   dataQuality: 0.10,
+  typeExpectedValue: 0.20,
 } as const;
 
 export const MAX_VOLUME_REF = 30_000_000;
@@ -23,6 +24,7 @@ export interface ScoreDimensions {
   volatility: number | null;
   ttr: number;
   dataQuality: number | null;
+  typeExpectedValue: number;
 }
 
 export interface ScorerWeights {
@@ -31,6 +33,7 @@ export interface ScorerWeights {
   volatility: number;
   ttr: number;
   dataQuality: number;
+  typeExpectedValue: number;
 }
 
 export interface EnrichUpdate {
@@ -196,6 +199,9 @@ export class MarketScorer {
     weightedSum += dims.ttr * weights.ttr;
     totalWeight += weights.ttr;
 
+    weightedSum += dims.typeExpectedValue * weights.typeExpectedValue;
+    totalWeight += weights.typeExpectedValue;
+
     // Optional dimensions
     if (dims.volatility !== null) {
       weightedSum += dims.volatility * weights.volatility;
@@ -225,8 +231,9 @@ export class MarketScorer {
         volatility: number;
         ttr: number;
         data_quality: number;
+        type_expected_value?: number;
       }>(
-        `SELECT tradeability, liquidity, volatility, ttr, data_quality
+        `SELECT tradeability, liquidity, volatility, ttr, data_quality, type_expected_value
          FROM scorer_weights
          ORDER BY id DESC LIMIT 1`,
       );
@@ -238,9 +245,10 @@ export class MarketScorer {
           volatility: r.volatility,
           ttr: r.ttr,
           dataQuality: r.data_quality,
+          typeExpectedValue: r.type_expected_value ?? WEIGHTS.typeExpectedValue,
         };
         const sum = weightsObj.tradeability + weightsObj.liquidity + weightsObj.volatility
-                   + weightsObj.ttr + weightsObj.dataQuality;
+                   + weightsObj.ttr + weightsObj.dataQuality + weightsObj.typeExpectedValue;
         if (Math.abs(sum - 1.0) > 0.05) {
           logger.warn({ sum, weights: weightsObj }, 'scorer_weights do not sum to 1 — using DB values anyway');
         }
@@ -325,6 +333,7 @@ export class MarketScorer {
         volatility: null,
         ttr,
         dataQuality: null,
+        typeExpectedValue: 0,
       }, weights) * prior;
 
       return {
@@ -418,6 +427,7 @@ export class MarketScorer {
         volatility,
         ttr,
         dataQuality,
+        typeExpectedValue: 0,
       }, weights) * prior;
 
       enrichUpdates.push({
