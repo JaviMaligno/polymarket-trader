@@ -208,6 +208,25 @@ export class MarketScorer {
   }
 
   /**
+   * Map raw realized volatility (stddev of Δp over 24h window) to [0, 1].
+   * Returns null when insufficient data (barCount < 5) — consistent with the
+   * nullable contract of volatility/dataQuality. Env: REALIZED_VOL_REF
+   * overrides the default VOL_REF=0.02 (a raw vol of 2 percentage points
+   * maps to 1.0 on the normalized scale).
+   */
+  static mapRealizedVolatility(
+    raw: number | null,
+    barCount: number | null,
+    VOL_REF: number = Number(process.env.REALIZED_VOL_REF ?? 0.02),
+  ): number | null {
+    if (raw === null || barCount === null || barCount < 5) return null;
+    if (!Number.isFinite(VOL_REF) || VOL_REF <= 0) {
+      VOL_REF = 0.02; // defensive fallback for misconfigured env
+    }
+    return clamp01(raw / VOL_REF);
+  }
+
+  /**
    * Composite score — weighted sum of dimensions.
    *
    * When volatility, dataQuality, and/or realizedVolatility are null (cold markets

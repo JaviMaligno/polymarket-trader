@@ -574,6 +574,42 @@ describe('MarketScorer', () => {
     });
   });
 
+  // ─── mapRealizedVolatility ──────────────────────────────────────────
+  describe('MarketScorer.mapRealizedVolatility', () => {
+    it('returns null when raw is null', () => {
+      expect(MarketScorer.mapRealizedVolatility(null, 100)).toBeNull();
+    });
+
+    it('returns null when barCount is null', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.02, null)).toBeNull();
+    });
+
+    it('returns null when barCount < 5', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.02, 4)).toBeNull();
+    });
+
+    it('maps raw vol 0.02 with default VOL_REF=0.02 to 1.0', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.02, 10)).toBe(1.0);
+    });
+
+    it('maps raw vol 0.01 with default VOL_REF=0.02 to 0.5', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.01, 10)).toBeCloseTo(0.5, 5);
+    });
+
+    it('clamps above 1.0 (very volatile market)', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.08, 10)).toBe(1.0);
+    });
+
+    it('clamps at 0.0 (never negative)', () => {
+      expect(MarketScorer.mapRealizedVolatility(-0.01, 10)).toBe(0);
+    });
+
+    it('barCount boundary — 5 computes, 4 is null', () => {
+      expect(MarketScorer.mapRealizedVolatility(0.01, 4)).toBeNull();
+      expect(MarketScorer.mapRealizedVolatility(0.01, 5)).toBeCloseTo(0.5, 5);
+    });
+  });
+
   describe('scoreAllMarkets', () => {
     it('batches pass-1 score updates instead of issuing a full-table update', async () => {
       MarketScorer.clearWeightsCache();
