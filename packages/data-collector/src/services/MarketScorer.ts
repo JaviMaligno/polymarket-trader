@@ -288,7 +288,7 @@ export class MarketScorer {
       );
 
       const perType = result.rows.find(
-        r => r.market_type === marketType
+        r => r.market_type === key && key !== MarketScorer.GLOBAL_MARKET_TYPE
           && (r.n_trades ?? 0) >= MarketScorer.MIN_TRADES_FOR_PER_TYPE,
       );
       const globalRow = result.rows.find(r => r.market_type === MarketScorer.GLOBAL_MARKET_TYPE);
@@ -306,12 +306,13 @@ export class MarketScorer {
               : WEIGHTS.typeExpectedValue,
           }
         : { ...WEIGHTS };
+
+      MarketScorer.weightsCache.set(key, { weights, loadedAt: Date.now() });
     } catch {
       // DB unreachable or column missing (pre-T4 deploy) → fall back silently.
       weights = { ...WEIGHTS };
     }
 
-    MarketScorer.weightsCache.set(key, { weights, loadedAt: Date.now() });
     return weights;
   }
 

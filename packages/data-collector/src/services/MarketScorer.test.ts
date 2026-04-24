@@ -750,7 +750,7 @@ describe('MarketScorer', () => {
   describe('MarketScorer.loadWeights per-type', () => {
     beforeEach(() => {
       vi.clearAllMocks();
-      MarketScorer.clearWeightsCache(); // helper we'll add in step 3
+      MarketScorer.clearWeightsCache();
     });
     afterEach(() => {
       vi.clearAllMocks();
@@ -820,6 +820,23 @@ describe('MarketScorer', () => {
         liquidity: WEIGHTS.liquidity,
         typeExpectedValue: WEIGHTS.typeExpectedValue,
       });
+    });
+
+    it('per-type threshold boundary — n_trades=30 uses per-type, n_trades=29 falls back', async () => {
+      const globalRow = { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+        volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 };
+      const perTypeRow = (n: number) => ({ market_type: 'event_long', tradeability: 0.50, liquidity: 0.1,
+        volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1, n_trades: n });
+
+      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(30), globalRow] });
+      MarketScorer.clearWeightsCache();
+      const w30 = await MarketScorer.loadWeights('event_long');
+      expect(w30.tradeability).toBeCloseTo(0.50); // per-type
+
+      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(29), globalRow] });
+      MarketScorer.clearWeightsCache();
+      const w29 = await MarketScorer.loadWeights('event_long');
+      expect(w29.tradeability).toBeCloseTo(0.25); // global fallback
     });
   });
 
