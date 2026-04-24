@@ -28,14 +28,15 @@ describe('pearsonCorrelation', () => {
 
 describe('computeObjective', () => {
   const weights: ScorerWeights = {
-    tradeability: 0.30, liquidity: 0.25, volatility: 0.20, ttr: 0.15, dataQuality: 0.10, typeExpectedValue: 0.20,
+    tradeability: 0.30, liquidity: 0.25, volatility: 0.20, ttr: 0.15, dataQuality: 0.10,
+    typeExpectedValue: 0.20, realizedVolatility: 0.05,
   };
 
   it('returns positive correlation when high-score trades have positive pnl', () => {
     const trades = [
-      { dims: { tradeability: 1.0, liquidity: 0.8, ttr: 0.9, volatility: null, dataQuality: null, typeExpectedValue: 0.5 }, pnl: 10 },
-      { dims: { tradeability: 0.1, liquidity: 0.1, ttr: 0.2, volatility: null, dataQuality: null, typeExpectedValue: 0.5 }, pnl: -5 },
-      { dims: { tradeability: 0.8, liquidity: 0.7, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5 }, pnl: 7 },
+      { dims: { tradeability: 1.0, liquidity: 0.8, ttr: 0.9, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 10 },
+      { dims: { tradeability: 0.1, liquidity: 0.1, ttr: 0.2, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: -5 },
+      { dims: { tradeability: 0.8, liquidity: 0.7, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 7 },
     ];
     const result = computeObjective(weights, trades);
     expect(result).toBeGreaterThan(0);
@@ -44,8 +45,8 @@ describe('computeObjective', () => {
 
   it('returns 0 when all pnl are identical (no variance)', () => {
     const trades = [
-      { dims: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, volatility: null, dataQuality: null, typeExpectedValue: 0.5 }, pnl: 5 },
-      { dims: { tradeability: 0.8, liquidity: 0.8, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5 }, pnl: 5 },
+      { dims: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 5 },
+      { dims: { tradeability: 0.8, liquidity: 0.8, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 5 },
     ];
     expect(computeObjective(weights, trades)).toBe(0);
   });
@@ -88,7 +89,7 @@ describe('optimizeScorerWeights per-type', () => {
   it('runs optimization per eligible type and writes the global row', async () => {
     const syntheticTrades = Array.from({ length: 50 }, () => ({
       score_dimensions_at_entry: {
-        tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7,
+        tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7, realizedVolatility: 0.4,
       },
       realized_pnl: '10',
     }));
@@ -123,7 +124,7 @@ describe('optimizeScorerWeights per-type', () => {
         // Throw on the 'broken_type' call (second per-type call)
         if (callIdx === 2) throw new Error('simulated DB error');
         return { rows: Array.from({ length: 50 }, () => ({
-          score_dimensions_at_entry: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7 },
+          score_dimensions_at_entry: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7, realizedVolatility: 0.4 },
           realized_pnl: '10',
         })) };
       }
@@ -139,5 +140,59 @@ describe('optimizeScorerWeights per-type', () => {
     const marketTypes = inserts.map((c: unknown[]) => (c[1] as unknown[])[0] as string).sort();
     // event_long + event_financial + __global__ all succeed; broken_type skipped
     expect(marketTypes).toEqual(['__global__', 'event_financial', 'event_long']);
+  });
+});
+
+describe('optimizeScorerWeights — realizedVolatility', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('saveWeights INSERT includes realized_volatility column and param', async () => {
+    const captured: Array<{ sql: string; params: unknown[] }> = [];
+    (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.startsWith('INSERT INTO scorer_weights')) {
+        captured.push({ sql, params: params ?? [] });
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'event_long' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM paper_positions pp')) {
+        return {
+          rows: Array.from({ length: 50 }, () => ({
+            score_dimensions_at_entry: {
+              tradeability: 0.5, liquidity: 0.5, ttr: 0.5,
+              typeExpectedValue: 0.7, realizedVolatility: 0.4,
+            },
+            realized_pnl: '10',
+          })),
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+
+    await optimizeScorerWeights();
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const c of captured) {
+      expect(c.sql).toContain('realized_volatility');
+      expect(c.sql).toContain('EXCLUDED.realized_volatility');
+    }
+  });
+
+  it('loadClosedTrades filters by jsonb ? realizedVolatility', async () => {
+    const capturedSql: string[] = [];
+    (query as unknown as Mock).mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('FROM paper_positions')) {
+        capturedSql.push(sql);
+        return { rows: [] };
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [] };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    await optimizeScorerWeights();
+    // Even if no rows returned, the SELECT should include the new filter
+    const selectWithFilter = capturedSql.find(s => s.includes("? 'realizedVolatility'"));
+    expect(selectWithFilter).toBeDefined();
   });
 });
