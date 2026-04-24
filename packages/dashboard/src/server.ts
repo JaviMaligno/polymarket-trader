@@ -194,6 +194,75 @@ async function main(): Promise<void> {
       `);
       console.log('paper_positions direction exploration columns ensured');
 
+      // Ensure scorer_weights supports per-type weights and typeExpectedValue dim.
+      // See docs/plans/2026-04-24-scorer-per-type-weights-design.md.
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS market_type VARCHAR(32) NOT NULL DEFAULT '__global__';
+      `);
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS type_expected_value FLOAT NOT NULL DEFAULT 0;
+      `);
+      await query(`
+        DO $do$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uniq_scorer_weights_market_type'
+          ) THEN
+            ALTER TABLE scorer_weights
+              ADD CONSTRAINT uniq_scorer_weights_market_type UNIQUE (market_type);
+          END IF;
+        END $do$;
+      `);
+      console.log('scorer_weights per-type columns ensured');
+
+      // T11: One-shot backfill: add typeExpectedValue to score_dimensions_at_entry for
+      // post-reset trades. Idempotent — running twice is cheap because of the
+      // outer COUNT guard.
+      const missingRes = await query<{ n: string }>(`
+        SELECT COUNT(*) as n FROM paper_positions pp
+        WHERE pp.closed_at IS NOT NULL
+          AND pp.score_dimensions_at_entry IS NOT NULL
+          AND NOT (pp.score_dimensions_at_entry ? 'typeExpectedValue')
+          AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+      `);
+      const missingCount = Number(missingRes.rows[0]?.n ?? 0);
+      if (missingCount > 0) {
+        console.log(`Backfilling typeExpectedValue for ${missingCount} trades...`);
+        await query(`
+          UPDATE paper_positions pp
+          SET score_dimensions_at_entry = score_dimensions_at_entry ||
+            jsonb_build_object('typeExpectedValue',
+              CASE
+                WHEN cp.n_trades IS NULL OR cp.n_trades < 5 OR cp.sharpe_ratio IS NULL THEN 0.5
+                ELSE GREATEST(0.0, LEAST(1.0,
+                  ((cp.sharpe_ratio * cp.n_trades / (cp.n_trades + 20.0)) + 1.0) / 1.5
+                ))
+              END
+            )
+          FROM markets m
+          LEFT JOIN category_performance cp ON cp.market_type = m.market_type
+          WHERE m.id = pp.market_id
+            AND pp.closed_at IS NOT NULL
+            AND pp.score_dimensions_at_entry IS NOT NULL
+            AND NOT (pp.score_dimensions_at_entry ? 'typeExpectedValue')
+            AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+        `);
+        console.log('typeExpectedValue backfill complete');
+      } else {
+        console.log('typeExpectedValue backfill not needed (all post-reset trades already have it)');
+      }
+
+      // T8: Ensure score_type_expected_value column exists in market_score_history.
+      // Pass 2 now stores typeEV per tracked market alongside other dimension scores.
+      await query(`
+        ALTER TABLE market_score_history
+          ADD COLUMN IF NOT EXISTS score_type_expected_value FLOAT;
+      `);
+      console.log('market_score_history score_type_expected_value column ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {

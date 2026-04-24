@@ -1,11 +1,14 @@
 import { describe, it, expect, vi } from 'vitest';
 import * as connection from '../database/connection.js';
+import { query } from '../database/connection.js';
 import {
   MarketScorer,
   WEIGHTS,
   type ScoreDimensions,
   type ScorerWeights,
 } from './MarketScorer.js';
+
+vi.mock('../database/connection.js', () => ({ query: vi.fn() }));
 
 describe('MarketScorer', () => {
   // ─── tradeabilityScore ───────────────────────────────────────────────
@@ -258,6 +261,7 @@ describe('MarketScorer', () => {
         volatility: 1.0,
         ttr: 1.0,
         dataQuality: 1.0,
+        typeExpectedValue: 1.0,
       };
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(1.0, 5);
     });
@@ -269,6 +273,7 @@ describe('MarketScorer', () => {
         volatility: 0,
         ttr: 0,
         dataQuality: 0,
+        typeExpectedValue: 0,
       };
       expect(MarketScorer.compositeScore(dims)).toBe(0);
     });
@@ -281,8 +286,9 @@ describe('MarketScorer', () => {
         volatility: 0,
         ttr: 0,
         dataQuality: 0,
+        typeExpectedValue: 0,
       };
-      expect(MarketScorer.compositeScore(trade)).toBeCloseTo(0.30, 5);
+      expect(MarketScorer.compositeScore(trade)).toBeCloseTo(0.25, 5);
 
       // Only liquidity=1.0
       const liq: ScoreDimensions = {
@@ -291,8 +297,9 @@ describe('MarketScorer', () => {
         volatility: 0,
         ttr: 0,
         dataQuality: 0,
+        typeExpectedValue: 0,
       };
-      expect(MarketScorer.compositeScore(liq)).toBeCloseTo(0.25, 5);
+      expect(MarketScorer.compositeScore(liq)).toBeCloseTo(0.20, 5);
 
       // Only volatility=1.0
       const vol: ScoreDimensions = {
@@ -301,8 +308,9 @@ describe('MarketScorer', () => {
         volatility: 1.0,
         ttr: 0,
         dataQuality: 0,
+        typeExpectedValue: 0,
       };
-      expect(MarketScorer.compositeScore(vol)).toBeCloseTo(0.20, 5);
+      expect(MarketScorer.compositeScore(vol)).toBeCloseTo(0.15, 5);
 
       // Only ttr=1.0
       const ttr: ScoreDimensions = {
@@ -311,8 +319,9 @@ describe('MarketScorer', () => {
         volatility: 0,
         ttr: 1.0,
         dataQuality: 0,
+        typeExpectedValue: 0,
       };
-      expect(MarketScorer.compositeScore(ttr)).toBeCloseTo(0.15, 5);
+      expect(MarketScorer.compositeScore(ttr)).toBeCloseTo(0.10, 5);
 
       // Only dataQuality=1.0
       const dq: ScoreDimensions = {
@@ -321,8 +330,20 @@ describe('MarketScorer', () => {
         volatility: 0,
         ttr: 0,
         dataQuality: 1.0,
+        typeExpectedValue: 0,
       };
       expect(MarketScorer.compositeScore(dq)).toBeCloseTo(0.10, 5);
+
+      // Only typeExpectedValue=1.0
+      const tev: ScoreDimensions = {
+        tradeability: 0,
+        liquidity: 0,
+        volatility: 0,
+        ttr: 0,
+        dataQuality: 0,
+        typeExpectedValue: 1.0,
+      };
+      expect(MarketScorer.compositeScore(tev)).toBeCloseTo(0.20, 5);
     });
 
     it('normalizes by available weights when volatility is null', () => {
@@ -332,9 +353,10 @@ describe('MarketScorer', () => {
         volatility: null,
         ttr: 1.0,
         dataQuality: 1.0,
+        typeExpectedValue: 1.0,
       };
-      // Available weights: 0.30 + 0.25 + 0.15 + 0.10 = 0.80
-      // Score = (0.30 + 0.25 + 0.15 + 0.10) / 0.80 = 1.0
+      // Available weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
+      // Score = (0.25 + 0.20 + 0.10 + 0.20) / 0.75 = 1.0
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(1.0, 5);
     });
 
@@ -345,8 +367,9 @@ describe('MarketScorer', () => {
         volatility: 1.0,
         ttr: 1.0,
         dataQuality: null,
+        typeExpectedValue: 1.0,
       };
-      // Available weights: 0.30 + 0.25 + 0.20 + 0.15 = 0.90
+      // Available weights: 0.25 + 0.20 + 0.15 + 0.10 + 0.20 = 0.90
       // Score = 0.90 / 0.90 = 1.0
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(1.0, 5);
     });
@@ -358,9 +381,10 @@ describe('MarketScorer', () => {
         volatility: null,
         ttr: 1.0,
         dataQuality: null,
+        typeExpectedValue: 1.0,
       };
-      // Available weights: 0.30 + 0.25 + 0.15 = 0.70
-      // Score = 0.70 / 0.70 = 1.0
+      // Available weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
+      // Score = 0.75 / 0.75 = 1.0
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(1.0, 5);
     });
 
@@ -371,11 +395,12 @@ describe('MarketScorer', () => {
         volatility: null,
         ttr: 0.6,
         dataQuality: null,
+        typeExpectedValue: 0,
       };
-      // Available weights: 0.30 + 0.25 + 0.15 = 0.70
-      // Weighted sum = 0.5*0.30 + 0.8*0.25 + 0.6*0.15 = 0.15 + 0.20 + 0.09 = 0.44
-      // Normalized = 0.44 / 0.70 = 0.6285...
-      expect(MarketScorer.compositeScore(dims)).toBeCloseTo(0.44 / 0.70, 4);
+      // Available weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75 (typeExpectedValue is always present)
+      // Weighted sum = 0.5*0.25 + 0.8*0.20 + 0.6*0.10 + 0*0.20 = 0.125 + 0.16 + 0.06 + 0 = 0.345
+      // Normalized = 0.345 / 0.75 = 0.46
+      expect(MarketScorer.compositeScore(dims)).toBeCloseTo(0.345 / 0.75, 4);
     });
 
     it('handles mixed scores correctly', () => {
@@ -385,34 +410,46 @@ describe('MarketScorer', () => {
         volatility: 0.5,
         ttr: 0.9,
         dataQuality: 0.7,
+        typeExpectedValue: 0,
       };
       const expected =
-        0.8 * 0.3 + 0.6 * 0.25 + 0.5 * 0.2 + 0.9 * 0.15 + 0.7 * 0.1;
+        0.8 * 0.25 + 0.6 * 0.20 + 0.5 * 0.15 + 0.9 * 0.10 + 0.7 * 0.10 + 0 * 0.20;
       expect(MarketScorer.compositeScore(dims)).toBeCloseTo(expected, 5);
     });
   });
 
   // ─── loadWeights ────────────────────────────────────────────────────
   describe('loadWeights', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+    afterEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
     it('returns hardcoded WEIGHTS when DB query throws', async () => {
       vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
       const weights = await MarketScorer.loadWeights();
       expect(weights.tradeability).toBe(WEIGHTS.tradeability);
       expect(weights.liquidity).toBe(WEIGHTS.liquidity);
       expect(weights.ttr).toBe(WEIGHTS.ttr);
-      vi.restoreAllMocks();
     });
 
     it('returns hardcoded WEIGHTS when scorer_weights table is empty', async () => {
       vi.spyOn(connection, 'query').mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
       const weights = await MarketScorer.loadWeights();
       expect(weights.tradeability).toBe(WEIGHTS.tradeability);
-      vi.restoreAllMocks();
     });
 
     it('returns DB weights when row exists', async () => {
       vi.spyOn(connection, 'query').mockResolvedValueOnce({
-        rows: [{ tradeability: 0.40, liquidity: 0.20, volatility: 0.15, ttr: 0.15, data_quality: 0.10 }],
+        rows: [{
+          market_type: '__global__', tradeability: 0.40, liquidity: 0.20,
+          volatility: 0.15, ttr: 0.15, data_quality: 0.10, type_expected_value: 0.20,
+          n_trades: 1800,
+        }],
         rowCount: 1,
       } as any);
       const weights = await MarketScorer.loadWeights();
@@ -423,45 +460,20 @@ describe('MarketScorer', () => {
         ttr: 0.15,
         dataQuality: 0.10,
       });
-      vi.restoreAllMocks();
-    });
-  });
-
-  // ─── loadCategoryPriors ─────────────────────────────────────────────
-  describe('loadCategoryPriors', () => {
-    it('returns empty map when DB query throws', async () => {
-      vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
-      const priors = await MarketScorer.loadCategoryPriors();
-      expect(priors.size).toBe(0);
-      vi.restoreAllMocks();
-    });
-
-    it('returns map of market_type → prior from DB', async () => {
-      vi.spyOn(connection, 'query').mockResolvedValueOnce({
-        rows: [
-          { market_type: 'crypto_daily', prior: 1.2 },
-          { market_type: 'event_short', prior: 0.8 },
-        ],
-        rowCount: 2,
-      } as any);
-      const priors = await MarketScorer.loadCategoryPriors();
-      expect(priors.get('crypto_daily')).toBeCloseTo(1.2);
-      expect(priors.get('event_short')).toBeCloseTo(0.8);
-      expect(priors.get('unknown_type')).toBeUndefined();
-      vi.restoreAllMocks();
     });
   });
 
   // ─── compositeScore with custom weights ─────────────────────────────
   describe('compositeScore with custom weights', () => {
     it('uses provided weights to compute weighted average across all dims', () => {
-      // All 5 dims non-null so all weight fields are exercised
+      // All 6 dims non-null so all weight fields are exercised
       const dims: ScoreDimensions = {
         tradeability: 1.0,
         liquidity: 0.0,
         volatility: 0.0,
         ttr: 1.0,
         dataQuality: 0.0,
+        typeExpectedValue: 0.0,
       };
       // Equal weights for tradeability and ttr, zero for others
       const customWeights: ScorerWeights = {
@@ -470,8 +482,9 @@ describe('MarketScorer', () => {
         volatility: 0.0,
         ttr: 0.5,
         dataQuality: 0.0,
+        typeExpectedValue: 0.0,
       };
-      // Expected: (1.0*0.5 + 0.0*0.0 + 0.0*0.0 + 1.0*0.5 + 0.0*0.0) / (0.5+0.0+0.0+0.5+0.0) = 1.0 / 1.0 = 1.0
+      // Expected: (1.0*0.5 + 0.0*0.0 + 0.0*0.0 + 1.0*0.5 + 0.0*0.0 + 0.0*0.0) / (0.5+0.0+0.0+0.5+0.0+0.0) = 1.0 / 1.0 = 1.0
       expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
     });
 
@@ -482,6 +495,7 @@ describe('MarketScorer', () => {
         volatility: null,
         ttr: 1.0,
         dataQuality: null,
+        typeExpectedValue: 0.0,
       };
       // Unequal weights (don't sum to 1)
       const customWeights: ScorerWeights = {
@@ -490,27 +504,79 @@ describe('MarketScorer', () => {
         volatility: 0.5,
         ttr: 1.0,
         dataQuality: 0.5,
+        typeExpectedValue: 0.5,
       };
-      // volatility and dataQuality are null → excluded. sumW = 2.0+1.0+1.0 = 4.0
-      // score = (1.0*2.0 + 1.0*1.0 + 1.0*1.0) / 4.0 = 4.0 / 4.0 = 1.0
-      expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
+      // volatility and dataQuality are null → excluded. sumW = 2.0+1.0+1.0+0.5 = 4.5
+      // score = (1.0*2.0 + 1.0*1.0 + 1.0*1.0 + 0.0*0.5) / 4.5 = 4.0 / 4.5 = 0.888...
+      expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(4.0 / 4.5);
+    });
+  });
+
+  // ─── compositeScore with typeExpectedValue (Task 3 TDD record) ──────────
+  describe('MarketScorer.compositeScore with typeExpectedValue', () => {
+    it('includes typeExpectedValue contribution in composite', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1, liquidity: 1, volatility: null,
+        ttr: 1, dataQuality: null, typeExpectedValue: 1,
+      };
+      const weights: ScorerWeights = {
+        tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
+        ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
+      };
+      // All non-null dims at 1: tradeability + liquidity + ttr + typeExpectedValue
+      // weighted sum = 0.25+0.20+0.10+0.20 = 0.75, normalized by same = 1.0
+      const score = MarketScorer.compositeScore(dims, weights);
+      expect(score).toBeCloseTo(1.0, 3);
+    });
+
+    it('typeExpectedValue at 0 drops score by its weight share', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1, liquidity: 1, volatility: null,
+        ttr: 1, dataQuality: null, typeExpectedValue: 0,
+      };
+      const weights: ScorerWeights = {
+        tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
+        ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
+      };
+      // Non-null weighted sum = 0.25+0.20+0.10+0 = 0.55
+      // Normalized by non-null weight-sum (0.25+0.20+0.10+0.20) = 0.75
+      // score = 0.55 / 0.75 ≈ 0.7333
+      const score = MarketScorer.compositeScore(dims, weights);
+      expect(score).toBeCloseTo(0.7333, 3);
     });
   });
 
   describe('scoreAllMarkets', () => {
     it('batches pass-1 score updates instead of issuing a full-table update', async () => {
+      MarketScorer.clearWeightsCache();
       const querySpy = vi.spyOn(connection, 'query').mockImplementation(async (sql: any, params?: any[]) => {
         const text = String(sql);
 
-        if (text.includes('SELECT tradeability, liquidity, volatility, ttr, data_quality')) {
+        if (text.includes('FROM scorer_weights') && text.includes('market_type IN')) {
+          return {
+            rows: [
+              { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+                volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+                n_trades: 1800 },
+            ],
+            rowCount: 1,
+          } as any;
+        }
+
+        // New: category metrics for typeExpectedValue (replaces prior multiplier)
+        if (text.includes('FROM category_performance') && text.includes('sharpe_ratio')) {
+          // event_short has no data → typeEV = 0.5 (neutral)
           return { rows: [], rowCount: 0 } as any;
         }
 
+        // Old priors query — used by Pass 2 only
         if (text.includes('SELECT market_type, prior FROM category_performance')) {
-          return {
-            rows: [{ market_type: 'event_short', prior: 0.8 }],
-            rowCount: 1,
-          } as any;
+          return { rows: [], rowCount: 0 } as any;
+        }
+
+        // New: DISTINCT market_type query
+        if (text.includes('SELECT DISTINCT market_type FROM markets')) {
+          return { rows: [{ market_type: 'event_short' }], rowCount: 1 } as any;
         }
 
         if (text.includes('FROM markets') && text.includes(`tracking_status NOT IN ('warming', 'active', 'cooling')`)) {
@@ -541,7 +607,11 @@ describe('MarketScorer', () => {
           return { rows: [], rowCount: 0 } as any;
         }
 
-        if (text.includes('UPDATE markets AS m')) {
+        if (text.includes('UPDATE markets AS m') || text.includes('UPDATE markets\n')) {
+          return { rows: [], rowCount: (params?.length ?? 0) / 2 } as any;
+        }
+
+        if (text.trim().startsWith('UPDATE markets')) {
           return { rows: [], rowCount: (params?.length ?? 0) / 2 } as any;
         }
 
@@ -563,16 +633,434 @@ describe('MarketScorer', () => {
       expect(queries.some(q => q.includes('UPDATE markets SET market_score = ('))).toBe(false);
       expect(queries.some(q => q.includes('UPDATE markets SET market_score = market_score * COALESCE('))).toBe(false);
 
-      const batchUpdateCall = querySpy.mock.calls.find(([sql]) => String(sql).includes('UPDATE markets AS m'));
-      expect(batchUpdateCall).toBeDefined();
+      // Now we get separate UPDATE calls per type — at least 2 (event_short + NULL fallback)
+      const updateCalls = querySpy.mock.calls.filter(([sql]) => String(sql).trim().startsWith('UPDATE markets'));
+      expect(updateCalls.length).toBeGreaterThanOrEqual(2);
 
-      const updateParams = batchUpdateCall?.[1] as Array<string | number>;
-      expect(updateParams).toEqual([
-        'cold-1', 0.8,
-        'cold-2', 1,
-      ]);
+      // cold-1 (event_short) and cold-2 (null): price=0.5, vol=30M, spread=0.01, end=30d
+      //   tradeability = 1.0  (balanced zone)
+      //   liquidity    = log(30M) / log(30M) = 1.0, spread ≤ 0.03 → no penalty → 1.0
+      //   ttr          = 1.0  (30 days → 7-60 day optimal window)
+      //   volatility   = null, dataQuality = null → excluded
+      //   typeEV = 0.5 (neutral — no category_performance data for event_short, neutral for NULL)
+      // non-null weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
+      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.5*0.20 = 0.65
+      // composite = 0.65 / 0.75 = 0.8667
+      // No prior multiplier — typeEV is now a composite dimension.
+
+      // Find the event_short UPDATE: params[0]=marketType, params[1]=conditionId, params[2]=score
+      const eventShortCall = querySpy.mock.calls.find(
+        ([sql, params]) =>
+          String(sql).trim().startsWith('UPDATE markets') &&
+          Array.isArray(params) && params[0] === 'event_short',
+      );
+      expect(eventShortCall).toBeDefined();
+      const eventShortParams = eventShortCall?.[1] as Array<string | number>;
+      expect(eventShortParams?.[0]).toBe('event_short');
+      expect(eventShortParams?.[1]).toBe('cold-1');
+      expect(eventShortParams?.[2] as number).toBeCloseTo(0.8667, 3);
+
+      // Find the NULL-type UPDATE: params[0] = null (the parameterized market_type)
+      const nullTypeCall = querySpy.mock.calls.find(
+        ([sql, params]) =>
+          String(sql).trim().startsWith('UPDATE markets') &&
+          Array.isArray(params) && params[0] === null,
+      );
+      expect(nullTypeCall).toBeDefined();
+      const nullTypeParams = nullTypeCall?.[1] as Array<string | number | null>;
+      expect(nullTypeParams?.[0]).toBeNull();
+      expect(nullTypeParams?.[1]).toBe('cold-2');
+      expect(nullTypeParams?.[2] as number).toBeCloseTo(0.8667, 3);
 
       vi.restoreAllMocks();
+    });
+  });
+
+  // ─── Pass 1 per-type ────────────────────────────────────────────────────
+  describe('MarketScorer.scoreAllMarkets Pass 1 per-type', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
+    it('issues one UPDATE per distinct market_type plus one fallback for NULL market_type', async () => {
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+          return { rows: [{ market_type: 'event_long' }, { market_type: 'event_financial' }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [
+            { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
+            { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
+          ] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 }] };
+        }
+        // Cold candidates query
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [
+            { condition_id: 'el-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_long' },
+            { condition_id: 'ef-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_financial' },
+            { condition_id: 'null-1', current_price_yes: 0.5, volume_24h: 1_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: null },
+          ] };
+        }
+        // Pass 2's tracked query — return empty to skip Pass 2
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT market_type, prior FROM category_performance')) {
+          return { rows: [] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      const updateCalls = (query as unknown as vi.Mock).mock.calls.filter(
+        (c: any[]) => typeof c[0] === 'string' && c[0].trim().startsWith('UPDATE markets'),
+      );
+      // 2 per-type UPDATEs + 1 fallback UPDATE for NULL market_type = 3
+      expect(updateCalls.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('computes per-type score using typeEV from category_performance', async () => {
+      const captured: Array<unknown[]> = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
+          captured.push(params ?? []);
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          // event_financial: sharpe=0.27, n=159 → shrunk=0.27*159/179≈0.23966 → (1.23966/1.5)≈0.8264
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [
+            { condition_id: 'ef-1', current_price_yes: 0.5, volume_24h: 30_000_000, spread: 0.01,
+              end_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), market_type: 'event_financial' },
+          ] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) return { rows: [] };
+        if (typeof sql === 'string' && sql.includes('SELECT market_type, prior FROM category_performance')) {
+          return { rows: [] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // First UPDATE params: [marketType, conditionId, score, ...]
+      expect(captured.length).toBeGreaterThan(0);
+      const firstCall = captured[0] as Array<unknown>;
+      expect(firstCall[0]).toBe('event_financial');  // market_type param ($1)
+      expect(firstCall[1]).toBe('ef-1');              // condition_id param ($2)
+      // typeEV = (0.27*159/179 + 1) / 1.5 ≈ 0.8264
+      // tradeability=1.0 (price=0.5), liquidity=1.0 (vol=30M=MAX_VOLUME_REF), ttr=1.0 (30d optimal)
+      // weights (non-null): trade=0.25, liq=0.20, ttr=0.10, tev=0.20 → totalW=0.75
+      // score = (1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.8264*0.20) / 0.75 ≈ 0.7153/0.75 ≈ 0.9537
+      expect(firstCall[2] as number).toBeCloseTo(0.9537, 2);
+    });
+  });
+
+  // ─── ScoreDimensions shape ──────────────────────────────────────────────
+  describe('ScoreDimensions shape', () => {
+    it('includes typeExpectedValue field', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1,
+        liquidity: 0.5,
+        volatility: null,
+        ttr: 0.5,
+        dataQuality: null,
+        typeExpectedValue: 0.75,
+      };
+      expect(dims.typeExpectedValue).toBe(0.75);
+    });
+  });
+
+  // ─── WEIGHTS default ────────────────────────────────────────────────────
+  describe('WEIGHTS default', () => {
+    it('has typeExpectedValue non-zero', () => {
+      expect(WEIGHTS.typeExpectedValue).toBeGreaterThan(0);
+    });
+    it('all weights sum to 1.0', () => {
+      const sum = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.volatility +
+                  WEIGHTS.ttr + WEIGHTS.dataQuality + WEIGHTS.typeExpectedValue;
+      expect(sum).toBeCloseTo(1.0, 5);
+    });
+  });
+
+  // ─── loadCategoryMetrics ────────────────────────────────────────────────
+  describe('MarketScorer.loadCategoryMetrics', () => {
+    beforeEach(() => vi.clearAllMocks());
+
+    it('loads a Map keyed by market_type', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
+          { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
+        ],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.get('event_financial')).toEqual({ sharpe: 0.27, n: 159 });
+      expect(map.get('event_long')).toEqual({ sharpe: 0.17, n: 1317 });
+    });
+
+    it('returns empty Map when table is empty', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({ rows: [] });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.size).toBe(0);
+    });
+
+    it('coerces string numerics from pg to numbers', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [{ market_type: 'event_short', sharpe_ratio: '0.13' as unknown as number, n_trades: '419' as unknown as number }],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      const entry = map.get('event_short');
+      expect(entry?.sharpe).toBe(0.13);
+      expect(entry?.n).toBe(419);
+    });
+
+    it('preserves null sharpe_ratio (insufficient data in category_performance)', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [{ market_type: 'crypto_daily', sharpe_ratio: null, n_trades: 4 }],
+      });
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.get('crypto_daily')).toEqual({ sharpe: null, n: 4 });
+    });
+
+    it('returns empty Map on DB error (graceful degrade)', async () => {
+      (query as unknown as vi.Mock).mockRejectedValue(new Error('db down'));
+      const map = await MarketScorer.loadCategoryMetrics();
+      expect(map.size).toBe(0);
+    });
+  });
+
+  // ─── MarketScorer.loadWeights per-type ──────────────────────────────
+  describe('MarketScorer.loadWeights per-type', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+    afterEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
+    it('returns per-type weights when row has enough trades', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'event_financial', tradeability: 0.4, liquidity: 0.2,
+            volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
+            n_trades: 100 },
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('event_financial');
+      expect(w.tradeability).toBeCloseTo(0.4);
+    });
+
+    it('falls back to global when per-type n_trades < MIN_TRADES_FOR_PER_TYPE (30)', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'crypto_intraday', tradeability: 0.5, liquidity: 0.1,
+            volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
+            n_trades: 7 },
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('crypto_intraday');
+      expect(w.tradeability).toBeCloseTo(0.25);  // global, not per-type
+    });
+
+    it('falls back to global when per-type row missing', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('unknown_type');
+      expect(w.tradeability).toBeCloseTo(0.25);
+    });
+
+    it('caches per type — second call in TTL does not re-query', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      await MarketScorer.loadWeights('event_long');
+      await MarketScorer.loadWeights('event_long');
+      expect((query as unknown as vi.Mock).mock.calls.length).toBe(1);
+    });
+
+    it('falls back to WEIGHTS defaults when DB errors', async () => {
+      (query as unknown as vi.Mock).mockRejectedValue(new Error('db down'));
+      const w = await MarketScorer.loadWeights('event_long');
+      expect(w).toMatchObject({
+        tradeability: WEIGHTS.tradeability,
+        liquidity: WEIGHTS.liquidity,
+        typeExpectedValue: WEIGHTS.typeExpectedValue,
+      });
+    });
+
+    it('per-type threshold boundary — n_trades=30 uses per-type, n_trades=29 falls back', async () => {
+      const globalRow = { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+        volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 };
+      const perTypeRow = (n: number) => ({ market_type: 'event_long', tradeability: 0.50, liquidity: 0.1,
+        volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1, n_trades: n });
+
+      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(30), globalRow] });
+      MarketScorer.clearWeightsCache();
+      const w30 = await MarketScorer.loadWeights('event_long');
+      expect(w30.tradeability).toBeCloseTo(0.50); // per-type
+
+      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(29), globalRow] });
+      MarketScorer.clearWeightsCache();
+      const w29 = await MarketScorer.loadWeights('event_long');
+      expect(w29.tradeability).toBeCloseTo(0.25); // global fallback
+    });
+  });
+
+  // ─── MarketScorer.typeExpectedValue ─────────────────────────────────
+  describe('MarketScorer.typeExpectedValue', () => {
+    it('returns 0.5 when sharpe is null', () => {
+      expect(MarketScorer.typeExpectedValue(null, 100)).toBe(0.5);
+    });
+
+    it('returns 0.5 when n < MIN_N (5)', () => {
+      expect(MarketScorer.typeExpectedValue(0.32, 4)).toBe(0.5);
+    });
+
+    it('computes shrunk Sharpe mapped to [0,1] (event_financial real data)', () => {
+      // sharpe=0.27, n=159, K=20: shrunk = 0.27*159/179 = 0.2397
+      // mapped = (0.2397 + 1) / 1.5 = 0.8265
+      expect(MarketScorer.typeExpectedValue(0.27, 159)).toBeCloseTo(0.8265, 3);
+    });
+
+    it('clamps above 1.0 (unrealistic high Sharpe)', () => {
+      // sharpe=5, n=1000: shrunk ≈ 4.9 — mapped = 5.9/1.5 = 3.93 → clamp 1.0
+      expect(MarketScorer.typeExpectedValue(5, 1000)).toBe(1.0);
+    });
+
+    it('clamps at 0.0 (very negative shrunk)', () => {
+      // sharpe=-2, n=100: shrunk ≈ -1.67 — mapped = -0.67/1.5 ≈ -0.44 → clamp 0
+      expect(MarketScorer.typeExpectedValue(-2, 100)).toBe(0);
+    });
+
+    it('MIN_N boundary — n=5 computes, n=4 neutral', () => {
+      expect(MarketScorer.typeExpectedValue(0.5, 4)).toBe(0.5);   // neutral
+      expect(MarketScorer.typeExpectedValue(0.5, 5)).not.toBe(0.5); // computed
+    });
+
+    it('falls back to a finite K when K is NaN (misconfigured env)', () => {
+      // Pass NaN explicitly — mimics Number('abc') from a fat-fingered env var.
+      // With the function-level guard, NaN K falls back to SCORER_SHRINKAGE_K (20).
+      const result = MarketScorer.typeExpectedValue(0.27, 159, NaN);
+      // Same inputs with K=20 → 0.8265 (per existing test).
+      expect(result).toBeCloseTo(0.8265, 3);
+    });
+  });
+
+  // ─── Pass 2 per-type ────────────────────────────────────────────────────
+  describe('MarketScorer.scoreAllMarkets Pass 2 per-type', () => {
+    beforeEach(() => { vi.clearAllMocks(); MarketScorer.clearWeightsCache(); });
+
+    it('scores tracked markets with per-type weights and computed typeEV', async () => {
+      const captured: any[] = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
+          captured.push({ sql, params });
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          // Pass 1 empty — skip
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [{
+            condition_id: 'active-mkt-1', tracking_status: 'active',
+            current_price_yes: '0.5', volume_24h: '30000000', spread: '0.01',
+            end_date: new Date(Date.now() + 30*86400000).toISOString(),
+            market_type: 'event_financial',
+            stddev: '0.05', informative_bars: '20', total_bars: '24',
+          }] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // At least one UPDATE from Pass 2 captured
+      expect(captured.length).toBeGreaterThan(0);
+      // The score passed should include typeEV contribution (>> 0.5 because event_financial typeEV≈0.8265)
+      // Not checking exact value — just that it's computed, not 0 (the old placeholder)
+      const pass2Call = captured.find(c => c.params?.some((p: unknown) => p === 'active-mkt-1'));
+      expect(pass2Call).toBeDefined();
+    });
+
+    it('writeScoreHistory INSERT includes score_type_expected_value column', async () => {
+      const insertCalls: string[] = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+        if (typeof sql === 'string' && sql.includes('INSERT INTO market_score_history')) {
+          insertCalls.push(sql);
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [{
+            condition_id: 'active-mkt-2', tracking_status: 'warming',
+            current_price_yes: '0.5', volume_24h: '30000000', spread: '0.01',
+            end_date: new Date(Date.now() + 30*86400000).toISOString(),
+            market_type: 'event_financial',
+            stddev: '0.07', informative_bars: '24', total_bars: '24',
+          }] };
+        }
+        // SELECT for cold history snapshot
+        if (typeof sql === 'string' && sql.includes('SELECT condition_id, market_score')) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // Wait for writeScoreHistory (fire-and-forget)
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(insertCalls.length).toBeGreaterThan(0);
+      expect(insertCalls[0]).toContain('score_type_expected_value');
     });
   });
 });

@@ -62,6 +62,15 @@ function computeTtr(endDate: Date | null): number {
   return 0.5;
 }
 
+/** Mirrors MarketScorer.typeExpectedValue — shrunk Sharpe → [0,1]. */
+function typeExpectedValueLocal(sharpe: number | null, nTrades: number): number {
+  const K = 20;
+  const MIN_N = 5;
+  if (sharpe === null || nTrades < MIN_N) return 0.5;
+  const shrunk = (sharpe * nTrades) / (nTrades + K);
+  return Math.min(1, Math.max(0, (shrunk + 1) / 1.5));
+}
+
 export interface SignalResult {
   signalId: string;
   marketId: string;
@@ -818,8 +827,9 @@ export class AutoSignalExecutor extends EventEmitter {
         volume_24h: string | null;
         spread: string | null;
         end_date: string | null;
+        market_type: string | null;
       }>(
-        `SELECT market_score, current_price_yes, volume_24h, spread, end_date
+        `SELECT market_score, current_price_yes, volume_24h, spread, end_date, market_type
          FROM   markets
          WHERE  id = $1`,
         [signal.marketId],
@@ -833,12 +843,33 @@ export class AutoSignalExecutor extends EventEmitter {
         const sprd  = m.spread != null ? Number(m.spread) : null;
         const endDate = m.end_date ? new Date(m.end_date) : null;
 
+        // Look up category metrics for typeExpectedValue.
+        let typeEV = 0.5; // neutral default
+        if (m.market_type) {
+          try {
+            const cpResult = await query<{ sharpe_ratio: number | null; n_trades: number | string }>(
+              `SELECT sharpe_ratio, n_trades FROM category_performance WHERE market_type = $1`,
+              [m.market_type],
+            );
+            if (cpResult.rows.length > 0) {
+              const cp = cpResult.rows[0];
+              typeEV = typeExpectedValueLocal(
+                cp.sharpe_ratio !== null ? Number(cp.sharpe_ratio) : null,
+                Number(cp.n_trades),
+              );
+            }
+          } catch {
+            // category_performance unavailable — use neutral 0.5
+          }
+        }
+
         scoreDimensionsAtEntry = {
           tradeability: computeTradeability(price),
           liquidity:    computeLiquidity(vol, sprd),
           ttr:          computeTtr(endDate),
           volatility:   null,
           dataQuality:  null,
+          typeExpectedValue: typeEV, // NEW
         };
       }
     } catch (err) {
