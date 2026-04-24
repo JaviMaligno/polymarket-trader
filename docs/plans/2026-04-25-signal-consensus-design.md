@@ -159,6 +159,8 @@ const combinedOutput: CombinedSignalOutput = {
 
 The existing `strength` calculation is unchanged — consensus only affects confidence, not strength.
 
+**Semantic note on `confidence` field**: after B.2, `CombinedSignalOutput.confidence` is the post-discount value, not the raw combiner confidence. The raw value is preserved in `metadata.rawConfidence` for forensics and analysis. Downstream consumers (`signal_predictions`, executor, analytics SQL) see the discounted number. This is a deliberate choice — `confidence` is the value that actually triggered (or failed to trigger) the trade, so storing the discounted version is the most honest representation. Reanalysis that needs the raw pre-discount value should pull from `metadata.rawConfidence`.
+
 ### 4. Combiner parameters + schema
 
 Extend `WeightedAverageParams`:
@@ -314,11 +316,13 @@ Full code revert is the deeper rollback. Schema column remains harmless.
 
 ## Open items for implementation plan
 
-- Final value of default `consensusDiscountFloor`. Proposed 0.5. Confirm with a quick one-off backtest on historical data pre-deploy (sanity: does 0.5 drastically change trade count?). If yes, start at 0.7 conservative.
-- How combiner loads `signal_weights.consensus_discount_floor`: the existing signal-weights-load path in combiner needs to pick up the new column. Confirm path during plan.
-- Exact shape of OPTUNA_PARAM_SPACE JSON on the Render service — need to locate the config file and understand naming conventions.
-- Whether `signalConsensus` in JSONB should be stored as the raw computed value (0 to 1) OR as something else. Proposed raw; future analysis can re-bucket.
-- Schema migration placement: `signal_weights` ALTER at dashboard startup (same pattern as A/B.1).
+- **Default `consensusDiscountFloor` — verify via historical backtest before deploy.** Proposed 0.5 but that's a vibes estimate. Run a one-off backtest of the last 30 days of data with `consensusDiscountFloor=0.5` vs `1.0` (no-op baseline) and compare trade count and Sharpe. If trade count drops >40%, start with a more conservative default (0.7 or 0.8) so production doesn't starve itself of data while Optuna converges.
+- **Combiner weight-loading path must extend to include `consensus_discount_floor`.** The existing signal-weights-load code reads `signal_weights` table columns and injects into combiner params. Adding a column is not enough — the reader must pick it up. Verify during plan: locate the load function, extend it, confirm the combiner's constructor path accepts the new param.
+- **Metadata propagation combiner → SignalEngine → executor.** Verify that `signal.metadata` travels intact through the SignalEngine pipeline to AutoSignalExecutor. If SignalEngine flattens or transforms metadata, we lose the consensus fields. The T7 implementation should include a runtime test that asserts `signal.metadata.consensus` is non-null at executor time for trades with N>=3 component signals.
+- **OPTUNA_PARAM_SPACE location and naming convention on Render.** Need to locate the param-space config file on the Render optimizer service (not in this repo) and confirm the naming pattern (camelCase vs snake_case, nested objects or flat). The existing `directionMultiplier` param is the closest precedent.
+- **Optuna → signal_weights write-back.** Verify the pathway by which the Render optimizer writes optimized params back to the VM's `signal_weights` table. Existing pattern works for `directionMultiplier` and other params, so extending to `consensus_discount_floor` should be trivial — but worth confirming during plan.
+- **Whether `signalConsensus` in JSONB should be raw (0 to 1) or something else.** Proposed raw; future analysis can re-bucket. Same shape as other nullable dims like `realizedVolatility`.
+- **Schema migration placement**: `signal_weights` ALTER at dashboard startup (same pattern as A/B.1 in `server.ts`).
 
 ## Relationship to prior work
 
