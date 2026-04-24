@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import * as connection from '../database/connection.js';
 import { query } from '../database/connection.js';
 import {
@@ -684,7 +684,7 @@ describe('MarketScorer', () => {
     });
 
     it('issues one UPDATE per distinct market_type plus one fallback for NULL market_type', async () => {
-      (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+      (query as unknown as Mock).mockImplementation(async (sql: string) => {
         if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
           return { rows: [{ market_type: 'event_long' }, { market_type: 'event_financial' }] };
         }
@@ -722,7 +722,7 @@ describe('MarketScorer', () => {
       const scorer = new MarketScorer();
       await scorer.scoreAllMarkets();
 
-      const updateCalls = (query as unknown as vi.Mock).mock.calls.filter(
+      const updateCalls = (query as unknown as Mock).mock.calls.filter(
         (c: any[]) => typeof c[0] === 'string' && c[0].trim().startsWith('UPDATE markets'),
       );
       // 2 per-type UPDATEs + 1 fallback UPDATE for NULL market_type = 3
@@ -731,7 +731,7 @@ describe('MarketScorer', () => {
 
     it('computes per-type score using typeEV from category_performance', async () => {
       const captured: Array<unknown[]> = [];
-      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+      (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
         if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
           captured.push(params ?? []);
         }
@@ -800,10 +800,12 @@ describe('MarketScorer', () => {
 
   // ─── loadCategoryMetrics ────────────────────────────────────────────────
   describe('MarketScorer.loadCategoryMetrics', () => {
-    beforeEach(() => vi.clearAllMocks());
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
 
     it('loads a Map keyed by market_type', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [
           { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
           { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
@@ -815,13 +817,13 @@ describe('MarketScorer', () => {
     });
 
     it('returns empty Map when table is empty', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({ rows: [] });
+      (query as unknown as Mock).mockResolvedValue({ rows: [] });
       const map = await MarketScorer.loadCategoryMetrics();
       expect(map.size).toBe(0);
     });
 
     it('coerces string numerics from pg to numbers', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [{ market_type: 'event_short', sharpe_ratio: '0.13' as unknown as number, n_trades: '419' as unknown as number }],
       });
       const map = await MarketScorer.loadCategoryMetrics();
@@ -831,7 +833,7 @@ describe('MarketScorer', () => {
     });
 
     it('preserves null sharpe_ratio (insufficient data in category_performance)', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [{ market_type: 'crypto_daily', sharpe_ratio: null, n_trades: 4 }],
       });
       const map = await MarketScorer.loadCategoryMetrics();
@@ -839,7 +841,7 @@ describe('MarketScorer', () => {
     });
 
     it('returns empty Map on DB error (graceful degrade)', async () => {
-      (query as unknown as vi.Mock).mockRejectedValue(new Error('db down'));
+      (query as unknown as Mock).mockRejectedValue(new Error('db down'));
       const map = await MarketScorer.loadCategoryMetrics();
       expect(map.size).toBe(0);
     });
@@ -857,7 +859,7 @@ describe('MarketScorer', () => {
     });
 
     it('returns per-type weights when row has enough trades', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [
           { market_type: 'event_financial', tradeability: 0.4, liquidity: 0.2,
             volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
@@ -872,7 +874,7 @@ describe('MarketScorer', () => {
     });
 
     it('falls back to global when per-type n_trades < MIN_TRADES_FOR_PER_TYPE (30)', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [
           { market_type: 'crypto_intraday', tradeability: 0.5, liquidity: 0.1,
             volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
@@ -887,7 +889,7 @@ describe('MarketScorer', () => {
     });
 
     it('falls back to global when per-type row missing', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [
           { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
             volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
@@ -899,7 +901,7 @@ describe('MarketScorer', () => {
     });
 
     it('caches per type — second call in TTL does not re-query', async () => {
-      (query as unknown as vi.Mock).mockResolvedValue({
+      (query as unknown as Mock).mockResolvedValue({
         rows: [
           { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
             volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
@@ -908,11 +910,11 @@ describe('MarketScorer', () => {
       });
       await MarketScorer.loadWeights('event_long');
       await MarketScorer.loadWeights('event_long');
-      expect((query as unknown as vi.Mock).mock.calls.length).toBe(1);
+      expect((query as unknown as Mock).mock.calls.length).toBe(1);
     });
 
     it('falls back to WEIGHTS defaults when DB errors', async () => {
-      (query as unknown as vi.Mock).mockRejectedValue(new Error('db down'));
+      (query as unknown as Mock).mockRejectedValue(new Error('db down'));
       const w = await MarketScorer.loadWeights('event_long');
       expect(w).toMatchObject({
         tradeability: WEIGHTS.tradeability,
@@ -927,12 +929,12 @@ describe('MarketScorer', () => {
       const perTypeRow = (n: number) => ({ market_type: 'event_long', tradeability: 0.50, liquidity: 0.1,
         volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1, n_trades: n });
 
-      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(30), globalRow] });
+      (query as unknown as Mock).mockResolvedValueOnce({ rows: [perTypeRow(30), globalRow] });
       MarketScorer.clearWeightsCache();
       const w30 = await MarketScorer.loadWeights('event_long');
       expect(w30.tradeability).toBeCloseTo(0.50); // per-type
 
-      (query as unknown as vi.Mock).mockResolvedValueOnce({ rows: [perTypeRow(29), globalRow] });
+      (query as unknown as Mock).mockResolvedValueOnce({ rows: [perTypeRow(29), globalRow] });
       MarketScorer.clearWeightsCache();
       const w29 = await MarketScorer.loadWeights('event_long');
       expect(w29.tradeability).toBeCloseTo(0.25); // global fallback
@@ -985,7 +987,7 @@ describe('MarketScorer', () => {
 
     it('scores tracked markets with per-type weights and computed typeEV', async () => {
       const captured: any[] = [];
-      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+      (query as unknown as Mock).mockImplementation(async (sql: string, params?: any[]) => {
         if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
           captured.push({ sql, params });
         }
@@ -1024,7 +1026,7 @@ describe('MarketScorer', () => {
 
     it('writeScoreHistory INSERT includes score_type_expected_value column', async () => {
       const insertCalls: string[] = [];
-      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+      (query as unknown as Mock).mockImplementation(async (sql: string, params?: any[]) => {
         if (typeof sql === 'string' && sql.includes('INSERT INTO market_score_history')) {
           insertCalls.push(sql);
         }

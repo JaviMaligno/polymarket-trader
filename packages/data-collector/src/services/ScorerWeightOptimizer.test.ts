@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { pearsonCorrelation, computeObjective, MIN_TRADES, optimizeScorerWeights } from './ScorerWeightOptimizer.js';
 import type { ScorerWeights } from './MarketScorer.js';
 
@@ -114,7 +114,7 @@ describe('optimizeScorerWeights per-type', () => {
 
   it('isolates errors per type — one failing type does not block others', async () => {
     let callIdx = 0;
-    (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+    (query as unknown as Mock).mockImplementation(async (sql: string) => {
       if (sql.includes('SELECT DISTINCT market_type FROM markets')) {
         return { rows: [{ market_type: 'event_long' }, { market_type: 'broken_type' }, { market_type: 'event_financial' }] };
       }
