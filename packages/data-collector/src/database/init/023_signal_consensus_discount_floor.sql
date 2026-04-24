@@ -1,6 +1,7 @@
--- Sub-project B.2: consensus discount floor for the signal combiner.
--- Optuna optimizer will tune this value empirically. Default 0.5 until it
--- converges. Column persisted in signal_weights so the combiner reads it
--- via the same path as momentum/mean_reversion/etc. weights.
-ALTER TABLE signal_weights
-  ADD COLUMN IF NOT EXISTS consensus_discount_floor FLOAT NOT NULL DEFAULT 0.5;
+-- Sub-project B.2: seed the consensus_discount_floor config row in signal_weights.
+-- signal_weights uses the row-per-config pattern (signal_type PK + scalar weight
+-- column) — direction_multiplier is stored the same way. Default 0.5 until
+-- Optuna converges.
+INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
+VALUES ('consensus_discount_floor', 0.5, true, 0.0, NOW())
+ON CONFLICT (signal_type) DO NOTHING;

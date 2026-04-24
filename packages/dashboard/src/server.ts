@@ -313,13 +313,15 @@ async function main(): Promise<void> {
       `);
       console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
 
-      // Sub-project B.2: signal consensus discount floor.
-      // See docs/plans/2026-04-25-signal-consensus-design.md.
+      // Sub-project B.2: seed consensus_discount_floor config row.
+      // signal_weights uses the row-per-config pattern (same as
+      // direction_multiplier). See docs/plans/2026-04-25-signal-consensus-design.md.
       await query(`
-        ALTER TABLE signal_weights
-          ADD COLUMN IF NOT EXISTS consensus_discount_floor FLOAT NOT NULL DEFAULT 0.5;
+        INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
+        VALUES ('consensus_discount_floor', 0.5, true, 0.0, NOW())
+        ON CONFLICT (signal_type) DO NOTHING;
       `);
-      console.log('signal_weights.consensus_discount_floor ensured');
+      console.log('signal_weights.consensus_discount_floor row ensured');
 
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
