@@ -5,12 +5,13 @@ const logger = pino({ name: 'MarketScorer' });
 
 // ─── Constants ─────────────────────────────────────────────────────────
 export const WEIGHTS = {
-  tradeability: 0.25,
-  liquidity: 0.20,
-  volatility: 0.15,
-  ttr: 0.10,
-  dataQuality: 0.10,
-  typeExpectedValue: 0.20,
+  tradeability:       0.21,
+  liquidity:          0.17,
+  volatility:         0.15,
+  ttr:                0.08,
+  dataQuality:        0.10,
+  typeExpectedValue:  0.17,
+  realizedVolatility: 0.12,
 } as const;
 
 export const MAX_VOLUME_REF = 30_000_000;
@@ -30,6 +31,7 @@ export interface ScoreDimensions {
   ttr: number;
   dataQuality: number | null;
   typeExpectedValue: number;
+  realizedVolatility: number | null;
 }
 
 export interface ScorerWeights {
@@ -39,6 +41,7 @@ export interface ScorerWeights {
   ttr: number;
   dataQuality: number;
   typeExpectedValue: number;
+  realizedVolatility: number;
 }
 
 export interface EnrichUpdate {
@@ -51,6 +54,7 @@ export interface EnrichUpdate {
   volatility: number | null;
   dataQuality: number | null;
   typeExpectedValue: number;
+  realizedVolatility: number | null;
   currentPriceYes: number | null;
   volume24h: number | null;
   marketType: string | null;
@@ -206,8 +210,8 @@ export class MarketScorer {
   /**
    * Composite score — weighted sum of dimensions.
    *
-   * When volatility and/or dataQuality are null (cold markets with no
-   * price_history), those dimensions are excluded and the remaining
+   * When volatility, dataQuality, and/or realizedVolatility are null (cold markets
+   * with no price_history), those dimensions are excluded and the remaining
    * weights are renormalized so the score stays in [0, 1].
    */
   static compositeScore(dims: ScoreDimensions, weights: ScorerWeights = WEIGHTS): number {
@@ -236,6 +240,11 @@ export class MarketScorer {
     if (dims.dataQuality !== null) {
       weightedSum += dims.dataQuality * weights.dataQuality;
       totalWeight += weights.dataQuality;
+    }
+
+    if (dims.realizedVolatility !== null) {
+      weightedSum += dims.realizedVolatility * weights.realizedVolatility;
+      totalWeight += weights.realizedVolatility;
     }
 
     if (totalWeight === 0) return 0;
@@ -279,10 +288,11 @@ export class MarketScorer {
         ttr: number | string;
         data_quality: number | string;
         type_expected_value: number | string | null;
+        realized_volatility: number | string | null;
         n_trades: number | null;
       }>(
         `SELECT market_type, tradeability, liquidity, volatility, ttr,
-                data_quality, type_expected_value, n_trades
+                data_quality, type_expected_value, realized_volatility, n_trades
          FROM scorer_weights
          WHERE market_type IN ($1, $2)`,
         [key, MarketScorer.GLOBAL_MARKET_TYPE],
@@ -297,14 +307,17 @@ export class MarketScorer {
 
       weights = row
         ? {
-            tradeability:      Number(row.tradeability),
-            liquidity:         Number(row.liquidity),
-            volatility:        Number(row.volatility),
-            ttr:               Number(row.ttr),
-            dataQuality:       Number(row.data_quality),
-            typeExpectedValue: row.type_expected_value !== null
+            tradeability:       Number(row.tradeability),
+            liquidity:          Number(row.liquidity),
+            volatility:         Number(row.volatility),
+            ttr:                Number(row.ttr),
+            dataQuality:        Number(row.data_quality),
+            typeExpectedValue:  row.type_expected_value !== null
               ? Number(row.type_expected_value)
               : WEIGHTS.typeExpectedValue,
+            realizedVolatility: row.realized_volatility !== null
+              ? Number(row.realized_volatility)
+              : WEIGHTS.realizedVolatility,
           }
         : { ...WEIGHTS };
 
@@ -429,6 +442,7 @@ export class MarketScorer {
           ttr,
           dataQuality: null,
           typeExpectedValue: typeEV,
+          realizedVolatility: null,
         }, weights);
 
         return {
@@ -441,6 +455,7 @@ export class MarketScorer {
           volatility: null,
           dataQuality: null,
           typeExpectedValue: typeEV,
+          realizedVolatility: null,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -475,6 +490,7 @@ export class MarketScorer {
           ttr,
           dataQuality: null,
           typeExpectedValue: typeEV,
+          realizedVolatility: null,
         }, weights);
 
         return {
@@ -487,6 +503,7 @@ export class MarketScorer {
           volatility: null,
           dataQuality: null,
           typeExpectedValue: typeEV,
+          realizedVolatility: null,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,
@@ -585,6 +602,7 @@ export class MarketScorer {
         ttr,
         dataQuality,
         typeExpectedValue: typeEV,
+        realizedVolatility: null,
       }, weights);
 
       enrichUpdates.push({
@@ -597,6 +615,7 @@ export class MarketScorer {
         volatility,
         dataQuality,
         typeExpectedValue: typeEV,
+        realizedVolatility: null,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,
