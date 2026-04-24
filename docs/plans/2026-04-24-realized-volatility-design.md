@@ -293,8 +293,10 @@ Cost estimate: ~336 post-reset trades × LATERAL subquery aggregating ~288 bars 
 - `randomWeights()`: add `realizedVolatility: r()` to the sampled dims. Now 5 optimizable dims (tradeability, liquidity, ttr, typeExpectedValue, realizedVolatility) plus 2 fixed (volatility, dataQuality).
 - Post-search normalization: scale the sum of the 5 optimizable dims to `1 - WEIGHTS.volatility - WEIGHTS.dataQuality = 0.75`.
 - `loadClosedTrades`: existing `?? null` fallback on the JSONB extraction handles null values. Extend the JSONB key filter (`? 'realizedVolatility'`) so pre-backfill trades are naturally excluded, matching the typeExpectedValue playbook.
+- `saveWeights`: INSERT column list + `ON CONFLICT DO UPDATE SET` both extended to include `realized_volatility`. The `params` array gains the new value at the corresponding position. Without this, post-B.1 optimizer runs fail on the INSERT (missing column) or silently drop the new weight (missing from SET).
 - `computeObjective`: no change — relies on `compositeScore`, which already handles null dims.
 - Training threshold: `MIN_TRADES=30` unchanged. After backfill, post-reset trades all have the key. Count per type unaffected except for trades whose pre-open history is older than `price_history` retention — those get `realizedVolatility: null` but the JSONB key is present, so they count toward MIN_TRADES and contribute as a null dim.
+- `N_TRIALS=300` unchanged. With 5 optimizable dims instead of 4, coverage per dim drops from ~4.4 to ~3.2 random points. Still reasonable; revisit only if `best_value` variance across runs increases noticeably. Noted as Open Item.
 
 ### 10. Default weight allocation
 
