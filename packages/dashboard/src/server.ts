@@ -255,6 +255,39 @@ async function main(): Promise<void> {
         console.log('typeExpectedValue backfill not needed (all post-reset trades already have it)');
       }
 
+      // Sub-project B.1: backfill realizedVolatility on post-reset trades.
+      // Idempotent — COUNT guard so re-runs are cheap.
+      const missingRvRes = await query<{ n: string }>(`
+        SELECT COUNT(*) as n FROM paper_positions pp
+        WHERE pp.closed_at IS NOT NULL
+          AND pp.score_dimensions_at_entry IS NOT NULL
+          AND NOT (pp.score_dimensions_at_entry ? 'realizedVolatility')
+          AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+      `);
+      const missingRvCount = Number(missingRvRes.rows[0]?.n ?? 0);
+      if (missingRvCount > 0) {
+        console.log(`Backfilling realizedVolatility for ${missingRvCount} trades...`);
+        await query(`
+          UPDATE paper_positions pp
+          SET score_dimensions_at_entry = score_dimensions_at_entry || jsonb_build_object(
+            'realizedVolatility',
+            (SELECT CASE WHEN COUNT(d) < 5 THEN NULL::FLOAT
+                          ELSE LEAST(1.0, GREATEST(0.0, STDDEV_POP(d) / 0.02)) END
+             FROM (SELECT close - LAG(close) OVER (ORDER BY time) AS d
+                   FROM price_history ph
+                   WHERE ph.token_id = (SELECT clob_token_id_yes FROM markets WHERE id = pp.market_id)
+                     AND ph.time BETWEEN pp.opened_at - INTERVAL '24 hours' AND pp.opened_at) diffs)
+          )
+          WHERE pp.closed_at IS NOT NULL
+            AND pp.score_dimensions_at_entry IS NOT NULL
+            AND NOT (pp.score_dimensions_at_entry ? 'realizedVolatility')
+            AND pp.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+        `);
+        console.log('realizedVolatility backfill complete');
+      } else {
+        console.log('realizedVolatility backfill not needed');
+      }
+
       // T8: Ensure score_type_expected_value column exists in market_score_history.
       // Pass 2 now stores typeEV per tracked market alongside other dimension scores.
       await query(`
