@@ -845,6 +845,7 @@ describe('MarketScorer', () => {
         ttr: 0.5,
         dataQuality: null,
         typeExpectedValue: 0.75,
+        realizedVolatility: null,
       };
       expect(dims.typeExpectedValue).toBe(0.75);
     });

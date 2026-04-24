@@ -9,7 +9,9 @@ import { query } from '../database/connection.js';
 import { computeRealizedVolatility } from './Scheduler.js';
 
 describe('computeRealizedVolatility', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
   it('executes the UPDATE and the NULL-out UPDATE without throwing', async () => {
     (query as unknown as Mock).mockResolvedValue({ rowCount: 10, rows: [] });
