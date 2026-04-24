@@ -218,6 +218,14 @@ async function main(): Promise<void> {
       `);
       console.log('scorer_weights per-type columns ensured');
 
+      // T8: Ensure score_type_expected_value column exists in market_score_history.
+      // Pass 2 now stores typeEV per tracked market alongside other dimension scores.
+      await query(`
+        ALTER TABLE market_score_history
+          ADD COLUMN IF NOT EXISTS score_type_expected_value FLOAT;
+      `);
+      console.log('market_score_history score_type_expected_value column ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {

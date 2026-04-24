@@ -50,6 +50,7 @@ export interface EnrichUpdate {
   ttr: number;
   volatility: number | null;
   dataQuality: number | null;
+  typeExpectedValue: number;
   currentPriceYes: number | null;
   volume24h: number | null;
   marketType: string | null;
@@ -460,6 +461,7 @@ export class MarketScorer {
           ttr,
           volatility: null,
           dataQuality: null,
+          typeExpectedValue: typeEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -505,6 +507,7 @@ export class MarketScorer {
           ttr,
           volatility: null,
           dataQuality: null,
+          typeExpectedValue: typeEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,
@@ -517,11 +520,7 @@ export class MarketScorer {
 
     logger.info({ scored }, 'Pass 1: scored cold markets via per-type batched updates');
 
-    // ── Pass 2 — enrich tracked markets (T8: will be refactored to per-type) ─
-    // Keep using global weights + categoryPriors multiplier for now (T8 will replace).
-    const pass2Weights = await MarketScorer.loadWeights();
-    const categoryPriors = await MarketScorer.loadCategoryPriors();
-
+    // ── Pass 2 — enrich tracked markets with per-type weights + typeEV ──
     const trackedResult = await query<{
       condition_id: string;
       tracking_status: string;
@@ -568,6 +567,13 @@ export class MarketScorer {
     const enrichUpdates: EnrichUpdate[] = [];
 
     for (const row of trackedRows) {
+      const weights = await MarketScorer.loadWeights(row.market_type ?? null);
+      const metrics = categoryMetrics.get(row.market_type ?? '');
+      const typeEV = MarketScorer.typeExpectedValue(
+        metrics?.sharpe ?? null,
+        metrics?.n ?? 0,
+      );
+
       const tradeability = MarketScorer.tradeabilityScore(
         row.current_price_yes != null ? Number(row.current_price_yes) : null,
       );
@@ -587,15 +593,14 @@ export class MarketScorer {
         ? MarketScorer.dataQualityScore(informativeBars, totalBars)
         : null;
 
-      const prior = categoryPriors.get(row.market_type ?? '') ?? 1.0;
       const score = MarketScorer.compositeScore({
         tradeability,
         liquidity,
         volatility,
         ttr,
         dataQuality,
-        typeExpectedValue: 0,
-      }, pass2Weights) * prior;
+        typeExpectedValue: typeEV,
+      }, weights);
 
       enrichUpdates.push({
         conditionId: row.condition_id,
@@ -606,6 +611,7 @@ export class MarketScorer {
         ttr,
         volatility,
         dataQuality,
+        typeExpectedValue: typeEV,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,
@@ -651,6 +657,7 @@ export class MarketScorer {
       score_ttr: u.ttr,
       score_volatility: u.volatility,
       score_data_quality: u.dataQuality,
+      score_type_expected_value: u.typeExpectedValue,
       current_price_yes: u.currentPriceYes,
       volume_24h: u.volume24h,
     }));
@@ -668,6 +675,7 @@ export class MarketScorer {
       score_ttr: null as number | null,
       score_volatility: null as number | null,
       score_data_quality: null as number | null,
+      score_type_expected_value: null as number | null,
       current_price_yes: r.current_price_yes != null ? Number(r.current_price_yes) : null,
       volume_24h: r.volume_24h != null ? Number(r.volume_24h) : null,
     }));
@@ -678,22 +686,24 @@ export class MarketScorer {
     // Single multi-row INSERT
     const values = all
       .map((_, i) => {
-        const base = i * 11;
-        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11})`;
+        const base = i * 12;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12})`;
       })
       .join(', ');
 
     const params = all.flatMap((r) => [
       r.time, r.condition_id, r.tracking_status,
       r.market_score, r.score_tradeability, r.score_liquidity, r.score_ttr,
-      r.score_volatility, r.score_data_quality, r.current_price_yes, r.volume_24h,
+      r.score_volatility, r.score_data_quality, r.score_type_expected_value,
+      r.current_price_yes, r.volume_24h,
     ]);
 
     await query(
       `INSERT INTO market_score_history
          (time, condition_id, tracking_status, market_score,
           score_tradeability, score_liquidity, score_ttr,
-          score_volatility, score_data_quality, current_price_yes, volume_24h)
+          score_volatility, score_data_quality, score_type_expected_value,
+          current_price_yes, volume_24h)
        VALUES ${values}`,
       params,
     );

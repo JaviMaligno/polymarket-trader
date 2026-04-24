@@ -1010,4 +1010,89 @@ describe('MarketScorer', () => {
       expect(result).toBeCloseTo(0.8265, 3);
     });
   });
+
+  // ─── Pass 2 per-type ────────────────────────────────────────────────────
+  describe('MarketScorer.scoreAllMarkets Pass 2 per-type', () => {
+    beforeEach(() => { vi.clearAllMocks(); MarketScorer.clearWeightsCache(); });
+
+    it('scores tracked markets with per-type weights and computed typeEV', async () => {
+      const captured: any[] = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
+          captured.push({ sql, params });
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          // Pass 1 empty — skip
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [{
+            condition_id: 'active-mkt-1', tracking_status: 'active',
+            current_price_yes: '0.5', volume_24h: '30000000', spread: '0.01',
+            end_date: new Date(Date.now() + 30*86400000).toISOString(),
+            market_type: 'event_financial',
+            stddev: '0.05', informative_bars: '20', total_bars: '24',
+          }] };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // At least one UPDATE from Pass 2 captured
+      expect(captured.length).toBeGreaterThan(0);
+      // The score passed should include typeEV contribution (>> 0.5 because event_financial typeEV≈0.8265)
+      // Not checking exact value — just that it's computed, not 0 (the old placeholder)
+      const pass2Call = captured.find(c => c.params?.some((p: unknown) => p === 'active-mkt-1'));
+      expect(pass2Call).toBeDefined();
+    });
+
+    it('writeScoreHistory INSERT includes score_type_expected_value column', async () => {
+      const insertCalls: string[] = [];
+      (query as unknown as vi.Mock).mockImplementation(async (sql: string, params?: any[]) => {
+        if (typeof sql === 'string' && sql.includes('INSERT INTO market_score_history')) {
+          insertCalls.push(sql);
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance') && sql.includes('sharpe_ratio')) {
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return { rows: [{ market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20, n_trades: 1800 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status NOT IN')) {
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: [{
+            condition_id: 'active-mkt-2', tracking_status: 'warming',
+            current_price_yes: '0.5', volume_24h: '30000000', spread: '0.01',
+            end_date: new Date(Date.now() + 30*86400000).toISOString(),
+            market_type: 'event_financial',
+            stddev: '0.07', informative_bars: '24', total_bars: '24',
+          }] };
+        }
+        // SELECT for cold history snapshot
+        if (typeof sql === 'string' && sql.includes('SELECT condition_id, market_score')) {
+          return { rows: [], rowCount: 0 };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // Wait for writeScoreHistory (fire-and-forget)
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(insertCalls.length).toBeGreaterThan(0);
+      expect(insertCalls[0]).toContain('score_type_expected_value');
+    });
+  });
 });

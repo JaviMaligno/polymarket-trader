@@ -41,11 +41,12 @@ function randomWeights(): ScorerWeights {
   // volatility and dataQuality stay at current defaults — not yet captured at entry
   const r = () => Math.random() * 0.6 + 0.05; // uniform [0.05, 0.65]
   return {
-    tradeability: r(),
-    liquidity:    r(),
-    volatility:   WEIGHTS.volatility,
-    ttr:          r(),
-    dataQuality:  WEIGHTS.dataQuality,
+    tradeability:      r(),
+    liquidity:         r(),
+    volatility:        WEIGHTS.volatility,
+    ttr:               r(),
+    dataQuality:       WEIGHTS.dataQuality,
+    typeExpectedValue: WEIGHTS.typeExpectedValue,
   };
 }
 
@@ -66,11 +67,12 @@ async function loadClosedTrades(): Promise<ClosedTrade[]> {
     const d = r.score_dimensions_at_entry;
     return {
       dims: {
-        tradeability: d.tradeability ?? 0,
-        liquidity:    d.liquidity    ?? 0,
-        volatility:   d.volatility   ?? null,
-        ttr:          d.ttr          ?? 0,
-        dataQuality:  d.dataQuality  ?? null,
+        tradeability:      d.tradeability      ?? 0,
+        liquidity:         d.liquidity         ?? 0,
+        volatility:        d.volatility        ?? null,
+        ttr:               d.ttr               ?? 0,
+        dataQuality:       d.dataQuality       ?? null,
+        typeExpectedValue: d.typeExpectedValue  ?? 0.5,
       },
       pnl: parseFloat(r.realized_pnl),
     };
