@@ -241,47 +241,78 @@ export class MarketScorer {
     return weightedSum / totalWeight;
   }
 
-  // ─── Static method: load dimension weights from DB ─────────────────
+  // ─── Per-type weights with cache + fallback ──────────────────────────────
+  private static readonly GLOBAL_MARKET_TYPE = '__global__';
+  private static readonly MIN_TRADES_FOR_PER_TYPE = 30;
+  private static readonly WEIGHTS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+  private static weightsCache = new Map<string, { weights: ScorerWeights; loadedAt: number }>();
+
+  /** Test hook: wipe the in-memory cache. */
+  static clearWeightsCache(): void {
+    MarketScorer.weightsCache.clear();
+  }
+
   /**
-   * Reads the latest row from `scorer_weights` table.
-   * Falls back to hardcoded WEIGHTS if the table is empty or the query throws
-   * (e.g. migration has not been applied yet).
+   * Load the composite weights for the given market type. Falls back to the
+   * '__global__' sentinel row if: (a) no per-type row exists, (b) the per-type
+   * row's n_trades is below MIN_TRADES_FOR_PER_TYPE. TTL-cached for 5 minutes;
+   * no explicit invalidation (a freshly retrained per-type row is picked up
+   * within at most one TTL, well under the hourly scoring cadence). Falls back
+   * to hardcoded WEIGHTS defaults if the DB errors.
    */
-  static async loadWeights(): Promise<ScorerWeights> {
+  static async loadWeights(marketType: string | null = null): Promise<ScorerWeights> {
+    const key = marketType ?? MarketScorer.GLOBAL_MARKET_TYPE;
+    const cached = MarketScorer.weightsCache.get(key);
+    if (cached && Date.now() - cached.loadedAt < MarketScorer.WEIGHTS_CACHE_TTL_MS) {
+      return cached.weights;
+    }
+
+    let weights: ScorerWeights;
     try {
       const result = await query<{
-        tradeability: number;
-        liquidity: number;
-        volatility: number;
-        ttr: number;
-        data_quality: number;
-        type_expected_value?: number;
+        market_type: string;
+        tradeability: number | string;
+        liquidity: number | string;
+        volatility: number | string;
+        ttr: number | string;
+        data_quality: number | string;
+        type_expected_value: number | string | null;
+        n_trades: number | null;
       }>(
-        `SELECT tradeability, liquidity, volatility, ttr, data_quality, type_expected_value
+        `SELECT market_type, tradeability, liquidity, volatility, ttr,
+                data_quality, type_expected_value, n_trades
          FROM scorer_weights
-         ORDER BY id DESC LIMIT 1`,
+         WHERE market_type IN ($1, $2)`,
+        [key, MarketScorer.GLOBAL_MARKET_TYPE],
       );
-      if (result.rows.length > 0) {
-        const r = result.rows[0];
-        const weightsObj: ScorerWeights = {
-          tradeability: r.tradeability,
-          liquidity: r.liquidity,
-          volatility: r.volatility,
-          ttr: r.ttr,
-          dataQuality: r.data_quality,
-          typeExpectedValue: r.type_expected_value ?? WEIGHTS.typeExpectedValue,
-        };
-        const sum = weightsObj.tradeability + weightsObj.liquidity + weightsObj.volatility
-                   + weightsObj.ttr + weightsObj.dataQuality + weightsObj.typeExpectedValue;
-        if (Math.abs(sum - 1.0) > 0.05) {
-          logger.warn({ sum, weights: weightsObj }, 'scorer_weights do not sum to 1 — using DB values anyway');
-        }
-        return weightsObj;
-      }
+
+      const perType = result.rows.find(
+        r => r.market_type === marketType
+          && (r.n_trades ?? 0) >= MarketScorer.MIN_TRADES_FOR_PER_TYPE,
+      );
+      const globalRow = result.rows.find(r => r.market_type === MarketScorer.GLOBAL_MARKET_TYPE);
+      const row = perType ?? globalRow;
+
+      weights = row
+        ? {
+            tradeability:      Number(row.tradeability),
+            liquidity:         Number(row.liquidity),
+            volatility:        Number(row.volatility),
+            ttr:               Number(row.ttr),
+            dataQuality:       Number(row.data_quality),
+            typeExpectedValue: row.type_expected_value !== null
+              ? Number(row.type_expected_value)
+              : WEIGHTS.typeExpectedValue,
+          }
+        : { ...WEIGHTS };
     } catch {
-      // Table may not exist yet (migration pending) — fall through to defaults
+      // DB unreachable or column missing (pre-T4 deploy) → fall back silently.
+      weights = { ...WEIGHTS };
     }
-    return { ...WEIGHTS };
+
+    MarketScorer.weightsCache.set(key, { weights, loadedAt: Date.now() });
+    return weights;
   }
 
   // ─── Static method: load category priors from DB ─────────────────

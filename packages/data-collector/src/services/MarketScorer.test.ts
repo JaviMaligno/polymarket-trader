@@ -420,25 +420,36 @@ describe('MarketScorer', () => {
 
   // ─── loadWeights ────────────────────────────────────────────────────
   describe('loadWeights', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+    afterEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
     it('returns hardcoded WEIGHTS when DB query throws', async () => {
       vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
       const weights = await MarketScorer.loadWeights();
       expect(weights.tradeability).toBe(WEIGHTS.tradeability);
       expect(weights.liquidity).toBe(WEIGHTS.liquidity);
       expect(weights.ttr).toBe(WEIGHTS.ttr);
-      vi.restoreAllMocks();
     });
 
     it('returns hardcoded WEIGHTS when scorer_weights table is empty', async () => {
       vi.spyOn(connection, 'query').mockResolvedValueOnce({ rows: [], rowCount: 0 } as any);
       const weights = await MarketScorer.loadWeights();
       expect(weights.tradeability).toBe(WEIGHTS.tradeability);
-      vi.restoreAllMocks();
     });
 
     it('returns DB weights when row exists', async () => {
       vi.spyOn(connection, 'query').mockResolvedValueOnce({
-        rows: [{ tradeability: 0.40, liquidity: 0.20, volatility: 0.15, ttr: 0.15, data_quality: 0.10 }],
+        rows: [{
+          market_type: '__global__', tradeability: 0.40, liquidity: 0.20,
+          volatility: 0.15, ttr: 0.15, data_quality: 0.10, type_expected_value: 0.20,
+          n_trades: 1800,
+        }],
         rowCount: 1,
       } as any);
       const weights = await MarketScorer.loadWeights();
@@ -449,17 +460,24 @@ describe('MarketScorer', () => {
         ttr: 0.15,
         dataQuality: 0.10,
       });
-      vi.restoreAllMocks();
     });
   });
 
   // ─── loadCategoryPriors ─────────────────────────────────────────────
   describe('loadCategoryPriors', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+    afterEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
     it('returns empty map when DB query throws', async () => {
       vi.spyOn(connection, 'query').mockRejectedValueOnce(new Error('DB down'));
       const priors = await MarketScorer.loadCategoryPriors();
       expect(priors.size).toBe(0);
-      vi.restoreAllMocks();
     });
 
     it('returns map of market_type → prior from DB', async () => {
@@ -474,7 +492,6 @@ describe('MarketScorer', () => {
       expect(priors.get('crypto_daily')).toBeCloseTo(1.2);
       expect(priors.get('event_short')).toBeCloseTo(0.8);
       expect(priors.get('unknown_type')).toBeUndefined();
-      vi.restoreAllMocks();
     });
   });
 
@@ -563,11 +580,19 @@ describe('MarketScorer', () => {
 
   describe('scoreAllMarkets', () => {
     it('batches pass-1 score updates instead of issuing a full-table update', async () => {
+      MarketScorer.clearWeightsCache();
       const querySpy = vi.spyOn(connection, 'query').mockImplementation(async (sql: any, params?: any[]) => {
         const text = String(sql);
 
-        if (text.includes('SELECT tradeability, liquidity, volatility, ttr, data_quality')) {
-          return { rows: [], rowCount: 0 } as any;
+        if (text.includes('FROM scorer_weights') && text.includes('market_type IN')) {
+          return {
+            rows: [
+              { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+                volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+                n_trades: 1800 },
+            ],
+            rowCount: 1,
+          } as any;
         }
 
         if (text.includes('SELECT market_type, prior FROM category_performance')) {
@@ -718,6 +743,83 @@ describe('MarketScorer', () => {
       });
       const map = await MarketScorer.loadCategoryMetrics();
       expect(map.get('crypto_daily')).toEqual({ sharpe: null, n: 4 });
+    });
+  });
+
+  // ─── MarketScorer.loadWeights per-type ──────────────────────────────
+  describe('MarketScorer.loadWeights per-type', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache(); // helper we'll add in step 3
+    });
+    afterEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
+    it('returns per-type weights when row has enough trades', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'event_financial', tradeability: 0.4, liquidity: 0.2,
+            volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
+            n_trades: 100 },
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('event_financial');
+      expect(w.tradeability).toBeCloseTo(0.4);
+    });
+
+    it('falls back to global when per-type n_trades < MIN_TRADES_FOR_PER_TYPE (30)', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: 'crypto_intraday', tradeability: 0.5, liquidity: 0.1,
+            volatility: 0.1, ttr: 0.1, data_quality: 0.1, type_expected_value: 0.1,
+            n_trades: 7 },
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('crypto_intraday');
+      expect(w.tradeability).toBeCloseTo(0.25);  // global, not per-type
+    });
+
+    it('falls back to global when per-type row missing', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      const w = await MarketScorer.loadWeights('unknown_type');
+      expect(w.tradeability).toBeCloseTo(0.25);
+    });
+
+    it('caches per type — second call in TTL does not re-query', async () => {
+      (query as unknown as vi.Mock).mockResolvedValue({
+        rows: [
+          { market_type: '__global__', tradeability: 0.25, liquidity: 0.20,
+            volatility: 0.15, ttr: 0.10, data_quality: 0.10, type_expected_value: 0.20,
+            n_trades: 1800 },
+        ],
+      });
+      await MarketScorer.loadWeights('event_long');
+      await MarketScorer.loadWeights('event_long');
+      expect((query as unknown as vi.Mock).mock.calls.length).toBe(1);
+    });
+
+    it('falls back to WEIGHTS defaults when DB errors', async () => {
+      (query as unknown as vi.Mock).mockRejectedValue(new Error('db down'));
+      const w = await MarketScorer.loadWeights('event_long');
+      expect(w).toMatchObject({
+        tradeability: WEIGHTS.tradeability,
+        liquidity: WEIGHTS.liquidity,
+        typeExpectedValue: WEIGHTS.typeExpectedValue,
+      });
     });
   });
 
