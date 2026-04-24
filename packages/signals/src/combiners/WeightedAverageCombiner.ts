@@ -21,6 +21,9 @@ interface WeightedAverageParams {
   timeDecayFactor: number;
   /** Maximum age of signal in ms before full decay */
   maxSignalAgeMs: number;
+  /** Consensus discount floor ∈ [0, 1]. 1.0 = no effect. 0.0 = aggressive
+   *  filter. Optuna tunes this value weekly via signal_weights table. */
+  consensusDiscountFloor: number;
 }
 
 /**
@@ -127,6 +130,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       conflictResolution: 'weighted',
       timeDecayFactor: 0.9,
       maxSignalAgeMs: 5 * 60 * 1000, // 5 minutes
+      consensusDiscountFloor: 0.5,
       ...params,
     };
   }
@@ -229,10 +233,24 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       return null;
     }
 
-    if (confidence < params.minCombinedConfidence) {
-      this.logger.debug(
-        { confidence, threshold: params.minCombinedConfidence },
-        'Combined confidence below threshold'
+    // Consensus discount on combined confidence
+    const consensusResult = signalConsensus(usedSignals.map(s => s.signal));
+    const discount = consensusDiscount(consensusResult.consensus, params.consensusDiscountFloor);
+    const rawConfidence = confidence;
+    const finalConfidence = confidence * discount;
+
+    if (finalConfidence < params.minCombinedConfidence) {
+      this.logger.info(
+        {
+          confidence: rawConfidence,
+          finalConfidence,
+          consensus: consensusResult.consensus,
+          longCount: consensusResult.longCount,
+          shortCount: consensusResult.shortCount,
+          discount,
+          threshold: params.minCombinedConfidence,
+        },
+        'Combined confidence (post-consensus-discount) below threshold'
       );
       return null;
     }
@@ -246,7 +264,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       tokenId: firstSignal.tokenId,
       direction,
       strength,
-      confidence,
+      confidence: finalConfidence,
       timestamp: now,
       ttlMs: Math.min(...usedSignals.map(s => s.signal.ttlMs)),
       componentSignals: usedSignals.map(s => s.signal),
@@ -257,6 +275,15 @@ export class WeightedAverageCombiner implements ISignalCombiner {
         combinerType: 'weighted_average',
         signalCount: usedSignals.length,
         conflictResolution: params.conflictResolution,
+        // B.2 consensus discount fields:
+        consensus: consensusResult.consensus,
+        consensusDiscount: discount,
+        rawConfidence,
+        componentCounts: {
+          long: consensusResult.longCount,
+          short: consensusResult.shortCount,
+          neutral: consensusResult.neutralCount,
+        },
       },
     };
 
@@ -264,7 +291,10 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       {
         direction,
         strength: strength.toFixed(3),
-        confidence: confidence.toFixed(3),
+        confidence: finalConfidence.toFixed(3),
+        rawConfidence: rawConfidence.toFixed(3),
+        consensus: consensusResult.consensus?.toFixed(3) ?? null,
+        discount: discount.toFixed(3),
         signalCount: usedSignals.length,
       },
       'Combined signal generated'
