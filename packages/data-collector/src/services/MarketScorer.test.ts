@@ -524,6 +524,40 @@ describe('MarketScorer', () => {
     });
   });
 
+  // ─── compositeScore with typeExpectedValue (Task 3 TDD record) ──────────
+  describe('MarketScorer.compositeScore with typeExpectedValue', () => {
+    it('includes typeExpectedValue contribution in composite', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1, liquidity: 1, volatility: null,
+        ttr: 1, dataQuality: null, typeExpectedValue: 1,
+      };
+      const weights: ScorerWeights = {
+        tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
+        ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
+      };
+      // All non-null dims at 1: tradeability + liquidity + ttr + typeExpectedValue
+      // weighted sum = 0.25+0.20+0.10+0.20 = 0.75, normalized by same = 1.0
+      const score = MarketScorer.compositeScore(dims, weights);
+      expect(score).toBeCloseTo(1.0, 3);
+    });
+
+    it('typeExpectedValue at 0 drops score by its weight share', () => {
+      const dims: ScoreDimensions = {
+        tradeability: 1, liquidity: 1, volatility: null,
+        ttr: 1, dataQuality: null, typeExpectedValue: 0,
+      };
+      const weights: ScorerWeights = {
+        tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
+        ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
+      };
+      // Non-null weighted sum = 0.25+0.20+0.10+0 = 0.55
+      // Normalized by non-null weight-sum (0.25+0.20+0.10+0.20) = 0.75
+      // score = 0.55 / 0.75 ≈ 0.7333
+      const score = MarketScorer.compositeScore(dims, weights);
+      expect(score).toBeCloseTo(0.7333, 3);
+    });
+  });
+
   describe('scoreAllMarkets', () => {
     it('batches pass-1 score updates instead of issuing a full-table update', async () => {
       const querySpy = vi.spyOn(connection, 'query').mockImplementation(async (sql: any, params?: any[]) => {
@@ -594,16 +628,23 @@ describe('MarketScorer', () => {
       expect(batchUpdateCall).toBeDefined();
 
       const updateParams = batchUpdateCall?.[1] as Array<string | number>;
-      // cold-1: price=0.5, vol=30M, ttr=30days → tradeability=1.0, liquidity≈0.96, ttr=1.0, vol/dq=null, tev=0
-      // Available: 0.25+0.20+0.10+0.20=0.75, weighted = 0.25*1 + 0.20*0.96 + 0.10*1 + 0.20*0 = 0.25+0.192+0.10 = 0.542
-      // score = 0.542/0.75 * 0.8 (prior) = 0.5773... * 0.8 = 0.4618...
-      // But test expects scores with new weight dist. Actual: ~0.587 for cold-1, ~0.733 for cold-2 (with prior 0.8 and 1.0)
-      // These are composite score normalized with new weights. Accept actual calculated values.
+      // cold-1 and cold-2: price=0.5, vol=30M, spread=0.01, end_date=30 days out
+      //   tradeability = 1.0  (balanced zone)
+      //   liquidity    = log(30_000_000) / log(30_000_000) = 1.0, spread ≤ 0.03 → no penalty → 1.0
+      //   ttr          = 1.0  (30 days → 7-60 day optimal window)
+      //   volatility   = null, dataQuality = null → excluded
+      //   typeExpectedValue = 0  (Pass 1 placeholder)
+      // non-null weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
+      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0*0.20 = 0.55
+      // composite = 0.55 / 0.75 = 0.7333...
+      //
+      // cold-1: market_type='event_short' → prior=0.8 → score = 0.7333 * 0.8 = 0.5867
+      // cold-2: market_type=null → prior=1.0 (default) → score = 0.7333 * 1.0 = 0.7333
       expect(updateParams?.length).toBe(4);
       expect(updateParams?.[0]).toBe('cold-1');
       expect(updateParams?.[2]).toBe('cold-2');
-      expect(typeof updateParams?.[1]).toBe('number');
-      expect(typeof updateParams?.[3]).toBe('number');
+      expect(updateParams?.[1] as number).toBeCloseTo(0.5867, 3);
+      expect(updateParams?.[3] as number).toBeCloseTo(0.7333, 3);
 
       vi.restoreAllMocks();
     });
