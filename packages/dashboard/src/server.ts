@@ -194,6 +194,30 @@ async function main(): Promise<void> {
       `);
       console.log('paper_positions direction exploration columns ensured');
 
+      // Ensure scorer_weights supports per-type weights and typeExpectedValue dim.
+      // See docs/plans/2026-04-24-scorer-per-type-weights-design.md.
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS market_type VARCHAR(32) NOT NULL DEFAULT '__global__';
+      `);
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS type_expected_value FLOAT NOT NULL DEFAULT 0;
+      `);
+      await query(`
+        DO $do$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'uniq_scorer_weights_market_type'
+          ) THEN
+            ALTER TABLE scorer_weights
+              ADD CONSTRAINT uniq_scorer_weights_market_type UNIQUE (market_type);
+          END IF;
+        END $do$;
+      `);
+      console.log('scorer_weights per-type columns ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
