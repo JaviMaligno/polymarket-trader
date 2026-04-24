@@ -707,5 +707,13 @@ describe('MarketScorer', () => {
       expect(MarketScorer.typeExpectedValue(0.5, 4)).toBe(0.5);   // neutral
       expect(MarketScorer.typeExpectedValue(0.5, 5)).not.toBe(0.5); // computed
     });
+
+    it('falls back to a finite K when K is NaN (misconfigured env)', () => {
+      // Pass NaN explicitly — mimics Number('abc') from a fat-fingered env var.
+      // With the function-level guard, NaN K falls back to SCORER_SHRINKAGE_K (20).
+      const result = MarketScorer.typeExpectedValue(0.27, 159, NaN);
+      // Same inputs with K=20 → 0.8265 (per existing test).
+      expect(result).toBeCloseTo(0.8265, 3);
+    });
   });
 });

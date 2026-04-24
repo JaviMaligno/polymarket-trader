@@ -15,6 +15,11 @@ export const WEIGHTS = {
 
 export const MAX_VOLUME_REF = 30_000_000;
 
+const SCORER_SHRINKAGE_K: number = (() => {
+  const raw = Number(process.env.SCORER_SHRINKAGE_K ?? 20);
+  return Number.isFinite(raw) ? raw : 20;
+})();
+
 const BATCH_SIZE = 500;
 
 // ─── Types ─────────────────────────────────────────────────────────────
@@ -188,9 +193,10 @@ export class MarketScorer {
   static typeExpectedValue(
     sharpe: number | null,
     nTrades: number,
-    K: number = Number(process.env.SCORER_SHRINKAGE_K ?? 20),
+    K: number = SCORER_SHRINKAGE_K,
     MIN_N: number = 5,
   ): number {
+    if (!Number.isFinite(K)) K = SCORER_SHRINKAGE_K;
     if (sharpe === null || nTrades < MIN_N) return 0.5;
     const shrunk = (sharpe * nTrades) / (nTrades + K);
     return clamp01((shrunk + 1) / 1.5);
