@@ -1134,6 +1134,62 @@ describe('MarketScorer', () => {
     });
   });
 
+  describe('MarketScorer.scoreAllMarkets Pass 2 — realizedVolatility propagation', () => {
+    beforeEach(() => { vi.clearAllMocks(); MarketScorer.clearWeightsCache(); });
+
+    it('tracked markets score using realized_volatility + writeScoreHistory persists', async () => {
+      const captured: Array<{ sql: string; params: unknown[] | undefined }> = [];
+      (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('INSERT INTO market_score_history')) {
+          captured.push({ sql, params });
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance')) {
+          return { rows: [{ market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 }] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return {
+            rows: [{
+              market_type: '__global__', tradeability: 0.21, liquidity: 0.17,
+              volatility: 0.15, ttr: 0.08, data_quality: 0.10,
+              type_expected_value: 0.17, realized_volatility: 0.12, n_trades: 1800,
+            }],
+          };
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT condition_id')) return { rows: [] };
+        if (typeof sql === 'string' && sql.includes("tracking_status IN")) {
+          return {
+            rows: [{
+              condition_id: 'active-mkt', tracking_status: 'active',
+              current_price_yes: '0.5', volume_24h: '30000000', spread: '0.01',
+              end_date: new Date(Date.now() + 30 * 86400000).toISOString(),
+              market_type: 'event_financial',
+              stddev: '0.05', informative_bars: '20', total_bars: '24',
+              realized_volatility_24h: 0.02, realized_volatility_bar_count: 20,
+            }],
+          };
+        }
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // Wait for writeScoreHistory (fire-and-forget)
+      await new Promise(r => setTimeout(r, 10));
+
+      // writeScoreHistory should have been called with an INSERT that includes
+      // score_realized_volatility column and a 1.0 value (raw 0.02 / VOL_REF 0.02).
+      expect(captured.length).toBeGreaterThan(0);
+      const insertCall = captured[0];
+      expect(insertCall.sql).toContain('score_realized_volatility');
+      // The param position depends on the INSERT column order — inspect by searching for 1.0
+      // in the params (realizedVolatility mapped to 1.0 for these inputs). Non-brittle check.
+      const hasMappedRV = insertCall.params?.some((p) =>
+        typeof p === 'number' && Math.abs(p - 1.0) < 1e-6
+      );
+      expect(hasMappedRV).toBe(true);
+    });
+  });
+
   // ─── Pass 2 per-type ────────────────────────────────────────────────────
   describe('MarketScorer.scoreAllMarkets Pass 2 per-type', () => {
     beforeEach(() => { vi.clearAllMocks(); MarketScorer.clearWeightsCache(); });

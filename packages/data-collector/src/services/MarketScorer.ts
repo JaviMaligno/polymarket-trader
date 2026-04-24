@@ -559,6 +559,8 @@ export class MarketScorer {
       stddev: number | null;
       informative_bars: string;
       total_bars: string;
+      realized_volatility_24h: number | string | null;    // NEW
+      realized_volatility_bar_count: number | null;        // NEW
     }>(`
       SELECT m.condition_id,
              m.tracking_status,
@@ -569,7 +571,9 @@ export class MarketScorer {
              m.market_type,
              s.price_stddev AS stddev,
              s.informative_bars,
-             s.total_bars
+             s.total_bars,
+             m.realized_volatility_24h,
+             m.realized_volatility_bar_count
       FROM   markets m
       LEFT JOIN LATERAL (
         SELECT
@@ -625,6 +629,10 @@ export class MarketScorer {
       const dataQuality = totalBars > 0
         ? MarketScorer.dataQualityScore(informativeBars, totalBars)
         : null;
+      const realizedVolatility = MarketScorer.mapRealizedVolatility(
+        row.realized_volatility_24h != null ? Number(row.realized_volatility_24h) : null,
+        row.realized_volatility_bar_count,
+      );
 
       const score = MarketScorer.compositeScore({
         tradeability,
@@ -633,7 +641,7 @@ export class MarketScorer {
         ttr,
         dataQuality,
         typeExpectedValue: typeEV,
-        realizedVolatility: null,
+        realizedVolatility,
       }, weights);
 
       enrichUpdates.push({
@@ -646,7 +654,7 @@ export class MarketScorer {
         volatility,
         dataQuality,
         typeExpectedValue: typeEV,
-        realizedVolatility: null,
+        realizedVolatility,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,
@@ -693,6 +701,7 @@ export class MarketScorer {
       score_volatility: u.volatility,
       score_data_quality: u.dataQuality,
       score_type_expected_value: u.typeExpectedValue,
+      score_realized_volatility: u.realizedVolatility,
       current_price_yes: u.currentPriceYes,
       volume_24h: u.volume24h,
     }));
@@ -711,6 +720,7 @@ export class MarketScorer {
       score_volatility: null as number | null,
       score_data_quality: null as number | null,
       score_type_expected_value: null as number | null,
+      score_realized_volatility: null as number | null,
       current_price_yes: r.current_price_yes != null ? Number(r.current_price_yes) : null,
       volume_24h: r.volume_24h != null ? Number(r.volume_24h) : null,
     }));
@@ -718,11 +728,11 @@ export class MarketScorer {
     const all = [...trackedRows, ...coldRows];
     if (all.length === 0) return;
 
-    // Single multi-row INSERT
+    // Single multi-row INSERT (13 columns per row, plus NOW() for time)
     const values = all
       .map((_, i) => {
-        const base = i * 12;
-        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12})`;
+        const base = i * 13;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12},$${base+13})`;
       })
       .join(', ');
 
@@ -730,6 +740,7 @@ export class MarketScorer {
       r.time, r.condition_id, r.tracking_status,
       r.market_score, r.score_tradeability, r.score_liquidity, r.score_ttr,
       r.score_volatility, r.score_data_quality, r.score_type_expected_value,
+      r.score_realized_volatility,
       r.current_price_yes, r.volume_24h,
     ]);
 
@@ -738,6 +749,7 @@ export class MarketScorer {
          (time, condition_id, tracking_status, market_score,
           score_tradeability, score_liquidity, score_ttr,
           score_volatility, score_data_quality, score_type_expected_value,
+          score_realized_volatility,
           current_price_yes, volume_24h)
        VALUES ${values}`,
       params,
