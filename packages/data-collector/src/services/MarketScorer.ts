@@ -67,6 +67,8 @@ interface Pass1CandidateRow {
   spread: number | null;
   end_date: string | null;
   market_type: string | null;
+  realized_volatility_24h: number | string | null;   // NEW
+  realized_volatility_bar_count: number | null;       // NEW
 }
 
 // ─── Helper: clamp value between 0 and 1 ──────────────────────────────
@@ -411,7 +413,9 @@ export class MarketScorer {
              volume_24h,
              spread,
              end_date,
-             market_type
+             market_type,
+             realized_volatility_24h,
+             realized_volatility_bar_count
       FROM markets
       WHERE is_active = true
         AND is_resolved = false
@@ -454,6 +458,10 @@ export class MarketScorer {
         const ttr = MarketScorer.ttrScore(
           row.end_date ? new Date(row.end_date) : null,
         );
+        const realizedVolatility = MarketScorer.mapRealizedVolatility(
+          row.realized_volatility_24h != null ? Number(row.realized_volatility_24h) : null,
+          row.realized_volatility_bar_count,
+        );
         const score = MarketScorer.compositeScore({
           tradeability,
           liquidity,
@@ -461,7 +469,7 @@ export class MarketScorer {
           ttr,
           dataQuality: null,
           typeExpectedValue: typeEV,
-          realizedVolatility: null,
+          realizedVolatility,
         }, weights);
 
         return {
@@ -474,7 +482,7 @@ export class MarketScorer {
           volatility: null,
           dataQuality: null,
           typeExpectedValue: typeEV,
-          realizedVolatility: null,
+          realizedVolatility,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -502,6 +510,10 @@ export class MarketScorer {
         const ttr = MarketScorer.ttrScore(
           row.end_date ? new Date(row.end_date) : null,
         );
+        const realizedVolatility = MarketScorer.mapRealizedVolatility(
+          row.realized_volatility_24h != null ? Number(row.realized_volatility_24h) : null,
+          row.realized_volatility_bar_count,
+        );
         const score = MarketScorer.compositeScore({
           tradeability,
           liquidity,
@@ -509,7 +521,7 @@ export class MarketScorer {
           ttr,
           dataQuality: null,
           typeExpectedValue: typeEV,
-          realizedVolatility: null,
+          realizedVolatility,
         }, weights);
 
         return {
@@ -522,7 +534,7 @@ export class MarketScorer {
           volatility: null,
           dataQuality: null,
           typeExpectedValue: typeEV,
-          realizedVolatility: null,
+          realizedVolatility,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,

@@ -1076,6 +1076,64 @@ describe('MarketScorer', () => {
     });
   });
 
+  // ─── Pass 1 realizedVolatility propagation ─────────────────────────────
+  describe('MarketScorer.scoreAllMarkets Pass 1 — realizedVolatility propagation', () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+      MarketScorer.clearWeightsCache();
+    });
+
+    it('reads realized_volatility_24h from candidates + maps via mapRealizedVolatility', async () => {
+      const captured: Array<{ sql: string; params: unknown[] | undefined }> = [];
+      (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.trim().startsWith('UPDATE markets')) {
+          captured.push({ sql, params });
+        }
+        if (typeof sql === 'string' && sql.includes('FROM category_performance')) {
+          return { rows: [] };
+        }
+        if (typeof sql === 'string' && sql.includes('FROM scorer_weights')) {
+          return {
+            rows: [{
+              market_type: '__global__', tradeability: 0.21, liquidity: 0.17,
+              volatility: 0.15, ttr: 0.08, data_quality: 0.10,
+              type_expected_value: 0.17, realized_volatility: 0.12, n_trades: 1800,
+            }],
+          };
+        }
+        if (typeof sql === 'string' && sql.includes('SELECT condition_id')) {
+          // One cold candidate with known inputs for deterministic score
+          return {
+            rows: [{
+              condition_id: 'mkt-A', current_price_yes: '0.5', volume_24h: '30000000',
+              spread: '0.01', end_date: new Date(Date.now() + 30 * 86400000).toISOString(),
+              market_type: 'event_long',
+              realized_volatility_24h: 0.02, realized_volatility_bar_count: 20,
+            }],
+          };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status IN")) return { rows: [] };
+        return { rows: [], rowCount: 0 };
+      });
+      const scorer = new MarketScorer();
+      await scorer.scoreAllMarkets();
+
+      // First captured UPDATE should have marketType='event_long' and a score that reflects
+      // realizedVolatility=1.0 (raw 0.02 / VOL_REF 0.02 = 1.0).
+      expect(captured.length).toBeGreaterThan(0);
+      const updateCall = captured.find(c => (c.params?.[0] as string) === 'event_long');
+      expect(updateCall).toBeDefined();
+      // The score param is index 2 (after marketType, conditionId).
+      const score = updateCall!.params![2] as number;
+      // All non-null dims at 1 (tradeability=1, liquidity=1 with 30M vol = MAX_VOLUME_REF, ttr=1,
+      // typeEV=0.5 since categoryMetrics has no event_long row, realizedVol=1).
+      // Non-null weighted sum = 1.0*0.21 + 1.0*0.17 + 1.0*0.08 + 0.5*0.17 + 1.0*0.12 = 0.665
+      // Normalized by (0.21+0.17+0.08+0.17+0.12) = 0.75
+      // Score = 0.665 / 0.75 ≈ 0.8867
+      expect(score).toBeCloseTo(0.8867, 2);
+    });
+  });
+
   // ─── Pass 2 per-type ────────────────────────────────────────────────────
   describe('MarketScorer.scoreAllMarkets Pass 2 per-type', () => {
     beforeEach(() => { vi.clearAllMocks(); MarketScorer.clearWeightsCache(); });
