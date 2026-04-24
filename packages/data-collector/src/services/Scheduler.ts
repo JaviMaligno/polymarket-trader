@@ -3,7 +3,7 @@ import { pino } from 'pino';
 import { getGammaCollector } from '../collectors/GammaCollector.js';
 import { getClobCollector } from '../collectors/ClobCollector.js';
 import { getRateLimiter } from './RateLimiter.js';
-import { getPool } from '../database/connection.js';
+import { getPool, query } from '../database/connection.js';
 import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
 import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 import { MarketScorer } from './MarketScorer.js';
@@ -13,6 +13,57 @@ import { updateCategoryPriors, resolveShadowTrades } from './MarketPerformanceTr
 import { NewsCollector } from '../collectors/NewsCollector.js';
 
 const logger = pino({ name: 'scheduler' });
+
+/**
+ * Compute realized volatility (stddev of first differences of close prices
+ * over the last 24h) for every token that has enough bars, and null out
+ * vols for tokens whose recent data has aged out. Sub-project B.1.
+ */
+export async function computeRealizedVolatility(): Promise<void> {
+  try {
+    const start = Date.now();
+    const result = await query(`
+      UPDATE markets m
+      SET realized_volatility_24h = s.vol,
+          realized_volatility_bar_count = s.n_bars
+      FROM (
+        SELECT token_id,
+               STDDEV_POP(d) AS vol,
+               COUNT(d) AS n_bars
+        FROM (
+          SELECT token_id,
+                 close - LAG(close) OVER (PARTITION BY token_id ORDER BY time) AS d
+          FROM price_history
+          WHERE time > NOW() - INTERVAL '24 hours'
+        ) diffs
+        GROUP BY token_id
+        HAVING COUNT(d) >= 5
+      ) s
+      WHERE s.token_id = m.clob_token_id_yes
+    `);
+
+    // Null out markets that no longer have qualifying recent data.
+    const nullResult = await query(`
+      UPDATE markets
+      SET realized_volatility_24h = NULL, realized_volatility_bar_count = NULL
+      WHERE realized_volatility_24h IS NOT NULL
+        AND clob_token_id_yes NOT IN (
+          SELECT token_id FROM price_history
+          WHERE time > NOW() - INTERVAL '24 hours'
+          GROUP BY token_id
+          HAVING COUNT(*) >= 6
+        )
+    `);
+
+    logger.info({
+      duration_ms: Date.now() - start,
+      updated: result.rowCount ?? 0,
+      nulled: nullResult.rowCount ?? 0,
+    }, 'Realized volatility computed');
+  } catch (err) {
+    logger.error({ err }, 'Realized volatility compute failed — skipping this cycle');
+  }
+}
 
 interface ScheduledJob {
   name: string;
@@ -57,6 +108,7 @@ export class Scheduler {
     this.defineJob('optimize-scorer-weights', '17 3 * * 1', this.optimizeScorerWeights.bind(this));  // Every Monday at 03:17 UTC
     this.defineJob('compute-market-priors', '45 2 * * *', this.computeMarketPriors.bind(this));  // Daily at 02:45 UTC
     this.defineJob('collect-news', '*/15 * * * *', this.collectNews.bind(this));  // News pipeline every 15 minutes
+    this.defineJob('compute-realized-volatility', '*/15 * * * *', computeRealizedVolatility);  // Every 15 min
   }
 
   /**
@@ -204,6 +256,9 @@ export class Scheduler {
           break;
         case 'collect-news':
           await this.collectNews();
+          break;
+        case 'compute-realized-volatility':
+          await computeRealizedVolatility();
           break;
         default:
           logger.warn({ name }, 'No handler for job');
