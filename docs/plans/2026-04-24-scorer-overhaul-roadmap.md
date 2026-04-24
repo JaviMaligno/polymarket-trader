@@ -89,16 +89,28 @@ Expected impact: global Pearson moves from -0.04 to positive within 2 weeks of h
 
 ### Sub-project B: New features
 
-Status: **queued** behind A.
+Status: A shipped 2026-04-24 (PR #125 + #126); B.1 in design.
 
-Candidate features to investigate, each requiring its own data path (compute, persist in `score_dimensions_at_entry`, measure correlation):
+Decomposed into four parallel sub-projects after brainstorming. Each lands as its own spec / plan / PR. They do not block each other except where noted.
 
-- **Realized volatility** of the last N price bars at entry.
-- **Bid-ask spread** at entry (already in `markets.spread` but not in dims).
-- **Signal confidence/strength** aggregates from the signal engine at entry.
-- **Consensus among signal generators** (how many agreed on direction).
+**B.1 — Realized volatility as scorer dim** — *in design*
+- Spec: [2026-04-24-realized-volatility-design.md](./2026-04-24-realized-volatility-design.md).
+- Extends `ScoreDimensions` with a nullable `realizedVolatility` dim fed by a 15-min compute job over `price_history`. Reuses all A infrastructure (per-type weights, optimizer loop, backfill pattern).
 
-Each feature lands as its own PR once A is stable. Keep each addition small: calculate, persist, observe correlation over 2+ weeks before committing it to the composite.
+**B.2 — Signal-generator consensus** — *queued*
+- Requires `SignalEngine` instrumentation to expose per-generator outputs pre-combine. New `consensus` dim measures how many generators agreed on direction.
+- Heavier than B.1 because it touches the signal layer, not just the scorer. Queue after B.1 lands so we do not mix signal-layer churn with scorer dim churn during measurement.
+
+**B.3 — Signal confidence/strength analysis** — *parallelizable with B.1 or B.2*
+- Different layer: signal confidence/strength is a per-trade feature, not a per-market feature. Does not plug into MarketScorer.
+- Capture `signal.confidence` and `signal.strength` at position-open in `paper_positions.metadata` (or a sibling column), run correlation analysis against realized PnL, and feed results back into the combiner thresholds (`minCombinedConfidence`, `minCombinedStrength`) or signal weights — not the market scorer.
+- Its own spec / plan; does not share code paths with B.1/B.2 so can run concurrently.
+
+**B.4 — Bid-ask spread as scorer dim** — *deferred*
+- Pre-check on 2026-04-24 (n=1829 closed trades, post-reset): spread has Pearson -0.025 with PnL globally and is moderately collinear with liquidity (-0.26). Marginal signal over liquidity judged insufficient to justify the added dim.
+- Not dropped forever — revisit if B.2 or another source suggests spread matters more than current measurement shows, or if we want to capture time-of-entry spread explicitly (current check uses current spread, which is an approximation).
+
+Each feature is additive. A's infrastructure tolerates null dims gracefully; adding a feature that turns out non-predictive costs only a slightly larger hyperparameter search space for the optimizer. Dropping a feature later is a one-line code revert plus leaving harmless schema columns.
 
 ### Sub-project C: Deferred / conditional
 
@@ -116,9 +128,16 @@ Status: **conditional on A's result**.
 
 ## Sequencing
 
-1. Ship Sub-project A. Wait 2 weeks for optimizer to retrain on new feature.
-2. Measure (queries in A's success-metric section).
-3. If metrics hit gate (Pearson > 0), proceed to B. Otherwise, investigate C.
-4. Each feature in B: add, measure for 2 weeks, keep or drop.
+Originally: "Ship A, wait 2 weeks, then B." Revised after shipping A: waiting is passive time-for-data-accumulation, not a development-gate. B can be built in parallel with A's OOS observation. A's infrastructure is additive — B's features extend the same dim set without invalidating A's results, and a non-predictive feature just receives weight ~0 from the optimizer.
+
+Current plan:
+
+1. A shipped 2026-04-24. Infrastructure validated (global Pearson in-sample +0.408). OOS measurement proceeds continuously in the background via weekly retrains.
+2. B.1 (realized volatility) in design immediately. Ships as a standalone PR that plugs into A's infrastructure.
+3. B.2 (signal consensus) queued behind B.1 — same scorer, but signal-layer changes increase risk. Sequence it so we do not mix dim-churn with signal-layer-churn during measurement.
+4. B.3 (signal confidence analysis) can run in parallel with B.1 or B.2 — different code paths (no shared files).
+5. B.4 (spread) deferred until empirical conditions change.
+
+Each sub-project still follows spec → plan → implementation per its own cycle. Measurement: 2+ weeks per feature to accumulate enough OOS trades for an honest correlation read. Features that show weight ~0 in the optimizer after two full training cycles can be removed to simplify the search space.
 
 Out of scope for this roadmap: any change to the signal engine, direction multiplier, or execution pipeline.
