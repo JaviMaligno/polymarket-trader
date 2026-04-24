@@ -16,9 +16,9 @@ describe('computeRealizedVolatility', () => {
   it('executes the UPDATE and the NULL-out UPDATE without throwing', async () => {
     (query as unknown as Mock).mockResolvedValue({ rowCount: 10, rows: [] });
     await expect(computeRealizedVolatility()).resolves.not.toThrow();
-    // Two UPDATE statements issued: set vols + null out stale (second may be wrapped in CTE)
+    // Two UPDATE statements issued: set vols + null out stale
     const updateCalls = (query as unknown as Mock).mock.calls.filter(
-      (c) => typeof c[0] === 'string' && c[0].includes('UPDATE markets'),
+      (c) => typeof c[0] === 'string' && c[0].trim().startsWith('UPDATE markets'),
     );
     expect(updateCalls.length).toBe(2);
   });

@@ -43,22 +43,15 @@ export async function computeRealizedVolatility(): Promise<void> {
     `);
 
     // Null out markets that no longer have qualifying recent data.
-    // NOT EXISTS + CTE pattern lets the planner use HashAntiJoin rather than
-    // the nested-loop forced by NOT IN. Production measured 100s → expected <5s.
     const nullResult = await query(`
-      WITH valid_tokens AS (
-        SELECT token_id
-        FROM price_history
-        WHERE time > NOW() - INTERVAL '24 hours'
-        GROUP BY token_id
-        HAVING COUNT(*) >= 6
-      )
-      UPDATE markets m
+      UPDATE markets
       SET realized_volatility_24h = NULL, realized_volatility_bar_count = NULL
-      WHERE m.realized_volatility_24h IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM valid_tokens v
-          WHERE v.token_id = m.clob_token_id_yes
+      WHERE realized_volatility_24h IS NOT NULL
+        AND clob_token_id_yes NOT IN (
+          SELECT token_id FROM price_history
+          WHERE time > NOW() - INTERVAL '24 hours'
+          GROUP BY token_id
+          HAVING COUNT(*) >= 6
         )
     `);
 
