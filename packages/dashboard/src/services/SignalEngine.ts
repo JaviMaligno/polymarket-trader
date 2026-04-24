@@ -62,6 +62,7 @@ export interface SignalEngineConfig {
   minCombinedConfidence?: number; // Open threshold — minimum confidence to enter a new position (0-1)
   minCombinedStrength?: number;   // Minimum combined signal strength (0-1)
   exitThreshold?: number;         // Exit threshold — minimum confidence to close an existing position (lower than open)
+  consensusDiscountFloor?: number; // Min consensus fraction before strength discount kicks in (0-1, default 0.5)
   directionResolver: DirectionResolver; // Required — resolves per-market direction multiplier
 }
 
@@ -170,6 +171,8 @@ export class SignalEngine extends EventEmitter {
         // the higher openThreshold for new positions, enabling hysteresis)
         minCombinedConfidence: this.config.exitThreshold ?? 0.25,
         minCombinedStrength: this.config.minCombinedStrength ?? 0.27,
+        // Loaded from signal_weights table at startup (matches direction_multiplier precedent)
+        consensusDiscountFloor: this.config.consensusDiscountFloor ?? 0.5,
       }
     );
   }

@@ -69,6 +69,9 @@ export interface BacktestRequest {
     minCombinedStrength?: number;
     onlyDirection?: string | null;
     conflictResolution?: string;
+    /** Consensus discount floor ∈ [0, 1]. Optional — combiner default (0.5)
+     *  applies when omitted. Optuna tunes this value via weekly retraining. */
+    consensusDiscountFloor?: number;
   };
 }
 
@@ -163,6 +166,9 @@ export class BacktestService extends EventEmitter {
         minCombinedConfidence: cc.minCombinedConfidence,
         minCombinedStrength: cc.minCombinedStrength,
         conflictResolution: cc.conflictResolution as any,
+        ...(cc.consensusDiscountFloor !== undefined
+          ? { consensusDiscountFloor: cc.consensusDiscountFloor }
+          : {}),
       } : undefined);
 
       // Create backtest engine

@@ -879,6 +879,10 @@ export class AutoSignalExecutor extends EventEmitter {
           m.realized_volatility_bar_count,
         );
 
+        const sigMeta = signal.metadata as (Record<string, unknown> | undefined);
+        const componentCounts = (sigMeta?.componentCounts as
+          { long?: number; short?: number; neutral?: number } | undefined);
+
         scoreDimensionsAtEntry = {
           tradeability: computeTradeability(price),
           liquidity:    computeLiquidity(vol, sprd),
@@ -887,6 +891,11 @@ export class AutoSignalExecutor extends EventEmitter {
           dataQuality:  null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          // Sub-project B.2: signal-layer features (not in ScoreDimensions type — extra JSONB keys)
+          signalConsensus:         (sigMeta?.consensus as number | null | undefined) ?? null,
+          signalComponentLong:     componentCounts?.long ?? null,
+          signalComponentShort:    componentCounts?.short ?? null,
+          signalComponentNeutral:  componentCounts?.neutral ?? null,
         };
       }
     } catch (err) {

@@ -21,6 +21,63 @@ interface WeightedAverageParams {
   timeDecayFactor: number;
   /** Maximum age of signal in ms before full decay */
   maxSignalAgeMs: number;
+  /** Consensus discount floor ∈ [0, 1]. 1.0 = no effect. 0.0 = aggressive
+   *  filter. Optuna tunes this value weekly via signal_weights table. */
+  consensusDiscountFloor: number;
+}
+
+/**
+ * Compute Shannon-entropy-based consensus on directional tallies.
+ * Returns null if fewer than 3 informative (non-NEUTRAL) signals — not enough
+ * granularity. NEUTRAL signals are excluded from the tally.
+ * Formula: consensus = 1 - H(p_long, p_short) where H is Shannon entropy in
+ * log base 2 (so H ∈ [0,1] naturally for 2 categories).
+ *   - Unanimous (5,0) → consensus = 1.0
+ *   - Balanced (3,2)  → consensus ≈ 0.029
+ *   - Balanced (2,3)  → consensus ≈ 0.029 (symmetric)
+ */
+export function signalConsensus(signals: SignalOutput[]): {
+  consensus: number | null;
+  longCount: number;
+  shortCount: number;
+  neutralCount: number;
+} {
+  let longCount = 0;
+  let shortCount = 0;
+  let neutralCount = 0;
+  for (const s of signals) {
+    if (s.direction === 'LONG') longCount++;
+    else if (s.direction === 'SHORT') shortCount++;
+    else if (s.direction === 'NEUTRAL') neutralCount++;
+  }
+  const N = longCount + shortCount;
+  if (N < 3) {
+    return { consensus: null, longCount, shortCount, neutralCount };
+  }
+  const pL = longCount / N;
+  const pS = shortCount / N;
+  const H = -(pL > 0 ? pL * Math.log2(pL) : 0) - (pS > 0 ? pS * Math.log2(pS) : 0);
+  return {
+    consensus: 1 - H,
+    longCount,
+    shortCount,
+    neutralCount,
+  };
+}
+
+/**
+ * Linear floor-shifted discount: discount(c) = floor + (1-floor) * c.
+ * Returns 1.0 when consensus is null (no-op — matches pre-B.2 behavior).
+ * - floor=1.0 → always 1.0 (consensus has no effect)
+ * - floor=0.5 → 50/50 signal gets 0.5×, unanimous 1.0× (initial default)
+ * - floor=0.0 → consensus fully scales confidence (aggressive filtering)
+ */
+export function consensusDiscount(
+  consensus: number | null,
+  floor: number,
+): number {
+  if (consensus === null) return 1.0;
+  return floor + (1 - floor) * consensus;
 }
 
 /**
@@ -73,6 +130,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       conflictResolution: 'weighted',
       timeDecayFactor: 0.9,
       maxSignalAgeMs: 5 * 60 * 1000, // 5 minutes
+      consensusDiscountFloor: 0.5,
       ...params,
     };
   }
@@ -175,10 +233,24 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       return null;
     }
 
-    if (confidence < params.minCombinedConfidence) {
-      this.logger.debug(
-        { confidence, threshold: params.minCombinedConfidence },
-        'Combined confidence below threshold'
+    // Consensus discount on combined confidence
+    const consensusResult = signalConsensus(usedSignals.map(s => s.signal));
+    const discount = consensusDiscount(consensusResult.consensus, params.consensusDiscountFloor);
+    const rawConfidence = confidence;
+    const finalConfidence = confidence * discount;
+
+    if (finalConfidence < params.minCombinedConfidence) {
+      this.logger.info(
+        {
+          confidence: rawConfidence,
+          finalConfidence,
+          consensus: consensusResult.consensus,
+          longCount: consensusResult.longCount,
+          shortCount: consensusResult.shortCount,
+          discount,
+          threshold: params.minCombinedConfidence,
+        },
+        'Combined confidence (post-consensus-discount) below threshold'
       );
       return null;
     }
@@ -192,7 +264,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       tokenId: firstSignal.tokenId,
       direction,
       strength,
-      confidence,
+      confidence: finalConfidence,
       timestamp: now,
       ttlMs: Math.min(...usedSignals.map(s => s.signal.ttlMs)),
       componentSignals: usedSignals.map(s => s.signal),
@@ -203,6 +275,15 @@ export class WeightedAverageCombiner implements ISignalCombiner {
         combinerType: 'weighted_average',
         signalCount: usedSignals.length,
         conflictResolution: params.conflictResolution,
+        // B.2 consensus discount fields:
+        consensus: consensusResult.consensus,
+        consensusDiscount: discount,
+        rawConfidence,
+        componentCounts: {
+          long: consensusResult.longCount,
+          short: consensusResult.shortCount,
+          neutral: consensusResult.neutralCount,
+        },
       },
     };
 
@@ -210,7 +291,10 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       {
         direction,
         strength: strength.toFixed(3),
-        confidence: confidence.toFixed(3),
+        confidence: finalConfidence.toFixed(3),
+        rawConfidence: rawConfidence.toFixed(3),
+        consensus: consensusResult.consensus?.toFixed(3) ?? null,
+        discount: discount.toFixed(3),
         signalCount: usedSignals.length,
       },
       'Combined signal generated'

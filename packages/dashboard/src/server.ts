@@ -313,6 +313,16 @@ async function main(): Promise<void> {
       `);
       console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
 
+      // Sub-project B.2: seed consensus_discount_floor config row.
+      // signal_weights uses the row-per-config pattern (same as
+      // direction_multiplier). See docs/plans/2026-04-25-signal-consensus-design.md.
+      await query(`
+        INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
+        VALUES ('consensus_discount_floor', 0.5, true, 0.0, NOW())
+        ON CONFLICT (signal_type) DO NOTHING;
+      `);
+      console.log('signal_weights.consensus_discount_floor row ensured');
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
@@ -444,6 +454,20 @@ async function main(): Promise<void> {
         },
       });
 
+      // Load consensus_discount_floor from signal_weights (same row-per-config pattern
+      // as direction_multiplier — see DirectionMultiplierLearningService:268).
+      // Row seeded at startup (commit a4f3472). Fallback to 0.5 is defense-in-depth.
+      let consensusDiscountFloor = 0.5;
+      try {
+        const consensusRow = await signalWeightsRepo.get('consensus_discount_floor');
+        if (consensusRow?.weight !== undefined && consensusRow.weight !== null) {
+          consensusDiscountFloor = Number(consensusRow.weight);
+        }
+        console.log('Loaded consensusDiscountFloor from signal_weights:', consensusDiscountFloor);
+      } catch (error) {
+        console.warn('Failed to load consensus_discount_floor, using default 0.5:', error);
+      }
+
       const signalEngine = initializeSignalEngine({
         enabled: true,
         computeIntervalMs: parseInt(process.env.SIGNAL_INTERVAL_MS || '60000', 10),
@@ -451,6 +475,7 @@ async function main(): Promise<void> {
         minPriceBars: 3,           // Bayesian confidence cap handles data scarcity
         minCombinedConfidence: optimizedParams.minCombinedConfidence,
         minCombinedStrength: optimizedParams.minCombinedStrength,
+        consensusDiscountFloor,
         directionResolver,
       });
 
