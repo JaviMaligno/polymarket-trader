@@ -179,6 +179,24 @@ export class MarketScorer {
   }
 
   /**
+   * Map shrunk Sharpe of a market type to [0, 1] using Beta-Binomial-style
+   * shrinkage. Returns 0.5 (neutral) for types with too few trades or missing
+   * sharpe. The (shrunk + 1) / 1.5 mapping was sized for typical [-1, +0.5]
+   * Sharpe range; recalibrate if the observed spread stays < 0.10 after a
+   * training cycle. Env: SCORER_SHRINKAGE_K overrides the default K=20.
+   */
+  static typeExpectedValue(
+    sharpe: number | null,
+    nTrades: number,
+    K: number = Number(process.env.SCORER_SHRINKAGE_K ?? 20),
+    MIN_N: number = 5,
+  ): number {
+    if (sharpe === null || nTrades < MIN_N) return 0.5;
+    const shrunk = (sharpe * nTrades) / (nTrades + K);
+    return clamp01((shrunk + 1) / 1.5);
+  }
+
+  /**
    * Composite score — weighted sum of dimensions.
    *
    * When volatility and/or dataQuality are null (cold markets with no

@@ -676,4 +676,36 @@ describe('MarketScorer', () => {
       expect(sum).toBeCloseTo(1.0, 5);
     });
   });
+
+  // ─── MarketScorer.typeExpectedValue ─────────────────────────────────
+  describe('MarketScorer.typeExpectedValue', () => {
+    it('returns 0.5 when sharpe is null', () => {
+      expect(MarketScorer.typeExpectedValue(null, 100)).toBe(0.5);
+    });
+
+    it('returns 0.5 when n < MIN_N (5)', () => {
+      expect(MarketScorer.typeExpectedValue(0.32, 4)).toBe(0.5);
+    });
+
+    it('computes shrunk Sharpe mapped to [0,1] (event_financial real data)', () => {
+      // sharpe=0.27, n=159, K=20: shrunk = 0.27*159/179 = 0.2397
+      // mapped = (0.2397 + 1) / 1.5 = 0.8265
+      expect(MarketScorer.typeExpectedValue(0.27, 159)).toBeCloseTo(0.8265, 3);
+    });
+
+    it('clamps above 1.0 (unrealistic high Sharpe)', () => {
+      // sharpe=5, n=1000: shrunk ≈ 4.9 — mapped = 5.9/1.5 = 3.93 → clamp 1.0
+      expect(MarketScorer.typeExpectedValue(5, 1000)).toBe(1.0);
+    });
+
+    it('clamps at 0.0 (very negative shrunk)', () => {
+      // sharpe=-2, n=100: shrunk ≈ -1.67 — mapped = -0.67/1.5 ≈ -0.44 → clamp 0
+      expect(MarketScorer.typeExpectedValue(-2, 100)).toBe(0);
+    });
+
+    it('MIN_N boundary — n=5 computes, n=4 neutral', () => {
+      expect(MarketScorer.typeExpectedValue(0.5, 4)).toBe(0.5);   // neutral
+      expect(MarketScorer.typeExpectedValue(0.5, 5)).not.toBe(0.5); // computed
+    });
+  });
 });
