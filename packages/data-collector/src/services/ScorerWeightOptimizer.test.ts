@@ -111,4 +111,33 @@ describe('optimizeScorerWeights per-type', () => {
     const marketTypes = inserts.map((c: unknown[]) => (c[1] as unknown[])[0] as string).sort();
     expect(marketTypes).toEqual(['__global__', 'event_financial', 'event_long']);
   });
+
+  it('isolates errors per type — one failing type does not block others', async () => {
+    let callIdx = 0;
+    (query as unknown as vi.Mock).mockImplementation(async (sql: string) => {
+      if (sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'event_long' }, { market_type: 'broken_type' }, { market_type: 'event_financial' }] };
+      }
+      if (sql.includes('FROM paper_positions pp')) {
+        callIdx++;
+        // Throw on the 'broken_type' call (second per-type call)
+        if (callIdx === 2) throw new Error('simulated DB error');
+        return { rows: Array.from({ length: 50 }, () => ({
+          score_dimensions_at_entry: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, typeExpectedValue: 0.7 },
+          realized_pnl: '10',
+        })) };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+
+    // Should NOT throw
+    await expect(optimizeScorerWeights()).resolves.not.toThrow();
+
+    const inserts = (query as unknown as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (c: unknown[]) => typeof c[0] === 'string' && (c[0] as string).startsWith('INSERT INTO scorer_weights'),
+    );
+    const marketTypes = inserts.map((c: unknown[]) => (c[1] as unknown[])[0] as string).sort();
+    // event_long + event_financial + __global__ all succeed; broken_type skipped
+    expect(marketTypes).toEqual(['__global__', 'event_financial', 'event_long']);
+  });
 });

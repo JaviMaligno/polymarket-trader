@@ -154,32 +154,40 @@ export async function optimizeScorerWeights(): Promise<void> {
   );
 
   for (const { market_type } of knownTypesRes.rows) {
-    const trades = await loadClosedTrades(market_type);
-    logger.info({ marketType: market_type, n: trades.length }, 'Loaded trades for type');
-    if (trades.length < MIN_TRADES) {
-      logger.info(
-        { marketType: market_type, n: trades.length, required: MIN_TRADES },
-        'Insufficient trades — skipping type',
-      );
-      continue;
+    try {
+      const trades = await loadClosedTrades(market_type);
+      logger.info({ marketType: market_type, n: trades.length }, 'Loaded trades for type');
+      if (trades.length < MIN_TRADES) {
+        logger.info(
+          { marketType: market_type, n: trades.length, required: MIN_TRADES },
+          'Insufficient trades — skipping type',
+        );
+        continue;
+      }
+      const { weights, bestValue } = runRandomSearch(trades);
+      await saveWeights(weights, market_type, { nTrades: trades.length, nTrials: N_TRIALS, bestValue });
+      logger.info({ marketType: market_type, bestValue, weights }, 'Type optimization complete');
+    } catch (err) {
+      logger.error({ marketType: market_type, err }, 'Type optimization failed — skipping');
     }
-    const { weights, bestValue } = runRandomSearch(trades);
-    await saveWeights(weights, market_type, { nTrades: trades.length, nTrials: N_TRIALS, bestValue });
-    logger.info({ marketType: market_type, bestValue, weights }, 'Type optimization complete');
   }
 
   // Always refresh the global fallback row from pooled data
-  const globalTrades = await loadClosedTrades(null);
-  logger.info({ n: globalTrades.length }, 'Loaded pooled trades for global row');
-  if (globalTrades.length >= MIN_TRADES) {
-    const { weights, bestValue } = runRandomSearch(globalTrades);
-    await saveWeights(weights, GLOBAL_MARKET_TYPE,
-      { nTrades: globalTrades.length, nTrials: N_TRIALS, bestValue });
-    logger.info({ bestValue, weights }, 'Global optimization complete');
-  } else {
-    logger.info(
-      { n: globalTrades.length, required: MIN_TRADES },
-      'Insufficient pooled trades — global row not refreshed',
-    );
+  try {
+    const globalTrades = await loadClosedTrades(null);
+    logger.info({ n: globalTrades.length }, 'Loaded pooled trades for global row');
+    if (globalTrades.length >= MIN_TRADES) {
+      const { weights, bestValue } = runRandomSearch(globalTrades);
+      await saveWeights(weights, GLOBAL_MARKET_TYPE,
+        { nTrades: globalTrades.length, nTrials: N_TRIALS, bestValue });
+      logger.info({ bestValue, weights }, 'Global optimization complete');
+    } else {
+      logger.info(
+        { n: globalTrades.length, required: MIN_TRADES },
+        'Insufficient pooled trades — global row not refreshed',
+      );
+    }
+  } catch (err) {
+    logger.error({ err }, 'Global optimization failed');
   }
 }
