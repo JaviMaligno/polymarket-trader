@@ -323,7 +323,7 @@ export class MarketScorer {
 
       MarketScorer.weightsCache.set(key, { weights, loadedAt: Date.now() });
     } catch {
-      // DB unreachable or column missing (pre-T4 deploy) → fall back silently.
+      // DB unreachable or column missing (pre-migration deploy) → fall back silently.
       weights = { ...WEIGHTS };
     }
 
