@@ -4,6 +4,7 @@ import {
   MarketRotator,
   type RotationConfig,
   type MarketRow,
+  parseAllowedMarketTypes,
 } from './MarketRotator.js';
 
 vi.mock('../database/connection.js', () => ({
@@ -11,6 +12,42 @@ vi.mock('../database/connection.js', () => ({
 }));
 
 const mockedQuery = vi.mocked(query);
+
+describe('parseAllowedMarketTypes', () => {
+  it('returns empty array when env is undefined', () => {
+    expect(parseAllowedMarketTypes(undefined)).toEqual([]);
+  });
+
+  it('returns empty array when env is empty string', () => {
+    expect(parseAllowedMarketTypes('')).toEqual([]);
+  });
+
+  it('parses single value', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday')).toEqual(['crypto_intraday']);
+  });
+
+  it('parses comma-separated values', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday,crypto_daily,event_short')).toEqual([
+      'crypto_intraday',
+      'crypto_daily',
+      'event_short',
+    ]);
+  });
+
+  it('trims whitespace around values', () => {
+    expect(parseAllowedMarketTypes(' crypto_intraday , event_short ')).toEqual([
+      'crypto_intraday',
+      'event_short',
+    ]);
+  });
+
+  it('drops empty entries from trailing or duplicate commas', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday,,event_short,')).toEqual([
+      'crypto_intraday',
+      'event_short',
+    ]);
+  });
+});
 
 const DEFAULT_CONFIG: RotationConfig = {
   maxTracked: 40,

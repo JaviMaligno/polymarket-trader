@@ -5,6 +5,20 @@ const logger = pino({ name: 'MarketRotator' });
 
 export const MIN_CANDIDATE_SCORE = 0.15;
 
+/**
+ * Parse the ALLOWED_MARKET_TYPES env value into a clean array.
+ * Empty / undefined / whitespace-only entries are dropped.
+ * An empty result means "no allowlist configured" — the live lane interprets
+ * this as unrestricted (backward-compat) and the shadow lane as empty.
+ */
+export function parseAllowedMarketTypes(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean);
+}
+
 export interface RotationConfig {
   maxTracked: number;              // 40 (from MAX_TRACKED_MARKETS env)
   maxRotationsPerHour: number;     // 5
