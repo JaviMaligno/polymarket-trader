@@ -99,6 +99,35 @@ export class MarketRotator {
   }
 
   /**
+   * Build the SQL fragment that restricts a query to a lane.
+   * Returns:
+   *   - { sql: 'TRUE', param: null } when the live lane has no allowlist (backward-compat unrestricted).
+   *   - { sql: 'FALSE', param: null } when the shadow lane has no non-allowed types to observe.
+   *   - { sql: 'market_type = ANY($N::text[])', param: [...] } for live with allowlist.
+   *   - { sql: '(market_type IS NULL OR NOT (...))', param: [...] } for shadow with allowlist.
+   *
+   * The returned `param` (when non-null) must be passed at position `paramIndex` in the query parameters.
+   */
+  buildLaneClause(
+    lane: 'live' | 'shadow',
+    paramIndex: number,
+  ): { sql: string; param: string[] | null } {
+    if (this.allowedTypes.length === 0) {
+      return { sql: lane === 'live' ? 'TRUE' : 'FALSE', param: null };
+    }
+    if (lane === 'live') {
+      return {
+        sql: `market_type = ANY($${paramIndex}::text[])`,
+        param: this.allowedTypes,
+      };
+    }
+    return {
+      sql: `(market_type IS NULL OR NOT (market_type = ANY($${paramIndex}::text[])))`,
+      param: this.allowedTypes,
+    };
+  }
+
+  /**
    * Returns true if a market's current price is in the extreme range
    * (near-resolved markets with Yes price <5% or >95%).
    * These markets are untradeable and should not occupy active slots.

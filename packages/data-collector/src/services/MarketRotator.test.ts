@@ -446,6 +446,42 @@ describe('MarketRotator', () => {
     });
   });
 
+  // ── buildLaneClause ──────────────────────────────────────────────
+
+  describe('buildLaneClause', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('live lane with empty allowed → "TRUE" (unrestricted, no param)', () => {
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('live', 5);
+      expect(clause).toEqual({ sql: 'TRUE', param: null });
+    });
+
+    it('shadow lane with empty allowed → "FALSE" (matches nothing, no param)', () => {
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('shadow', 5);
+      expect(clause).toEqual({ sql: 'FALSE', param: null });
+    });
+
+    it('live lane with allowed types → ANY clause with param at given index', () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('live', 2);
+      expect(clause.sql).toBe('market_type = ANY($2::text[])');
+      expect(clause.param).toEqual(['crypto_intraday', 'event_short']);
+    });
+
+    it('shadow lane with allowed types → NOT IN clause that also catches NULL', () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('shadow', 3);
+      expect(clause.sql).toBe('(market_type IS NULL OR NOT (market_type = ANY($3::text[])))');
+      expect(clause.param).toEqual(['crypto_intraday', 'event_short']);
+    });
+  });
+
   // ── rotate (integration with DB mock) ───────────────────────────
 
   describe('rotate()', () => {
