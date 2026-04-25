@@ -28,100 +28,95 @@ Crypto markets compete in the live lane against event_short/event_financial — 
 
 ## Architecture
 
-**Single new column**: `markets.is_shadow BOOLEAN NOT NULL DEFAULT false`. Combined with existing `tracking_status` (cold/warming/active/cooling), defines a market's lane. A market is in exactly one lane at a time.
+**No new schema column.** Lane membership is **derived dynamically** in each `MarketRotator` query from the existing `markets.market_type` and the `ALLOWED_MARKET_TYPES` env var. The env var is the single source of truth; deriving on each rotator pass eliminates duplication, removes startup-hook races between dashboard and data-collector, and makes the rotator self-correcting when the env changes (next deploy applies the new allowlist immediately, no realignment job needed).
 
-Lane assignment is **derived** from `market_type` and `ALLOWED_MARKET_TYPES`:
-- `is_shadow = false` if `market_type ∈ ALLOWED_MARKET_TYPES`
-- `is_shadow = true` otherwise
-
-The flag is materialized (not computed per query) for performance, and recomputed on every market sync. When `ALLOWED_MARKET_TYPES` env changes, a startup hook does a batch UPDATE.
-
-**Two rotation passes per cycle**: `MarketRotator.rotate(lane)` is invoked twice — once with `lane='live'`, once with `lane='shadow'`. Same engine, same hysteresis logic, separate budgets:
+**Two rotation passes per cycle**: `MarketRotator.rotate(lane)` is invoked twice per scheduler tick — once with `lane='live'`, once with `lane='shadow'`. Same engine, same hysteresis logic, separate budgets:
 - Live: `MAX_TRACKED_MARKETS=40` (existing).
 - Shadow: `MAX_SHADOW_MARKETS=10` (new env, default 10).
 
-**Signal pipeline** unchanged in shape. SignalEngine processes both lanes uniformly. AutoSignalExecutor short-circuits shadow signals to `shadow_trades` directly, bypassing the rejection path.
+**Lane derivation** in candidate SQL:
+- Live: `AND market_type = ANY($allowed_types::text[])`
+- Shadow: `AND (market_type IS NULL OR NOT (market_type = ANY($allowed_types::text[])))`
+
+Same idea for the active/warming/cooling fetch in `rotate()` — each lane sees only its own population.
+
+**Signal pipeline unchanged.** SignalEngine processes everything currently in `tracking_status IN (warming, active, cooling)` — no awareness of lane. The lane manifests itself only at the executor: when `AutoSignalExecutor` sees a signal with `market_type ∉ ALLOWED_MARKET_TYPES` and no open position, it already inserts to `shadow_trades` and returns. That code path stays untouched. The novelty is that with shadow markets actually in the active pool (instead of starved by event_long), shadow_trades flow gets richer.
 
 ## Components
 
 ### `markets` schema
-- Add `is_shadow BOOLEAN NOT NULL DEFAULT false` via startup `ALTER TABLE IF NOT EXISTS` pattern (post-init migration, consistent with how the project applies schema changes after first volume init).
-- Partial indexes for hot rotator paths:
-  - `CREATE INDEX IF NOT EXISTS idx_markets_live_cold_candidates ON markets(market_score DESC) WHERE is_shadow=false AND tracking_status='cold' AND is_active=true AND is_resolved=false`
-  - `CREATE INDEX IF NOT EXISTS idx_markets_shadow_cold_candidates ON markets(market_score DESC) WHERE is_shadow=true AND tracking_status='cold' AND is_active=true AND is_resolved=false`
-
-### `GammaCollector` / sync-markets job
-- On upsert, compute `is_shadow = market_type NOT IN ALLOWED_LIST` and write it.
-- The `ALLOWED_LIST` is read from `ALLOWED_MARKET_TYPES` env once at process start (already the pattern in `AutoSignalExecutor`).
-
-### Startup hook (in `packages/dashboard/src/server.ts`)
-- Owned by the dashboard process because it already reads `ALLOWED_MARKET_TYPES` (via `AutoSignalExecutor`) and is responsible for other post-init ALTER TABLE migrations in the codebase.
-- Runs after schema migration (column add) and before the SignalEngine starts emitting signals or the data-collector's rotator first runs:
-  ```sql
-  UPDATE markets
-  SET is_shadow = (market_type IS NULL OR NOT (market_type = ANY($1::text[])))
-  WHERE is_resolved = false;
-  ```
-- Blocks startup until complete. Logged with row counts (rows updated, rows that flipped lanes, rows already correct).
-- Idempotent: re-running with the same allowed list is a no-op (UPDATE matches nothing because all rows already have correct `is_shadow`).
+**No change.** No new columns, no migrations, no startup hooks.
 
 ### `MarketRotator` (`packages/data-collector/src/services/MarketRotator.ts`)
-- Refactor: existing `rotate()` becomes `rotate(lane: 'live' | 'shadow'): Promise<RotationResult>`. Internal queries add `AND is_shadow = $lane_bool`.
-- New public method `rotateAll(): Promise<{ live: RotationResult; shadow: RotationResult }>` orchestrates both lanes sequentially (shared DB connection; parallelizing has no clear benefit and complicates lock contention).
-- Single `MarketRotator` instance is constructed with two `RotationConfig`s internally — one per lane. Constructor signature changes from `constructor(config?: Partial<RotationConfig>)` to `constructor(liveConfig?: Partial<RotationConfig>, shadowConfig?: Partial<RotationConfig>)`. The lane parameter selects which config applies inside `rotate()`.
-- `MIN_CANDIDATE_SCORE=0.15` shared between lanes.
-- The Scheduler entry currently calling `rotator.rotate()` becomes `rotator.rotateAll()`.
-- `DEFAULT_CONFIG` for shadow defaults: `maxTracked = parseInt(process.env.MAX_SHADOW_MARKETS || '10', 10)`. All other defaults inherited from the existing live config.
+
+Refactor in three steps:
+
+1. **Constructor takes two configs**: `constructor(liveConfig?: Partial<RotationConfig>, shadowConfig?: Partial<RotationConfig>)`. Default for shadow inherits from live but with `maxTracked = parseInt(process.env.MAX_SHADOW_MARKETS || '10', 10)`.
+
+2. **`rotate()` becomes `rotate(lane: 'live' | 'shadow')`**. The two SQL queries inside (`tracked` fetch at L199 and `candidates` fetch at L262) gain a `market_type` predicate parameterized by the allowed-types array. The instance picks the right config based on `lane`.
+
+3. **New `rotateAll(): Promise<{ live: RotationResult; shadow: RotationResult }>`**. Calls `rotate('live')` then `rotate('shadow')` sequentially using a single shared connection. Sequential because parallelizing has no clear benefit and keeps lock contention simple.
+
+The allowed-types array is read once at module load:
+```ts
+const ALLOWED_MARKET_TYPES_ARR: string[] = process.env.ALLOWED_MARKET_TYPES
+  ? process.env.ALLOWED_MARKET_TYPES.split(',').map(t => t.trim()).filter(Boolean)
+  : [];
+```
+
+If empty/unset, the live lane gets all types (backward-compat), and the shadow lane is empty.
+
+### `Scheduler` (`packages/data-collector/src/services/Scheduler.ts`)
+At `Scheduler.ts:346`, `await this.marketRotator.rotate()` becomes `await this.marketRotator.rotateAll()`. The result is logged with both lanes' counts.
+
+### `data-collector` env wiring
+The data-collector container needs `ALLOWED_MARKET_TYPES` set (currently only the dashboard container has it). Update `docker-compose.gcp.yml` to pass the same value to both services from a shared `.env` file or duplicate the entry. This is required because the lane derivation now lives inside the rotator (data-collector process).
 
 ### `ClobCollector`
-- **No code change to filter clauses.** The 5 sites filtering `tracking_status IN ('warming','active','cooling')` correctly serve both lanes — once shadow markets get promoted, they enter the snapshot/orderbook/price-update pipeline automatically.
-- Verification only: confirm logs show `Price snapshots inserted` for shadow markets after they reach warming.
+**No code change.** The five sites filtering `tracking_status IN ('warming','active','cooling')` correctly serve both lanes — once shadow markets get promoted by the new shadow rotator, they enter the snapshot/orderbook/price-update pipeline automatically. Verification only: confirm logs show `Price snapshots inserted` for shadow markets after they reach warming.
 
-### `SignalEngine` (`packages/dashboard/src/services/SignalEngine.ts`)
-- `ActiveMarket` type adds `isShadow: boolean`.
-- `setActiveMarkets()` filter unchanged — it already includes both lanes via tracking_status.
-- `SignalResult` adds `isShadow: boolean`, populated from the source `ActiveMarket`.
-- `PolymarketService.updateSignalEngine()` populates `isShadow` from the markets query.
+### `SignalEngine`
+**No code change.** Already lane-agnostic. Processes whatever is in `tracking_status IN (warming, active, cooling)`.
 
-### `AutoSignalExecutor` (`packages/dashboard/src/services/AutoSignalExecutor.ts`)
-- New first check in `processSignal()`:
-  ```ts
-  if (signal.isShadow) {
-    await this.insertShadowTrade(signal);
-    return { executed: false, reason: 'shadow_lane' };
-  }
-  ```
-- The existing `market_type_not_allowed` gate stays as defense-in-depth (handles the rare case of a live signal whose market_type isn't in ALLOWED — possible if ALLOWED env was changed without a sync). Insert path stays the same.
+### `PolymarketService.updateSignalEngine()`
+**No code change.** Already passes through `marketType` (line 495 of `PolymarketService.ts`). The executor uses it to gate.
+
+### `AutoSignalExecutor`
+**No code change.** The existing market-type gate at lines 462–481 already does exactly what shadow lane needs:
+- Signal with non-allowed `market_type` and no open position → `insertShadowTrade(signal)` + return.
+- Signal with non-allowed `market_type` and existing open position → falls through to close logic (correct: legacy positions can still close).
+- Signal with allowed `market_type` → live trade flow.
+
+Verification only: confirm shadow_trades inserts increase post-deploy.
 
 ### `shadow_trades` table and `MarketPerformanceTracker`
-- No schema change. No code change. The table receives entries via the new short-circuit path instead of the rejection path; semantically identical.
+No schema change. No code change. The table receives more entries because more non-allowed markets are now active and producing signals.
 
 ## Data Flow — Crypto Market Lifecycle
 
-1. GammaCollector inserts/updates a `crypto_intraday` market. `is_shadow=false` (it's in ALLOWED_MARKET_TYPES).
-2. ClobCollector updates `current_price_yes` (no tracking_status filter on that path; already works).
-3. Rotator live lane runs. Sees this market as a cold candidate. Crypto markets now compete only against other ALLOWED types (event_short, event_financial). Wins ranking → promoted to warming.
-4. ClobCollector's `snapshotCurrentPricesToHistory()` matches `tracking_status='warming'` filter → inserts price_history rows.
-5. After 3 bars, rotator promotes warming → active.
-6. SignalEngine generates signals. AutoExecutor sees `isShadow=false` → live trade flow.
+1. GammaCollector inserts/updates a `crypto_intraday` market (no awareness of lanes; just metadata as today).
+2. `MarketClassifier` (in dashboard) eventually sets `market_type='crypto_intraday'`.
+3. ClobCollector updates `current_price_yes` (no tracking_status filter on that path; already works).
+4. Rotator's next `rotateAll()` tick. Live lane query filters `market_type = ANY('{crypto_intraday, crypto_daily, event_short, event_financial}')`. This crypto market now competes only against allowed types. event_long no longer in the contest. Wins ranking → promoted to warming.
+5. ClobCollector's `snapshotCurrentPricesToHistory()` matches `tracking_status='warming'` filter → inserts price_history rows.
+6. After 3 bars, rotator promotes warming → active.
+7. SignalEngine generates signals. AutoExecutor sees `market_type='crypto_intraday' ∈ ALLOWED` → live trade flow.
 
-**Symmetric for an event_long market**: lands `is_shadow=true`, competes in shadow lane only, generates `shadow_trades` entries when SignalEngine emits.
+**Symmetric for an event_long market**: shadow lane query catches it, promotes to warming/active in the shadow budget. SignalEngine generates signals. AutoExecutor sees non-allowed market_type, no open position → `insertShadowTrade` + return.
 
 ## Migration Strategy (Deploy Day)
 
-Pre-deploy state: 32 markets in active+warming, ~29 of them event_long (live pool dominated by non-allowed types).
+Pre-deploy state: 32 markets in active+warming, ~29 of them event_long. The rotator currently treats them as live candidates because there's only one lane.
 
-Post-startup-hook state:
-- 29 event_long markets: `is_shadow=true, tracking_status=active`. Now in shadow lane, **already over the cap** (29 vs MAX_SHADOW_MARKETS=10).
-- 2 event_financial + 1 event_short: `is_shadow=false, tracking_status=active`. In live lane, far below cap (3 vs 40).
-
-Next rotator cycle (within 5 min of deploy):
-- Shadow lane: hysteresis-based demotions select worst-scoring event_long markets without open positions and demote them. `maxRotationsPerHour=5` rate limits this — convergence to 10 takes ~4 hours of natural rotation.
-- Live lane: emergency-fill mode triggers (`activeCount=3 < emergencyFillThreshold=20`). Aggressive warming fill from cold candidates that are now exclusively `is_shadow=false`. Crypto and event_short candidates flow in.
+Post-deploy state right after the new code starts:
+- **No data migration runs.** No batch UPDATE. The `markets` table is unchanged.
+- The first `rotateAll()` call sees the active pool through two new lenses:
+  - Live lane: 3 markets active (event_short + event_financial). Way below `MAX_TRACKED_MARKETS=40` → emergency-fill mode triggers, aggressive warming fill from cold candidates that match `market_type = ANY(allowed)`. Crypto and event_short candidates flow in.
+  - Shadow lane: 29 markets active (event_long). Way above `MAX_SHADOW_MARKETS=10` → hysteresis-based demotion of worst-scoring event_long markets without open positions, capped at `maxRotationsPerHour=5`. Convergence to 10 takes ~4–6 hours of natural rotation.
 
 Within ~6 hours: pools converge to target sizes. Trade drought ends as live markets accumulate bars and signals.
 
-**Markets with open positions** that fall into the wrong lane after migration (e.g., an event_long with a position open from before the deploy): logged but not auto-closed. Position closes naturally via stop-loss, signal exit, or near-resolution gate. Identical to the existing cooling pattern.
+**Markets with open positions**: stay in their current `tracking_status` regardless of lane. The lane gate is non-destructive — a market doesn't get force-demoted just because the lane reshuffled. Existing positions close naturally via stop-loss, signal exit, or near-resolution gate. Identical to the existing cooling pattern.
 
 ## Out of Scope
 
@@ -131,52 +126,50 @@ Explicit non-goals for this spec:
 - **Per-type scorer weights for shadow.** Optuna keeps training on live trades only; shadow lane uses the same `__global__` weights it already uses for non-event_long types.
 - **Changes to `MarketScorer`.** The scoring formula is unchanged. The change is in *which subset* gets ranked.
 - **Tuning `MAX_SHADOW_MARKETS`.** Default 10, env-overridable. No optimization for now.
-- **Removing the `market_type_not_allowed → insertShadowTrade` defensive path.** Kept for safety against env/sync drift.
+- **Changes to `AutoSignalExecutor`.** The existing market-type gate already handles shadow correctly.
 
 ## Error Handling
 
-- **`ALLOWED_MARKET_TYPES` env unset**: existing behavior treats this as "all types allowed" (backward-compat). Then `is_shadow` is always false; shadow lane stays empty. No drought (this is what the system did before live/shadow distinction existed).
-- **`ALLOWED_MARKET_TYPES` env malformed (empty after parse, etc.)**: fail-closed. Refuse to start. No silent fallback.
-- **Unknown `market_type`** (classifier emits a value not in any known list): default `is_shadow=true`. Routing to shadow is safer than to live.
-- **Race at startup**: the batch UPDATE in the startup hook completes before the rotator's first scheduled tick. The rotator's first run sees a consistent `is_shadow` column.
-- **Index creation failure**: `CREATE INDEX IF NOT EXISTS` is non-blocking; rotator queries work without the index but slower. Logged as warning.
-- **Position open in market that became shadow**: log `WARN`, do not close. Existing position lifecycle (stop-loss, near-resolution) handles it.
+- **`ALLOWED_MARKET_TYPES` env unset on data-collector**: `ALLOWED_MARKET_TYPES_ARR` is empty. The rotator interprets this as "all types allowed in live lane" (the live query becomes `market_type = ANY('{}')` which matches nothing — **this would be wrong**). Mitigation: when the array is empty, the live lane query omits the type predicate entirely (`AND TRUE`), and the shadow lane is empty. Backward-compatible with the pre-existing single-pool behavior.
+- **`ALLOWED_MARKET_TYPES` env malformed (whitespace, empty entries)**: parse with `.filter(Boolean)` and trim. If the result is empty, treat as unset (above).
+- **`ALLOWED_MARKET_TYPES` mismatch between dashboard and data-collector containers**: the rotator promotes by data-collector's view; the executor gates by dashboard's view. Drift is silently tolerated but produces nonsense (a market promoted as "live" by data-collector that the executor sees as "shadow"). Mitigation: docker-compose binds both services to the same env value (single source). Document this as an operational invariant.
+- **Unknown `market_type`** (classifier hasn't run yet, returns NULL, or returns a value not in any list): NULL falls into the shadow lane (correct: don't risk live trading on uncategorized markets). A non-NULL unknown type also falls into shadow (same reasoning).
+- **Index regression**: existing market_score indexes don't include market_type. Rotator queries are bounded by `LIMIT 50` and run on schedule (every 5 min), so missing index is acceptable. If query plan shows a problem post-deploy, add a partial index. Not part of this spec.
 
 ## Testing
 
 - **Unit `MarketRotator`**:
-  - Existing tests pass after the `lane` parameter refactor (defaults preserved).
-  - New: `rotate('live')` ignores markets with `is_shadow=true` regardless of score.
-  - New: `rotate('shadow')` ignores `is_shadow=false` markets.
-  - New: per-lane `maxTracked` honored independently.
+  - Existing tests pass after the `lane` parameter refactor (defaults preserved when called with no lane in legacy path, OR existing tests updated to pass `'live'` explicitly — pick one consistent style).
+  - New: `rotate('live')` query, when `ALLOWED_MARKET_TYPES_ARR=['crypto_intraday','event_short']`, returns only candidates matching those types. Mocked DB query asserted on parameter value.
+  - New: `rotate('shadow')` query returns only candidates whose market_type is NULL or NOT in the allowed list.
+  - New: per-lane `maxTracked` honored independently — populating live to 40 doesn't restrict shadow's 10.
+  - New: `rotateAll()` returns both results and runs them sequentially (verified by call ordering on mocked query).
 - **Unit `AutoSignalExecutor`**:
-  - Signal with `isShadow=true` → calls `insertShadowTrade` exactly once, does not touch `paper_positions`, returns `{ executed: false, reason: 'shadow_lane' }`.
-  - Signal with `isShadow=false` and allowed market_type → existing live flow unchanged.
-- **Unit `GammaCollector` upsert**:
-  - Allowed market_type → row written with `is_shadow=false`.
-  - Non-allowed market_type → row written with `is_shadow=true`.
-  - Null/unknown market_type → `is_shadow=true`.
-- **Migration test**:
-  - Idempotency: running the startup hook twice produces no extra writes (UPDATE matches no rows on second run).
-  - Realignment: changing ALLOWED env and re-running the hook flips `is_shadow` correctly for affected rows.
+  - **No new tests required.** The existing market-type gate tests already cover the behavior we want. The change in this spec is *that more shadow_trades inserts happen*, not *how* they happen. Re-run existing tests to confirm no regression.
+- **Integration (smoke, post-deploy on VM)**:
+  - SQL: `SELECT COUNT(*) FROM markets WHERE tracking_status='active' AND market_type IN (allowed_types)` ≥ 5 within 6h.
+  - SQL: `SELECT COUNT(*) FROM price_history WHERE market_id IN (crypto markets) AND time > NOW() - INTERVAL '1 hour'` > 0.
+  - SQL: `SELECT COUNT(*) FROM shadow_trades WHERE time > NOW() - INTERVAL '24 hours'` ≥ pre-deploy baseline.
+  - Logs: rotator log line includes both `live` and `shadow` results.
+- **No data migration test needed** (no schema change).
 
 ## Success Criteria (24h post-deploy)
 
 All four must hold:
-1. `SELECT COUNT(*) FROM markets WHERE is_shadow=false AND tracking_status='active' AND market_type IN ('crypto_intraday','crypto_daily','event_short','event_financial')` ≥ 5.
+1. `SELECT COUNT(*) FROM markets WHERE tracking_status='active' AND market_type IN ('crypto_intraday','crypto_daily','event_short','event_financial')` ≥ 5.
 2. `SELECT COUNT(*) FROM price_history WHERE market_id IN (SELECT id FROM markets WHERE market_type LIKE 'crypto_%') AND time > NOW() - INTERVAL '1 hour'` > 0.
 3. `SELECT COUNT(*) FROM shadow_trades WHERE time > NOW() - INTERVAL '24 hours'` > 0.
 4. `SELECT EXTRACT(EPOCH FROM (NOW() - MAX(opened_at)))/3600 FROM paper_positions` < 6 (most recent open within 6 hours).
 
 ## Rollback Triggers
 
-If any of these occurs in the first 24h, revert:
+If any of these occurs in the first 24h, revert the merge commit:
 - VM RSS sustained > 900MB.
 - Zero trades opened in 24h post-deploy (drought persists despite the fix).
-- `shadow_trades` insertion rate falls below pre-deploy baseline (the rejection-path-derived rate).
-- Any data corruption (markets with `is_shadow=NULL`, or markets visible in both lanes simultaneously).
+- `shadow_trades` insertion rate falls below pre-deploy baseline.
+- Rotator failures in logs (e.g. SQL syntax error, type mismatch on the array parameter).
 
-Rollback path: revert the merge commit on main, redeploy. The schema column stays (NOT NULL DEFAULT false → no breakage). The startup hook becomes a no-op without the rest of the code referring to `is_shadow`.
+Rollback is trivial because there's no schema change. Reverting the merge commit returns the rotator to single-pool behavior. The active pool may be temporarily stuck in whatever distribution the new code produced; one or two cycles of the original rotator restore equilibrium.
 
 ## Open Questions
 
