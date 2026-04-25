@@ -66,10 +66,36 @@ const DEFAULT_CONFIG: RotationConfig = {
 };
 
 export class MarketRotator {
+  private liveConfig: RotationConfig;
+  private shadowConfig: RotationConfig;
+  private allowedTypes: string[];
+  // The "active" config used by helper methods that read this.config.
+  // Mutated by rotate(lane) — safe because rotateAll runs lanes sequentially.
   private config: RotationConfig;
 
-  constructor(config: Partial<RotationConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(
+    liveConfig: Partial<RotationConfig> = {},
+    shadowConfig: Partial<RotationConfig> = {},
+  ) {
+    this.liveConfig = { ...DEFAULT_CONFIG, ...liveConfig };
+    this.shadowConfig = {
+      ...DEFAULT_CONFIG,
+      maxTracked: parseInt(process.env.MAX_SHADOW_MARKETS || '10', 10),
+      ...shadowConfig,
+    };
+    this.allowedTypes = parseAllowedMarketTypes(process.env.ALLOWED_MARKET_TYPES);
+    // Default to live config so any helper called without going through rotate()
+    // (e.g. existing tests of selectDemotions/selectPromotions) keep behaving as
+    // they did pre-refactor.
+    this.config = this.liveConfig;
+  }
+
+  getLiveMaxTracked(): number {
+    return this.liveConfig.maxTracked;
+  }
+
+  getShadowMaxTracked(): number {
+    return this.shadowConfig.maxTracked;
   }
 
   /**

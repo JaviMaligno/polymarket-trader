@@ -81,6 +81,30 @@ describe('MarketRotator', () => {
     rotator = new MarketRotator(DEFAULT_CONFIG);
   });
 
+  describe('constructor', () => {
+    it('accepts a separate shadow config with its own maxTracked', () => {
+      const r = new MarketRotator(
+        { maxTracked: 40 },
+        { maxTracked: 7 },
+      );
+      expect(r.getLiveMaxTracked()).toBe(40);
+      expect(r.getShadowMaxTracked()).toBe(7);
+    });
+
+    it('shadow config defaults maxTracked from MAX_SHADOW_MARKETS env', () => {
+      vi.stubEnv('MAX_SHADOW_MARKETS', '15');
+      const r = new MarketRotator();
+      expect(r.getShadowMaxTracked()).toBe(15);
+      vi.unstubAllEnvs();
+    });
+
+    it('shadow config defaults maxTracked to 10 when env unset', () => {
+      vi.unstubAllEnvs();
+      const r = new MarketRotator();
+      expect(r.getShadowMaxTracked()).toBe(10);
+    });
+  });
+
   // ── selectDemotions ──────────────────────────────────────────────
 
   describe('selectDemotions', () => {
