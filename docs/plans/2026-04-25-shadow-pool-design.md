@@ -92,6 +92,50 @@ Verification only: confirm shadow_trades inserts increase post-deploy.
 ### `shadow_trades` table and `MarketPerformanceTracker`
 No schema change. No code change. The table receives more entries because more non-allowed markets are now active and producing signals.
 
+### Daily auto-review integration
+
+Two files updated to consume the now-richer shadow data and turn it into actionable promotion recommendations:
+
+**`scripts/daily-review.sh`** — replace the existing `shadow_summary` aggregation (lines 523–532) with a richer per-type breakdown over a 30-day window:
+```sql
+SELECT market_type,
+       COUNT(*) AS total,
+       COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
+       ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_pnl,
+       ROUND(
+         (COUNT(*) FILTER (WHERE resolved_at IS NOT NULL AND theoretical_pnl > 0)::numeric
+           / NULLIF(COUNT(*) FILTER (WHERE resolved_at IS NOT NULL), 0))::numeric,
+         3
+       ) AS win_rate,
+       ROUND(STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS pnl_stddev,
+       ROUND(
+         CASE WHEN STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL) > 0
+           THEN AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+                / STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+           ELSE 0 END::numeric,
+         3
+       ) AS sharpe
+FROM shadow_trades
+WHERE time >= NOW() - INTERVAL '30 days'
+GROUP BY market_type
+```
+
+**`scripts/daily-review-prompt.md`** — the existing "Market Type Execution Gate" section already explains the concept but never asks Claude to *act* on it. Add a new explicit instruction block:
+
+> ### Shadow → Live promotion recommendation
+>
+> Inspect `shadow_summary`. For each `market_type` that meets ALL of:
+> - `resolved >= 50` (sufficient sample size)
+> - `sharpe >= 0.20` (positive risk-adjusted edge)
+> - `win_rate >= 0.50`
+> - Not already in the live `ALLOWED_MARKET_TYPES` list (compare against the env value documented above)
+>
+> Recommend in the issue: "Consider adding `<market_type>` to `ALLOWED_MARKET_TYPES`. Shadow data over 30 days: N=X resolved, win_rate=Y, Sharpe=Z." Do NOT auto-create a PR for the env change — promotion is a manual decision tied to a deploy. The recommendation is informational.
+>
+> Conversely, if any `market_type` *currently* in `ALLOWED_MARKET_TYPES` has live data that contradicts the prior shadow signal (e.g. live Sharpe is now negative over 30 days while shadow was positive), flag it for review.
+
+The thresholds (50 trades, Sharpe 0.20, win_rate 0.50) are intentional starting points; tune by observation, not optimization. They're documented in this spec so future review changes have a baseline.
+
 ## Data Flow — Crypto Market Lifecycle
 
 1. GammaCollector inserts/updates a `crypto_intraday` market (no awareness of lanes; just metadata as today).
@@ -121,8 +165,7 @@ Within ~6 hours: pools converge to target sizes. Trade drought ends as live mark
 ## Out of Scope
 
 Explicit non-goals for this spec:
-- **Daily auto-review consuming shadow_trades.** This spec only ensures the data stream stays alive. Adding shadow_trades summary to the auto-review report is a separate follow-up.
-- **Automatic promotion of market_types to ALLOWED.** The decision remains manual via env var change + redeploy.
+- **Automatic promotion of market_types to ALLOWED.** The auto-review surfaces a recommendation (per the integration above), but the env change + redeploy stays manual.
 - **Per-type scorer weights for shadow.** Optuna keeps training on live trades only; shadow lane uses the same `__global__` weights it already uses for non-event_long types.
 - **Changes to `MarketScorer`.** The scoring formula is unchanged. The change is in *which subset* gets ranked.
 - **Tuning `MAX_SHADOW_MARKETS`.** Default 10, env-overridable. No optimization for now.
@@ -151,6 +194,7 @@ Explicit non-goals for this spec:
   - SQL: `SELECT COUNT(*) FROM price_history WHERE market_id IN (crypto markets) AND time > NOW() - INTERVAL '1 hour'` > 0.
   - SQL: `SELECT COUNT(*) FROM shadow_trades WHERE time > NOW() - INTERVAL '24 hours'` ≥ pre-deploy baseline.
   - Logs: rotator log line includes both `live` and `shadow` results.
+  - Daily auto-review run after deploy: the issue body's `shadow_summary` JSON includes the new fields (`win_rate`, `pnl_stddev`, `sharpe`) and the prompt's promotion-recommendation logic fires (or correctly stays silent if no type meets thresholds).
 - **No data migration test needed** (no schema change).
 
 ## Success Criteria (24h post-deploy)
