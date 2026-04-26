@@ -122,6 +122,27 @@ The system trades only crypto markets in live mode. Other market types (event_sh
 - `category_performance`: cumulative win_rate / Sharpe / prior per market_type
 - `shadow_summary`: blocked signals recorded as shadow trades
 
+### Shadow → Live promotion recommendation
+
+`shadow_summary` is now per-`market_type` over a 30-day window with fields: `total`, `resolved`, `avg_pnl`, `win_rate`, `pnl_stddev`, `sharpe`.
+
+For each `market_type` row in `shadow_summary`, evaluate against ALL of:
+
+- `resolved >= 50` (sufficient sample size to draw a conclusion)
+- `sharpe >= 0.20` (positive risk-adjusted edge)
+- `win_rate >= 0.50`
+- The market_type is NOT already in the live `ALLOWED_MARKET_TYPES` list (`crypto_intraday,crypto_daily,event_financial,event_short`)
+
+If all four hold, include a recommendation in the issue body:
+
+> **Promotion candidate:** `<market_type>`. Over 30 days of shadow data: N=<resolved> resolved, win_rate=<win_rate>, Sharpe=<sharpe>, avg_pnl=<avg_pnl>. Consider adding to `ALLOWED_MARKET_TYPES` on the next deploy.
+
+Do NOT auto-create a PR for the env change — promotion is a manual decision tied to a deploy. The recommendation is informational only.
+
+Conversely, for any `market_type` that IS currently in `ALLOWED_MARKET_TYPES` and shows live performance over the same 30 days that contradicts the prior shadow signal (e.g. live Sharpe < 0 while shadow was > 0.20), flag it under "Possible regression — review allowlist for `<market_type>`".
+
+The thresholds (50 resolved trades, Sharpe 0.20, win_rate 0.50) are starting points, not an optimized policy. Tune by observation when this recommendation has been running for ≥4 weekly reviews.
+
 ## Step 0: Check Existing Work
 
 Before creating any issues or PRs, check what already exists:
