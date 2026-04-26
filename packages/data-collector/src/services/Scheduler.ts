@@ -341,10 +341,10 @@ export class Scheduler {
       logger.error({ err }, 'Market scoring failed');
     }
 
-    // Rotate tracked markets based on scores
+    // Rotate tracked markets based on scores — both live and shadow lanes
     try {
-      const rotateResult = await this.marketRotator.rotate();
-      logger.info(rotateResult, 'Market rotation complete');
+      const rotateResult = await this.marketRotator.rotateAll();
+      logger.info(rotateResult, 'Market rotation complete (both lanes)');
     } catch (err) {
       logger.error({ err }, 'Market rotation failed');
     }

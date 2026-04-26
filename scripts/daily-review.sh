@@ -525,8 +525,22 @@ shadow_summary=$(query_json "
     SELECT market_type,
            COUNT(*) AS total,
            COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
-           ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 2) AS avg_pnl
+           ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_pnl,
+           ROUND(
+             (COUNT(*) FILTER (WHERE resolved_at IS NOT NULL AND theoretical_pnl > 0)::numeric
+               / NULLIF(COUNT(*) FILTER (WHERE resolved_at IS NOT NULL), 0))::numeric,
+             3
+           ) AS win_rate,
+           ROUND(STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS pnl_stddev,
+           ROUND(
+             CASE WHEN STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL) > 0
+               THEN AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+                    / STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+               ELSE 0 END::numeric,
+             3
+           ) AS sharpe
     FROM shadow_trades
+    WHERE time >= NOW() - INTERVAL '30 days'
     GROUP BY market_type
   ) t;
 ")

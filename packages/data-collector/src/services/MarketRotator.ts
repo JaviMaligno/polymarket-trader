@@ -5,6 +5,20 @@ const logger = pino({ name: 'MarketRotator' });
 
 export const MIN_CANDIDATE_SCORE = 0.15;
 
+/**
+ * Parse the ALLOWED_MARKET_TYPES env value into a clean array.
+ * Empty / undefined / whitespace-only entries are dropped.
+ * An empty result means "no allowlist configured" — the live lane interprets
+ * this as unrestricted (backward-compat) and the shadow lane as empty.
+ */
+export function parseAllowedMarketTypes(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean);
+}
+
 export interface RotationConfig {
   maxTracked: number;              // 40 (from MAX_TRACKED_MARKETS env)
   maxRotationsPerHour: number;     // 5
@@ -52,10 +66,65 @@ const DEFAULT_CONFIG: RotationConfig = {
 };
 
 export class MarketRotator {
+  private liveConfig: RotationConfig;
+  private shadowConfig: RotationConfig;
+  private allowedTypes: string[];
+  // The "active" config used by helper methods that read this.config.
+  // Mutated by rotate(lane) — safe because rotateAll runs lanes sequentially.
   private config: RotationConfig;
 
-  constructor(config: Partial<RotationConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(
+    liveConfig: Partial<RotationConfig> = {},
+    shadowConfig: Partial<RotationConfig> = {},
+  ) {
+    this.liveConfig = { ...DEFAULT_CONFIG, ...liveConfig };
+    this.shadowConfig = {
+      ...DEFAULT_CONFIG,
+      maxTracked: parseInt(process.env.MAX_SHADOW_MARKETS || '10', 10),
+      ...shadowConfig,
+    };
+    this.allowedTypes = parseAllowedMarketTypes(process.env.ALLOWED_MARKET_TYPES);
+    // Default to live config so any helper called without going through rotate()
+    // (e.g. existing tests of selectDemotions/selectPromotions) keep behaving as
+    // they did pre-refactor.
+    this.config = this.liveConfig;
+  }
+
+  getLiveMaxTracked(): number {
+    return this.liveConfig.maxTracked;
+  }
+
+  getShadowMaxTracked(): number {
+    return this.shadowConfig.maxTracked;
+  }
+
+  /**
+   * Build the SQL fragment that restricts a query to a lane.
+   * Returns:
+   *   - { sql: 'TRUE', param: null } when the live lane has no allowlist (backward-compat unrestricted).
+   *   - { sql: 'FALSE', param: null } when the shadow lane has no non-allowed types to observe.
+   *   - { sql: 'market_type = ANY($N::text[])', param: [...] } for live with allowlist.
+   *   - { sql: '(market_type IS NULL OR NOT (...))', param: [...] } for shadow with allowlist.
+   *
+   * The returned `param` (when non-null) must be passed at position `paramIndex` in the query parameters.
+   */
+  buildLaneClause(
+    lane: 'live' | 'shadow',
+    paramIndex: number,
+  ): { sql: string; param: string[] | null } {
+    if (this.allowedTypes.length === 0) {
+      return { sql: lane === 'live' ? 'TRUE' : 'FALSE', param: null };
+    }
+    if (lane === 'live') {
+      return {
+        sql: `market_type = ANY($${paramIndex}::text[])`,
+        param: this.allowedTypes,
+      };
+    }
+    return {
+      sql: `(market_type IS NULL OR NOT (market_type = ANY($${paramIndex}::text[])))`,
+      param: this.allowedTypes,
+    };
   }
 
   /**
@@ -186,7 +255,13 @@ export class MarketRotator {
    * 5. Fill warming slots from top cold candidates by score
    * 6. In emergency: bypass rotation limit, fill aggressively
    */
-  async rotate(): Promise<RotationResult> {
+  async rotate(lane: 'live' | 'shadow'): Promise<RotationResult> {
+    // Switch the active config to the lane's config. Helper methods (selectDemotions,
+    // selectPromotions, selectWarmingDemotions, computeNewWarmingSlots, isEmergencyFill)
+    // read this.config; setting it here keeps them lane-aware without changing
+    // their signatures. Safe because rotateAll() invokes lanes sequentially.
+    this.config = lane === 'live' ? this.liveConfig : this.shadowConfig;
+
     const result: RotationResult = {
       promoted: 0,
       demoted: 0,
@@ -195,7 +270,9 @@ export class MarketRotator {
       warmingDemoted: 0,
     };
 
-    // Step 1: Fetch tracked markets
+    // Step 1: Fetch tracked markets restricted to the requested lane.
+    const trackedLane = this.buildLaneClause(lane, 1);
+    const trackedParams = trackedLane.param === null ? [] : [trackedLane.param];
     const trackedRes = await query<MarketRow>(
       `SELECT m.id, m.market_score, m.tracking_status,
               m.tracking_status_changed_at, m.current_price_yes,
@@ -210,7 +287,9 @@ export class MarketRotator {
                   AND ph.time > NOW() - INTERVAL '24 hours'
               ) as bars_24h
        FROM markets m
-       WHERE m.tracking_status IN ('warming', 'active', 'cooling')`
+       WHERE m.tracking_status IN ('warming', 'active', 'cooling')
+         AND ${trackedLane.sql}`,
+      trackedParams,
     );
 
     const tracked = trackedRes.rows.map(r => ({
@@ -253,12 +332,17 @@ export class MarketRotator {
       result.promoted++;
     }
 
-    // Step 4: Fetch cold candidates for demotion comparison and warming fill.
+    // Step 4: Fetch cold candidates for demotion comparison and warming fill,
+    // restricted to the requested lane.
     // Extreme-price markets (Yes <5% or >95%) are excluded at the source:
     // MarketScorer can give them scores of 0.8+ via volume/liquidity alone, and
     // without this filter they dominate the top of the candidate ranking and
     // starve tradeable markets from all warming slots. Null price is treated as
     // non-extreme (safe default, consistent with isExtremePrice in demotion).
+    const candidateLane = this.buildLaneClause(lane, 2);
+    const candidateParams: unknown[] = [MIN_CANDIDATE_SCORE];
+    if (candidateLane.param !== null) candidateParams.push(candidateLane.param);
+
     const candidateRes = await query<MarketRow>(
       `SELECT id, market_score, tracking_status, tracking_status_changed_at,
               current_price_yes, false as has_open_positions, 0 as bars_24h
@@ -268,9 +352,10 @@ export class MarketRotator {
          AND clob_token_id_yes IS NOT NULL
          AND market_score >= $1
          AND (current_price_yes IS NULL OR (current_price_yes >= 0.05 AND current_price_yes <= 0.95))
+         AND ${candidateLane.sql}
        ORDER BY market_score DESC
        LIMIT 50`,
-      [MIN_CANDIDATE_SCORE]
+      candidateParams,
     );
 
     const candidates = candidateRes.rows.map(r => ({
@@ -312,6 +397,7 @@ export class MarketRotator {
 
     logger.info(
       {
+        lane,
         promoted: result.promoted,
         demoted: result.demoted,
         newWarming: result.newWarming,
@@ -320,10 +406,22 @@ export class MarketRotator {
         activeCount: active.length + result.promoted - result.demoted,
         emergency,
       },
-      'Market rotation complete'
+      'Market rotation complete',
     );
 
     return result;
+  }
+
+  /**
+   * Run rotation for both lanes sequentially. Live lane operates on
+   * ALLOWED_MARKET_TYPES; shadow lane operates on the complement (plus NULL).
+   * Sequential because parallelism here yields no measurable benefit and would
+   * complicate lock contention on the markets table.
+   */
+  async rotateAll(): Promise<{ live: RotationResult; shadow: RotationResult }> {
+    const live = await this.rotate('live');
+    const shadow = await this.rotate('shadow');
+    return { live, shadow };
   }
 
   private async updateStatus(marketId: string, status: string): Promise<void> {
