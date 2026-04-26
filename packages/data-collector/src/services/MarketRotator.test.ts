@@ -711,4 +711,44 @@ describe('MarketRotator', () => {
       expect(result.newWarming).toBeGreaterThan(0); // emergency-fill flows new warming
     });
   });
+
+  describe('rotateAll', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns separate live and shadow results', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator();
+
+      mockedQuery.mockResolvedValue({ rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] });
+
+      const result = await r.rotateAll();
+      expect(result).toHaveProperty('live');
+      expect(result).toHaveProperty('shadow');
+      expect(result.live).toMatchObject({ promoted: expect.any(Number), demoted: expect.any(Number) });
+      expect(result.shadow).toMatchObject({ promoted: expect.any(Number), demoted: expect.any(Number) });
+    });
+
+    it('runs lanes sequentially: live first, then shadow', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator();
+
+      const sqlsSeen: string[] = [];
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          sqlsSeen.push(sql);
+        }
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotateAll();
+
+      expect(sqlsSeen).toHaveLength(2);
+      // First call is live (uses ANY directly).
+      expect(sqlsSeen[0]).toMatch(/AND market_type = ANY/);
+      // Second call is shadow (uses IS NULL OR NOT).
+      expect(sqlsSeen[1]).toMatch(/AND \(market_type IS NULL OR NOT/);
+    });
+  });
 });

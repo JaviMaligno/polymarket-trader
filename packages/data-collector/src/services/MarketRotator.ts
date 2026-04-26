@@ -412,6 +412,18 @@ export class MarketRotator {
     return result;
   }
 
+  /**
+   * Run rotation for both lanes sequentially. Live lane operates on
+   * ALLOWED_MARKET_TYPES; shadow lane operates on the complement (plus NULL).
+   * Sequential because parallelism here yields no measurable benefit and would
+   * complicate lock contention on the markets table.
+   */
+  async rotateAll(): Promise<{ live: RotationResult; shadow: RotationResult }> {
+    const live = await this.rotate('live');
+    const shadow = await this.rotate('shadow');
+    return { live, shadow };
+  }
+
   private async updateStatus(marketId: string, status: string): Promise<void> {
     await query(
       `UPDATE markets SET tracking_status = $1, tracking_status_changed_at = NOW() WHERE id = $2`,
