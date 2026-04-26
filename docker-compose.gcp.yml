@@ -75,6 +75,7 @@ services:
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
       MAX_TRACKED_MARKETS: "35"
+      PREFERRED_MARKET_TYPES: "event_short,event_financial"
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}

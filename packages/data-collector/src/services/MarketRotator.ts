@@ -14,6 +14,7 @@ export interface RotationConfig {
   hysteresisRatio: number;         // 0.60
   reserveSlots: number;            // 2
   warmingStaleHours: number;       // 6 — demote warming with 0 bars after this many hours
+  preferredMarketTypes: string[];  // [] means no preference; preferred types rank before others in candidate selection
 }
 
 export interface MarketRow {
@@ -49,6 +50,10 @@ const DEFAULT_CONFIG: RotationConfig = {
   hysteresisRatio: 0.60,
   reserveSlots: 2,
   warmingStaleHours: 6,
+  preferredMarketTypes: (process.env.PREFERRED_MARKET_TYPES || '')
+    .split(',')
+    .map(t => t.trim())
+    .filter(Boolean),
 };
 
 export class MarketRotator {
@@ -259,6 +264,7 @@ export class MarketRotator {
     // without this filter they dominate the top of the candidate ranking and
     // starve tradeable markets from all warming slots. Null price is treated as
     // non-extreme (safe default, consistent with isExtremePrice in demotion).
+    const preferredTypes = this.config.preferredMarketTypes;
     const candidateRes = await query<MarketRow>(
       `SELECT id, market_score, tracking_status, tracking_status_changed_at,
               current_price_yes, false as has_open_positions, 0 as bars_24h
@@ -268,9 +274,11 @@ export class MarketRotator {
          AND clob_token_id_yes IS NOT NULL
          AND market_score >= $1
          AND (current_price_yes IS NULL OR (current_price_yes >= 0.05 AND current_price_yes <= 0.95))
-       ORDER BY market_score DESC
+       ORDER BY
+         CASE WHEN array_length($2::text[], 1) > 0 AND market_type = ANY($2::text[]) THEN 0 ELSE 1 END,
+         market_score DESC
        LIMIT 50`,
-      [MIN_CANDIDATE_SCORE]
+      [MIN_CANDIDATE_SCORE, preferredTypes]
     );
 
     const candidates = candidateRes.rows.map(r => ({

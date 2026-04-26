@@ -21,6 +21,7 @@ const DEFAULT_CONFIG: RotationConfig = {
   hysteresisRatio: 0.60,
   reserveSlots: 2,
   warmingStaleHours: 6,
+  preferredMarketTypes: [],
 };
 
 function makeMarket(overrides: Partial<MarketRow> = {}): MarketRow {
@@ -468,6 +469,72 @@ describe('MarketRotator', () => {
       // Must bound the tradeable range: lower bound in [0.05, 0.06], upper in [0.94, 0.95]
       expect(candidateSql).toMatch(/0\.0[56]/);
       expect(candidateSql).toMatch(/0\.9[45]/);
+    });
+
+    it('partitions cold candidates by preferredMarketTypes before score when set', async () => {
+      // When preferredMarketTypes is non-empty, the candidate SQL must rank preferred-type
+      // markets first so that event_short/event_financial markets fill warming slots even
+      // when their individual market_scores are below top event_long candidates.
+      // Regression guard: without this fix, the top-50 cold candidates are 45 event_long
+      // + 5 event_financial and 0 event_short, starving the executor of tradeable markets.
+      const rotatorWithPreference = new MarketRotator({
+        ...DEFAULT_CONFIG,
+        preferredMarketTypes: ['event_short', 'event_financial'],
+      });
+
+      const trackedRows = Array.from({ length: 25 }, (_, i) =>
+        makeMarket({ id: `active-${i}`, market_score: 0.60, tracking_status: 'active', bars_24h: 10 })
+      );
+
+      let candidateSql: string | null = null;
+      let candidateParams: unknown[] | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: trackedRows, command: 'SELECT', rowCount: trackedRows.length, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          candidateParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await rotatorWithPreference.rotate();
+
+      expect(candidateSql).not.toBeNull();
+      // SQL must reference market_type in an ORDER BY partition
+      expect(candidateSql).toMatch(/market_type/i);
+      expect(candidateSql).toMatch(/ANY\(\$2/i);
+      // Preferred types must be passed as a query parameter
+      expect(candidateParams).not.toBeNull();
+      expect(candidateParams![1]).toEqual(['event_short', 'event_financial']);
+    });
+
+    it('uses pure score ordering when preferredMarketTypes is empty', async () => {
+      const trackedRows = Array.from({ length: 25 }, (_, i) =>
+        makeMarket({ id: `active-${i}`, market_score: 0.60, tracking_status: 'active', bars_24h: 10 })
+      );
+
+      let candidateParams: unknown[] | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: trackedRows, command: 'SELECT', rowCount: trackedRows.length, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await rotator.rotate(); // DEFAULT_CONFIG has preferredMarketTypes: []
+
+      // Empty array is still passed as $2; SQL handles it via array_length check
+      expect(candidateParams).not.toBeNull();
+      expect(candidateParams![1]).toEqual([]);
     });
 
     it('skips demotions in emergency mode', async () => {
