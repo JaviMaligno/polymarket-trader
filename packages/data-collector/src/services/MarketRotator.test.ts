@@ -2,8 +2,10 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { query } from '../database/connection.js';
 import {
   MarketRotator,
+  MIN_CANDIDATE_SCORE,
   type RotationConfig,
   type MarketRow,
+  parseAllowedMarketTypes,
 } from './MarketRotator.js';
 
 vi.mock('../database/connection.js', () => ({
@@ -11,6 +13,42 @@ vi.mock('../database/connection.js', () => ({
 }));
 
 const mockedQuery = vi.mocked(query);
+
+describe('parseAllowedMarketTypes', () => {
+  it('returns empty array when env is undefined', () => {
+    expect(parseAllowedMarketTypes(undefined)).toEqual([]);
+  });
+
+  it('returns empty array when env is empty string', () => {
+    expect(parseAllowedMarketTypes('')).toEqual([]);
+  });
+
+  it('parses single value', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday')).toEqual(['crypto_intraday']);
+  });
+
+  it('parses comma-separated values', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday,crypto_daily,event_short')).toEqual([
+      'crypto_intraday',
+      'crypto_daily',
+      'event_short',
+    ]);
+  });
+
+  it('trims whitespace around values', () => {
+    expect(parseAllowedMarketTypes(' crypto_intraday , event_short ')).toEqual([
+      'crypto_intraday',
+      'event_short',
+    ]);
+  });
+
+  it('drops empty entries from trailing or duplicate commas', () => {
+    expect(parseAllowedMarketTypes('crypto_intraday,,event_short,')).toEqual([
+      'crypto_intraday',
+      'event_short',
+    ]);
+  });
+});
 
 const DEFAULT_CONFIG: RotationConfig = {
   maxTracked: 40,
@@ -42,6 +80,30 @@ describe('MarketRotator', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     rotator = new MarketRotator(DEFAULT_CONFIG);
+  });
+
+  describe('constructor', () => {
+    it('accepts a separate shadow config with its own maxTracked', () => {
+      const r = new MarketRotator(
+        { maxTracked: 40 },
+        { maxTracked: 7 },
+      );
+      expect(r.getLiveMaxTracked()).toBe(40);
+      expect(r.getShadowMaxTracked()).toBe(7);
+    });
+
+    it('shadow config defaults maxTracked from MAX_SHADOW_MARKETS env', () => {
+      vi.stubEnv('MAX_SHADOW_MARKETS', '15');
+      const r = new MarketRotator();
+      expect(r.getShadowMaxTracked()).toBe(15);
+      vi.unstubAllEnvs();
+    });
+
+    it('shadow config defaults maxTracked to 10 when env unset', () => {
+      vi.unstubAllEnvs();
+      const r = new MarketRotator();
+      expect(r.getShadowMaxTracked()).toBe(10);
+    });
   });
 
   // ── selectDemotions ──────────────────────────────────────────────
@@ -385,6 +447,42 @@ describe('MarketRotator', () => {
     });
   });
 
+  // ── buildLaneClause ──────────────────────────────────────────────
+
+  describe('buildLaneClause', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('live lane with empty allowed → "TRUE" (unrestricted, no param)', () => {
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('live', 5);
+      expect(clause).toEqual({ sql: 'TRUE', param: null });
+    });
+
+    it('shadow lane with empty allowed → "FALSE" (matches nothing, no param)', () => {
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('shadow', 5);
+      expect(clause).toEqual({ sql: 'FALSE', param: null });
+    });
+
+    it('live lane with allowed types → ANY clause with param at given index', () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('live', 2);
+      expect(clause.sql).toBe('market_type = ANY($2::text[])');
+      expect(clause.param).toEqual(['crypto_intraday', 'event_short']);
+    });
+
+    it('shadow lane with allowed types → NOT IN clause that also catches NULL', () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+      const clause = r.buildLaneClause('shadow', 3);
+      expect(clause.sql).toBe('(market_type IS NULL OR NOT (market_type = ANY($3::text[])))');
+      expect(clause.param).toEqual(['crypto_intraday', 'event_short']);
+    });
+  });
+
   // ── rotate (integration with DB mock) ───────────────────────────
 
   describe('rotate()', () => {
@@ -425,7 +523,7 @@ describe('MarketRotator', () => {
         return updateResult;
       });
 
-      const result = await rotator.rotate();
+      const result = await rotator.rotate('live');
 
       expect(result.coolingExpired).toBeGreaterThanOrEqual(1);
       expect(result.promoted).toBeGreaterThanOrEqual(1);
@@ -460,7 +558,7 @@ describe('MarketRotator', () => {
         return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
       });
 
-      await rotator.rotate();
+      await rotator.rotate('live');
 
       expect(candidateSql).not.toBeNull();
       // Must reference current_price_yes in a filter clause
@@ -494,12 +592,163 @@ describe('MarketRotator', () => {
         return updateResult;
       });
 
-      const result = await rotator.rotate();
+      const result = await rotator.rotate('live');
 
       // No demotions in emergency mode
       expect(result.demoted).toBe(0);
       // Should fill aggressively
       expect(result.newWarming).toBeGreaterThan(0);
+    });
+  });
+
+  describe('rotate(lane) — lane filtering applied to SQL', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('live lane query includes lane clause and array param when ALLOWED set', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+
+      let trackedSql: string | null = null;
+      let trackedParams: unknown[] | null = null;
+      let candidateSql: string | null = null;
+      let candidateParams: unknown[] | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          trackedSql = sql;
+          trackedParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          candidateParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('live');
+
+      expect(trackedSql).toMatch(/market_type = ANY\(\$\d+::text\[\]\)/);
+      expect(trackedParams).toEqual([['crypto_intraday', 'event_short']]);
+      expect(candidateSql).toMatch(/market_type = ANY\(\$\d+::text\[\]\)/);
+      expect(candidateParams).toEqual([MIN_CANDIDATE_SCORE, ['crypto_intraday', 'event_short']]);
+    });
+
+    it('shadow lane query uses NOT-IN form including NULL', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+
+      let trackedSql: string | null = null;
+      let candidateSql: string | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          trackedSql = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('shadow');
+
+      expect(trackedSql).toMatch(/market_type IS NULL OR NOT \(market_type = ANY/);
+      expect(candidateSql).toMatch(/market_type IS NULL OR NOT \(market_type = ANY/);
+    });
+
+    it('with empty ALLOWED, live runs unrestricted (TRUE clause), shadow returns no candidates (FALSE clause)', async () => {
+      vi.unstubAllEnvs();
+      const r = new MarketRotator();
+
+      let trackedSqlLive: string | null = null;
+      let trackedSqlShadow: string | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          if (trackedSqlLive === null) trackedSqlLive = sql;
+          else trackedSqlShadow = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('live');
+      await r.rotate('shadow');
+
+      expect(trackedSqlLive).toMatch(/AND TRUE/);
+      expect(trackedSqlShadow).toMatch(/AND FALSE/);
+    });
+
+    it('uses shadow config maxTracked for emergency-fill threshold check on shadow lane', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator(undefined, { maxTracked: 10 });
+
+      const trackedRows = Array.from({ length: 5 }, (_, i) =>
+        makeMarket({ id: `shadow-${i}`, market_score: 0.1, tracking_status: 'active', has_open_positions: false, bars_24h: 10 })
+      );
+      const candidateRows = Array.from({ length: 20 }, (_, i) =>
+        makeMarket({ id: `cold-${i}`, market_score: 0.5 + i * 0.01, tracking_status: 'cold' })
+      );
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: trackedRows, command: 'SELECT', rowCount: trackedRows.length, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          return { rows: candidateRows, command: 'SELECT', rowCount: candidateRows.length, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      const result = await r.rotate('shadow');
+      expect(result.demoted).toBe(0); // emergency mode skips demotions
+      expect(result.newWarming).toBeGreaterThan(0); // emergency-fill flows new warming
+    });
+  });
+
+  describe('rotateAll', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('returns separate live and shadow results', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator();
+
+      mockedQuery.mockResolvedValue({ rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] });
+
+      const result = await r.rotateAll();
+      expect(result).toHaveProperty('live');
+      expect(result).toHaveProperty('shadow');
+      expect(result.live).toMatchObject({ promoted: expect.any(Number), demoted: expect.any(Number) });
+      expect(result.shadow).toMatchObject({ promoted: expect.any(Number), demoted: expect.any(Number) });
+    });
+
+    it('runs lanes sequentially: live first, then shadow', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator();
+
+      const sqlsSeen: string[] = [];
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          sqlsSeen.push(sql);
+        }
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotateAll();
+
+      expect(sqlsSeen).toHaveLength(2);
+      // First call is live (uses ANY directly).
+      expect(sqlsSeen[0]).toMatch(/AND market_type = ANY/);
+      // Second call is shadow (uses IS NULL OR NOT).
+      expect(sqlsSeen[1]).toMatch(/AND \(market_type IS NULL OR NOT/);
     });
   });
 });
