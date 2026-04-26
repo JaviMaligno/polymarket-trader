@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { query } from '../database/connection.js';
 import {
   MarketRotator,
+  MIN_CANDIDATE_SCORE,
   type RotationConfig,
   type MarketRow,
   parseAllowedMarketTypes,
@@ -522,7 +523,7 @@ describe('MarketRotator', () => {
         return updateResult;
       });
 
-      const result = await rotator.rotate();
+      const result = await rotator.rotate('live');
 
       expect(result.coolingExpired).toBeGreaterThanOrEqual(1);
       expect(result.promoted).toBeGreaterThanOrEqual(1);
@@ -557,7 +558,7 @@ describe('MarketRotator', () => {
         return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
       });
 
-      await rotator.rotate();
+      await rotator.rotate('live');
 
       expect(candidateSql).not.toBeNull();
       // Must reference current_price_yes in a filter clause
@@ -591,12 +592,123 @@ describe('MarketRotator', () => {
         return updateResult;
       });
 
-      const result = await rotator.rotate();
+      const result = await rotator.rotate('live');
 
       // No demotions in emergency mode
       expect(result.demoted).toBe(0);
       // Should fill aggressively
       expect(result.newWarming).toBeGreaterThan(0);
+    });
+  });
+
+  describe('rotate(lane) — lane filtering applied to SQL', () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it('live lane query includes lane clause and array param when ALLOWED set', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+
+      let trackedSql: string | null = null;
+      let trackedParams: unknown[] | null = null;
+      let candidateSql: string | null = null;
+      let candidateParams: unknown[] | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          trackedSql = sql;
+          trackedParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          candidateParams = params ?? null;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('live');
+
+      expect(trackedSql).toMatch(/market_type = ANY\(\$\d+::text\[\]\)/);
+      expect(trackedParams).toEqual([['crypto_intraday', 'event_short']]);
+      expect(candidateSql).toMatch(/market_type = ANY\(\$\d+::text\[\]\)/);
+      expect(candidateParams).toEqual([MIN_CANDIDATE_SCORE, ['crypto_intraday', 'event_short']]);
+    });
+
+    it('shadow lane query uses NOT-IN form including NULL', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+      const r = new MarketRotator();
+
+      let trackedSql: string | null = null;
+      let candidateSql: string | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          trackedSql = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          candidateSql = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('shadow');
+
+      expect(trackedSql).toMatch(/market_type IS NULL OR NOT \(market_type = ANY/);
+      expect(candidateSql).toMatch(/market_type IS NULL OR NOT \(market_type = ANY/);
+    });
+
+    it('with empty ALLOWED, live runs unrestricted (TRUE clause), shadow returns no candidates (FALSE clause)', async () => {
+      vi.unstubAllEnvs();
+      const r = new MarketRotator();
+
+      let trackedSqlLive: string | null = null;
+      let trackedSqlShadow: string | null = null;
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          if (trackedSqlLive === null) trackedSqlLive = sql;
+          else trackedSqlShadow = sql;
+          return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotate('live');
+      await r.rotate('shadow');
+
+      expect(trackedSqlLive).toMatch(/AND TRUE/);
+      expect(trackedSqlShadow).toMatch(/AND FALSE/);
+    });
+
+    it('uses shadow config maxTracked for emergency-fill threshold check on shadow lane', async () => {
+      vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+      const r = new MarketRotator(undefined, { maxTracked: 10 });
+
+      const trackedRows = Array.from({ length: 5 }, (_, i) =>
+        makeMarket({ id: `shadow-${i}`, market_score: 0.1, tracking_status: 'active', has_open_positions: false, bars_24h: 10 })
+      );
+      const candidateRows = Array.from({ length: 20 }, (_, i) =>
+        makeMarket({ id: `cold-${i}`, market_score: 0.5 + i * 0.01, tracking_status: 'cold' })
+      );
+
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+          return { rows: trackedRows, command: 'SELECT', rowCount: trackedRows.length, oid: 0, fields: [] };
+        }
+        if (typeof sql === 'string' && sql.includes("tracking_status = 'cold'")) {
+          return { rows: candidateRows, command: 'SELECT', rowCount: candidateRows.length, oid: 0, fields: [] };
+        }
+        return { rows: [], command: 'UPDATE', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      const result = await r.rotate('shadow');
+      expect(result.demoted).toBe(0); // emergency mode skips demotions
+      expect(result.newWarming).toBeGreaterThan(0); // emergency-fill flows new warming
     });
   });
 });
