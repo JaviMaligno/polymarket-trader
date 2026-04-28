@@ -1823,7 +1823,9 @@ export async function registerRoutes(
              VALUES ($1, $2, $3, true, 0.6, NOW())
              ON CONFLICT (signal_type, market_type) DO UPDATE SET
                weight = EXCLUDED.weight,
-               updated_at = NOW()`,
+               is_enabled = EXCLUDED.is_enabled,
+               min_confidence = EXCLUDED.min_confidence,
+               updated_at = EXCLUDED.updated_at`,
             [signalType, '__global__', weight]
           );
         }

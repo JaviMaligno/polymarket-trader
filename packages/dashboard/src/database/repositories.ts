@@ -149,14 +149,14 @@ export interface SignalWeight {
 export const signalWeightsRepo = {
   async getAll(): Promise<SignalWeight[]> {
     const result = await query<SignalWeight>(
-      'SELECT * FROM signal_weights ORDER BY signal_type'
+      `SELECT * FROM signal_weights WHERE market_type = '__global__' ORDER BY signal_type`
     );
     return result.rows;
   },
 
   async get(signalType: string): Promise<SignalWeight | null> {
     const result = await query<SignalWeight>(
-      'SELECT * FROM signal_weights WHERE signal_type = $1',
+      `SELECT * FROM signal_weights WHERE signal_type = $1 AND market_type = '__global__'`,
       [signalType]
     );
     return result.rows[0] ?? null;
@@ -194,14 +194,14 @@ export const signalWeightsRepo = {
   },
 
   /**
-   * Get all per-type weights, grouped by market_type. Excludes '__global__' rows.
-   * Returns { market_type → { signal_type → weight } }.
+   * Get all per-type weights, grouped by market_type. Excludes '__global__' rows
+   * and disabled rows (is_enabled = false). Returns { market_type → { signal_type → weight } }.
    */
   async getAllPerType(): Promise<Record<string, Record<string, number>>> {
     const result = await query<{ signal_type: string; market_type: string; weight: number }>(
       `SELECT signal_type, market_type, weight
        FROM signal_weights
-       WHERE market_type != '__global__'`
+       WHERE market_type != '__global__' AND is_enabled = true`
     );
     const map: Record<string, Record<string, number>> = {};
     for (const row of result.rows) {
