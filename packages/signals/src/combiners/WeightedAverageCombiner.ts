@@ -444,12 +444,20 @@ export class WeightedAverageCombiner implements ISignalCombiner {
    * Get weight for a specific signal, using market-type-specific weights if available
    */
   private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
-    // Use type-specific weights if market type is known
-    const weightSource = (marketType && this.typeWeights[marketType])
-      ? this.typeWeights[marketType]
-      : this.weights;
-
-    let weight = weightSource[signal.signalId] ?? 1;
+    // Per-type weights are explicit allowlists — generators not listed for this
+    // market_type intentionally do not contribute. Default 0 honors that intent
+    // (a previous default of 1 caused unlisted generators to dominate via the
+    // normalize pass). The legacy this.weights branch keeps default 1 for
+    // backward compatibility with markets that have no type-specific entry.
+    let weight: number;
+    let weightSource: Record<string, number>;
+    if (marketType && this.typeWeights[marketType]) {
+      weightSource = this.typeWeights[marketType];
+      weight = weightSource[signal.signalId] ?? 0;
+    } else {
+      weightSource = this.weights;
+      weight = weightSource[signal.signalId] ?? 1;
+    }
 
     // Normalize if configured
     if (this.parameters.normalizeWeights) {
