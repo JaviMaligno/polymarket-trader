@@ -316,7 +316,8 @@ export class BacktestService extends EventEmitter {
   async fetchHistoricalData(
     startDate: Date,
     endDate: Date,
-    marketIds?: string[]
+    marketIds?: string[],
+    marketType?: string,
   ): Promise<MarketData[]> {
     if (!isDatabaseConfigured()) {
       // Return mock data for testing
@@ -327,8 +328,10 @@ export class BacktestService extends EventEmitter {
       // First, find markets with enough data for signal generation (min 35 bars)
       // This prevents the old LIMIT 10000 problem where rows spread across
       // thousands of markets left each with <2 bars (signals need 31+)
+      const marketTypeFilter = marketType ? 'AND m.market_type = $TYPE_PARAM' : '';
+
       let topMarketsQuery: string;
-      let topMarketsParams: (Date | string[])[];
+      let topMarketsParams: (Date | string[] | string)[];
 
       if (marketIds && marketIds.length > 0) {
         topMarketsQuery = `
@@ -337,20 +340,26 @@ export class BacktestService extends EventEmitter {
           WHERE ph.time >= $1 AND ph.time <= $2
             AND ph.market_id = ANY($3)
             AND ph.token_id = m.clob_token_id_yes
+            ${marketTypeFilter}
           GROUP BY ph.market_id HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
-        `;
-        topMarketsParams = [startDate, endDate, marketIds];
+        `.replace('$TYPE_PARAM', marketType ? '$4' : '');
+        topMarketsParams = marketType
+          ? [startDate, endDate, marketIds, marketType]
+          : [startDate, endDate, marketIds];
       } else {
         topMarketsQuery = `
           SELECT ph.market_id FROM price_history ph
           JOIN markets m ON ph.market_id = m.id
           WHERE ph.time >= $1 AND ph.time <= $2
             AND ph.token_id = m.clob_token_id_yes
+            ${marketTypeFilter}
           GROUP BY ph.market_id HAVING COUNT(*) >= 35
           ORDER BY COUNT(*) DESC LIMIT 20
-        `;
-        topMarketsParams = [startDate, endDate];
+        `.replace('$TYPE_PARAM', marketType ? '$3' : '');
+        topMarketsParams = marketType
+          ? [startDate, endDate, marketType]
+          : [startDate, endDate];
       }
 
       // TimescaleDB vectorized aggregation cannot handle VARCHAR columns (market_id)
