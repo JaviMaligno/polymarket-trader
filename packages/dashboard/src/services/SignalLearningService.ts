@@ -176,8 +176,8 @@ export class SignalLearningService extends EventEmitter {
               // Update is_enabled if should disable
               if (shouldDisable) {
                 await query(
-                  'UPDATE signal_weights SET is_enabled = false, updated_at = NOW() WHERE signal_type = $1',
-                  [metric.signal_type]
+                  'UPDATE signal_weights SET is_enabled = false, updated_at = NOW() WHERE signal_type = $1 AND market_type = $2',
+                  [metric.signal_type, '__global__']
                 );
               }
 
@@ -186,8 +186,8 @@ export class SignalLearningService extends EventEmitter {
                 `UPDATE signal_weights SET
                   min_confidence = $1,
                   updated_at = NOW()
-                WHERE signal_type = $2`,
-                [shouldDisable ? 0.99 : 0.6, metric.signal_type]  // High min_confidence effectively disables
+                WHERE signal_type = $2 AND market_type = $3`,
+                [shouldDisable ? 0.99 : 0.6, metric.signal_type, '__global__']  // High min_confidence effectively disables
               );
 
               adjusted++;

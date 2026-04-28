@@ -170,8 +170,8 @@ export const signalWeightsRepo = {
     await transaction(async (client: PoolClient) => {
       // Get current weight
       const current = await client.query<SignalWeight>(
-        'SELECT weight FROM signal_weights WHERE signal_type = $1',
-        [signalType]
+        'SELECT weight FROM signal_weights WHERE signal_type = $1 AND market_type = $2',
+        [signalType, '__global__']
       );
       const previousWeight = current.rows[0]?.weight;
 
@@ -179,8 +179,8 @@ export const signalWeightsRepo = {
       await client.query(
         `UPDATE signal_weights
          SET weight = $1, updated_at = NOW()
-         WHERE signal_type = $2`,
-        [weight, signalType]
+         WHERE signal_type = $2 AND market_type = $3`,
+        [weight, signalType, '__global__']
       );
 
       // Record history
