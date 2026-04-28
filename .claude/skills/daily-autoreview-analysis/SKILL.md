@@ -78,6 +78,20 @@ FROM paper_positions WHERE closed_at >= '<last_reset_date>' AND realized_pnl IS 
 Report: "Real PnL: $X (Y% of reported $Z). Inverted positions: N."
 If inverted > 0 after the price inversion fix (commit 6a2bdb6), the fix didn't work — escalate immediately.
 
+**Loss-streak forensic** (MANDATORY when consecutive losses ≥ 5 OR daily PnL < −$30 OR day-N win rate < 50% of historical baseline):
+
+Do NOT accept the auto-review's narrative ("warm-up artifact", "post-deploy noise", "low signal confidence on first exposure") at face value. The auto-review is biased toward not creating reactive PRs, which can read as complacency when losses actually fit known dysfunctional patterns. Examine the streak yourself:
+
+1. **Side breakdown**: How many of the losing positions are SHORT vs LONG? If SHORTs ≥ 60% of losses, cross-reference `project_short_asymmetry.md` — the historical 0% SHORT win rate isn't fully fixed; PRs #110/#111 are partial guardrails. Persistent SHORT losses = guardrails too loose.
+2. **Same-market churn**: Are there ≥2 positions on the SAME market_id within minutes/hours, with opposite sides? That's signal disagreement that the consensus discount (`consensus_discount_floor`) failed to filter. Symptom of high raw confidence on disagreeing generators. Distinct from warm-up.
+3. **Entry price geometry**: For SHORTs, plot the YES entry prices. PR #110 only allows SHORTs at `YES > 0.6`. If most losses are SHORTs at `YES > 0.7`, the gate threshold is the wrong place to filter. If most are at `YES ∈ [0.6, 0.7]`, raising the gate could help.
+4. **Stop-loss vs signal-exit ratio**: Stop-losses on small-position OTM longs (e.g. entry < 0.20) are **not** warm-up — they're systematic over-confidence on tail bets. Count separately.
+5. **Cross-reference with shadow_summary**: If the losing market_type has shadow Sharpe > 0 over 30d but live Sharpe is sharply negative this session, that's the spec's "regression flag" condition. Surface it.
+
+Frame your output as: **what is observed (with numbers)** → **which historical pattern it matches** → **what the auto-review's narrative claims** → **where the narrative breaks down** → **recommended action: monitor X for Y hours, OR fix Z if pattern is unambiguous**.
+
+The bar for action: if the pattern matches a known dysfunctional class with ≥3 instances, propose a concrete fix. If only 1-2 instances, document and monitor.
+
 **Recommended actions** — what to do now
 
 ### Step 5: Act
