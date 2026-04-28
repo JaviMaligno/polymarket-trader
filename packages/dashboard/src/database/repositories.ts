@@ -193,6 +193,45 @@ export const signalWeightsRepo = {
     });
   },
 
+  /**
+   * Get all per-type weights, grouped by market_type. Excludes '__global__' rows.
+   * Returns { market_type → { signal_type → weight } }.
+   */
+  async getAllPerType(): Promise<Record<string, Record<string, number>>> {
+    const result = await query<{ signal_type: string; market_type: string; weight: number }>(
+      `SELECT signal_type, market_type, weight
+       FROM signal_weights
+       WHERE market_type != '__global__'`
+    );
+    const map: Record<string, Record<string, number>> = {};
+    for (const row of result.rows) {
+      if (!map[row.market_type]) map[row.market_type] = {};
+      map[row.market_type][row.signal_type] = Number(row.weight);
+    }
+    return map;
+  },
+
+  /**
+   * UPSERT a per-type weight row. Used by OptimizationScheduler.updateStrategy.
+   * History insert is intentionally skipped in this PR (signal_weights_history
+   * lacks a market_type column; tracked as separate follow-up).
+   */
+  async updatePerType(
+    signalType: string,
+    marketType: string,
+    weight: number,
+    reason: string
+  ): Promise<void> {
+    await query(
+      `INSERT INTO signal_weights (signal_type, market_type, weight, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (signal_type, market_type)
+       DO UPDATE SET weight = EXCLUDED.weight, updated_at = EXCLUDED.updated_at`,
+      [signalType, marketType, weight]
+    );
+    console.log(`[signalWeightsRepo] updatePerType ${signalType}@${marketType} = ${weight} (${reason})`);
+  },
+
   async getHistory(
     signalType: string,
     limit = 50
