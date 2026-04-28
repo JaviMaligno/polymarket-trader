@@ -316,11 +316,23 @@ export class SignalEngine extends EventEmitter {
 
       // Sync per-type weights from DB. Fills combiner.typeWeights, which is the
       // authoritative source for runtime weight lookup on known market types.
+      // getAllPerType already drops is_enabled = false rows; we still drop
+      // signal types without an active generator instance to mirror the global
+      // sync (line 290 above).
       try {
         const perTypeWeights = await signalWeightsRepo.getAllPerType();
-        this.combiner.setTypeWeights(perTypeWeights);
+        const filtered: Record<string, Record<string, number>> = {};
+        for (const [marketType, generators] of Object.entries(perTypeWeights)) {
+          for (const [signalType, weight] of Object.entries(generators)) {
+            if (this.signals.has(signalType)) {
+              if (!filtered[marketType]) filtered[marketType] = {};
+              filtered[marketType][signalType] = weight;
+            }
+          }
+        }
+        this.combiner.setTypeWeights(filtered);
         console.log(
-          `[SignalEngine] Synced typeWeights from database: ${Object.keys(perTypeWeights).length} types`
+          `[SignalEngine] Synced typeWeights from database: ${Object.keys(filtered).length} types`
         );
       } catch (err) {
         console.error('[SignalEngine] Failed to sync per-type weights:', err);
