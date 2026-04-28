@@ -50,24 +50,39 @@ New per-type rows (5 market_types × 11 active generators = 55 rows) are inserte
 
 ## Components
 
-### `packages/data-collector/src/database/init/025_signal_weights_per_type.sql` (new)
+### Migration: dual delivery (existing VM + fresh deploys)
 
-Migration applied via the post-init startup hook pattern in `dashboard/server.ts` (consistent with scorer_weights migration in PR #125):
+The migration must run on BOTH (a) the existing GCP VM where the `signal_weights` table is already populated and (b) any fresh deployment where the volume is first initialized. The codebase precedent (scorer_weights from PR #125) does both:
+
+1. **`packages/data-collector/src/database/init/025_signal_weights_per_type.sql` (new)**: applies on first volume init only (Postgres `docker-entrypoint-initdb.d` mechanism). Covers fresh deploys.
+2. **Post-init startup hook in `packages/dashboard/src/server.ts`**: idempotent ALTER TABLE + INSERT block. Runs every dashboard startup. Covers existing deploys (VM today).
+
+Both run the same SQL. The init file is a thin wrapper around the same statements:
 
 ```sql
 ALTER TABLE signal_weights
   ADD COLUMN IF NOT EXISTS market_type VARCHAR(32) NOT NULL DEFAULT '__global__';
 
+-- Defensive PK swap: discover existing PK name dynamically (Postgres default is
+-- 'signal_weights_pkey', but don't hardcode in case of historical drift).
 DO $$
+DECLARE pkey_name TEXT;
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'signal_weights_pkey_per_type'
-  ) THEN
-    ALTER TABLE signal_weights DROP CONSTRAINT signal_weights_pkey;
-    ALTER TABLE signal_weights
-      ADD CONSTRAINT signal_weights_pkey_per_type PRIMARY KEY (signal_type, market_type);
+  -- Skip if the new composite PK already exists
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'signal_weights_pkey_per_type') THEN
+    RETURN;
   END IF;
+
+  SELECT conname INTO pkey_name
+  FROM pg_constraint
+  WHERE conrelid = 'signal_weights'::regclass AND contype = 'p';
+
+  IF pkey_name IS NOT NULL THEN
+    EXECUTE format('ALTER TABLE signal_weights DROP CONSTRAINT %I', pkey_name);
+  END IF;
+
+  ALTER TABLE signal_weights
+    ADD CONSTRAINT signal_weights_pkey_per_type PRIMARY KEY (signal_type, market_type);
 END $$;
 
 -- Bootstrap: 55 per-type rows from current DEFAULT_TYPE_WEIGHTS hardcoded values.
@@ -88,7 +103,7 @@ INSERT INTO signal_weights (signal_type, weight, market_type, updated_at) VALUES
 ON CONFLICT (signal_type, market_type) DO NOTHING;
 ```
 
-The full INSERT block (55 rows) follows the values in the bootstrap table from Section 3 of the brainstorm. Idempotent.
+The full INSERT block (55 rows) follows the values in the bootstrap table from Section 3 of the brainstorm. The implementer derives the SQL row-by-row from that table.
 
 ### `packages/dashboard/src/repositories/signalWeightsRepo.ts`
 
@@ -181,7 +196,7 @@ Significant changes:
     }
   }
   ```
-- `runOptimization(iterations, type, marketType)` passes `marketType` to `BacktestService.fetchHistoricalData()` for filtering.
+- `runOptimization(iterations, type, marketType)` passes `marketType` to `BacktestService.fetchHistoricalData()` for filtering AND uses a per-type Optuna study name (`incremental-{date}-{marketType}` or `full-{date}-{marketType}`). Distinct study names ensure Optuna's TPE algorithm doesn't mix observations across types — each per-type run has its own search history.
 - `mapOptunaParamsToRequest()` extends to include weights for all 11 active generators (existing function adds the 6 missing keys to `combinerConfig`).
 - `OPTUNA_PARAM_SPACE` and `REFINEMENT_PARAM_SPACE` extended with `combiner.volumeAnomalyWeight`, `combiner.spreadCompressionWeight`, `combiner.crossMarketCorrWeight`, `combiner.priceDivergenceWeight`, `combiner.attentionSpikeWeight`, `combiner.newsSentimentWeight`. Range `[0.0, 2.0]` for non-momentum (consistent with current generators); momentum stays `[-1.5, 1.5]` (allows contrarian).
 - `updateStrategy(best, marketType)` writes per-type weights via `signalWeightsRepo.updatePerType(...)` for all 11 generators (previously called `signalWeightsRepo.update(...)` for the global rows).
@@ -293,7 +308,9 @@ Explicitly deferred to follow-up brainstorms:
 - **Removing `DEFAULT_TYPE_WEIGHTS` hardcoded constant**. Keep for one release cycle as rollback safety.
 - **OOS gate adjustment for sparse-data types**. Tracked separately. Some types may not pass OOS if their backtest produces <20 simulated trades — they stay at bootstrap values. Acceptable interim.
 - **IS-Sharpe-monotonic ratchet fix**. Per-type bestSharpe naturally helps (each type has its own peak), but the fundamental "use OOS not IS to decide apply" question is separate.
-- **Schema migration to `signal_weights_history` for per-type tracking**. Existing history table tracks global; per-type history could be added but isn't critical.
+- **Schema migration to `signal_weights_history` for per-type tracking**. The existing `signal_weights_history` table (used by `signalWeightsRepo.update()` to log changes) does not have a `market_type` column. `signalWeightsRepo.updatePerType()` will skip the history insert in this PR (logging the new value to console only). Adding per-type history is a small follow-up: ALTER TABLE + insert path. Acceptable interim because per-type rows have `updated_at` for "when last changed" and the optimizer's apply path emits its own logs.
+
+- **Fitness function still Sharpe-only**. This PR routes Optuna's *output* per-type but doesn't change *what* Optuna optimizes. The 2026-04-28 investigation showed IS Sharpe vs OOS Sharpe diverging by ~40× on recent runs (`project_optimizer_extreme_weights.md`). Per-type runs will have less data per run (one type's slice of the 10-day window), which can *increase* overfitting risk because TPE has less signal to work with. Mitigation in this PR: same OOS gate threshold applied per type — runs with degenerate OOS still don't apply. Real fix is a separate brainstorm: extend fitness to penalize turnover and IS/OOS divergence, or use rolling OOS-based metric. Tracked in `project_optimizer_extreme_weights.md`.
 
 ## Error Handling
 
