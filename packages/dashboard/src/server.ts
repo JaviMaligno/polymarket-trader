@@ -313,13 +313,119 @@ async function main(): Promise<void> {
       `);
       console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
 
+      // Post-init hook applies signal_weights per-type migration.
+      // Task 2 of per-type-optimizer plan: extends signal_weights with market_type column
+      // and per-type weight bootstrap rows. Matches data-collector 025_signal_weights_per_type.sql
+      // but runs as startup hook for existing VMs whose volumes already initialized.
+      // See docs/plans/2026-04-28-per-type-optimizer-design.md.
+      try {
+        // Add market_type column
+        await query(`
+          ALTER TABLE signal_weights
+            ADD COLUMN IF NOT EXISTS market_type VARCHAR(32) NOT NULL DEFAULT '__global__';
+        `);
+
+        // Defensive PK swap: discover existing PK name dynamically
+        await query(`
+          DO $$
+          DECLARE pkey_name TEXT;
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'signal_weights_pkey_per_type') THEN
+              RETURN;
+            END IF;
+
+            SELECT conname INTO pkey_name
+            FROM pg_constraint
+            WHERE conrelid = 'signal_weights'::regclass AND contype = 'p';
+
+            IF pkey_name IS NOT NULL THEN
+              EXECUTE format('ALTER TABLE signal_weights DROP CONSTRAINT %I', pkey_name);
+            END IF;
+
+            ALTER TABLE signal_weights
+              ADD CONSTRAINT signal_weights_pkey_per_type PRIMARY KEY (signal_type, market_type);
+          END $$;
+        `);
+
+        // Bootstrap 55 per-type rows from current DEFAULT_TYPE_WEIGHTS hardcoded values
+        await query(`
+          INSERT INTO signal_weights (signal_type, weight, market_type, updated_at) VALUES
+            -- crypto_intraday
+            ('momentum',           -0.3, 'crypto_intraday', NOW()),
+            ('mean_reversion',      0.5, 'crypto_intraday', NOW()),
+            ('ofi',                 0.5, 'crypto_intraday', NOW()),
+            ('mlofi',               0.5, 'crypto_intraday', NOW()),
+            ('hawkes',              0.4, 'crypto_intraday', NOW()),
+            ('volume_anomaly',      0.0, 'crypto_intraday', NOW()),
+            ('spread_compression',  0.0, 'crypto_intraday', NOW()),
+            ('cross_market_corr',   0.0, 'crypto_intraday', NOW()),
+            ('price_divergence',    0.0, 'crypto_intraday', NOW()),
+            ('attention_spike',     0.0, 'crypto_intraday', NOW()),
+            ('news_sentiment',      0.0, 'crypto_intraday', NOW()),
+            -- crypto_daily
+            ('momentum',           -0.3, 'crypto_daily', NOW()),
+            ('mean_reversion',      0.6, 'crypto_daily', NOW()),
+            ('ofi',                 0.4, 'crypto_daily', NOW()),
+            ('mlofi',               0.4, 'crypto_daily', NOW()),
+            ('hawkes',              0.3, 'crypto_daily', NOW()),
+            ('volume_anomaly',      0.0, 'crypto_daily', NOW()),
+            ('spread_compression',  0.0, 'crypto_daily', NOW()),
+            ('cross_market_corr',   0.0, 'crypto_daily', NOW()),
+            ('price_divergence',    0.0, 'crypto_daily', NOW()),
+            ('attention_spike',     0.0, 'crypto_daily', NOW()),
+            ('news_sentiment',      0.0, 'crypto_daily', NOW()),
+            -- event_financial
+            ('momentum',           -0.3, 'event_financial', NOW()),
+            ('mean_reversion',      0.6, 'event_financial', NOW()),
+            ('ofi',                 0.4, 'event_financial', NOW()),
+            ('mlofi',               0.4, 'event_financial', NOW()),
+            ('hawkes',              0.3, 'event_financial', NOW()),
+            ('volume_anomaly',      0.0, 'event_financial', NOW()),
+            ('spread_compression',  0.0, 'event_financial', NOW()),
+            ('cross_market_corr',   0.0, 'event_financial', NOW()),
+            ('price_divergence',    0.0, 'event_financial', NOW()),
+            ('attention_spike',     0.0, 'event_financial', NOW()),
+            ('news_sentiment',      0.0, 'event_financial', NOW()),
+            -- event_short
+            ('momentum',           -0.4, 'event_short', NOW()),
+            ('mean_reversion',      0.6, 'event_short', NOW()),
+            ('ofi',                 0.3, 'event_short', NOW()),
+            ('mlofi',               0.3, 'event_short', NOW()),
+            ('hawkes',              0.2, 'event_short', NOW()),
+            ('volume_anomaly',      0.0, 'event_short', NOW()),
+            ('spread_compression',  0.0, 'event_short', NOW()),
+            ('cross_market_corr',   0.0, 'event_short', NOW()),
+            ('price_divergence',    0.0, 'event_short', NOW()),
+            ('attention_spike',     0.0, 'event_short', NOW()),
+            ('news_sentiment',      0.0, 'event_short', NOW()),
+            -- event_long
+            ('momentum',           -0.4, 'event_long', NOW()),
+            ('mean_reversion',      0.6, 'event_long', NOW()),
+            ('ofi',                 0.2, 'event_long', NOW()),
+            ('mlofi',               0.2, 'event_long', NOW()),
+            ('hawkes',              0.1, 'event_long', NOW()),
+            ('volume_anomaly',      0.0, 'event_long', NOW()),
+            ('spread_compression',  0.0, 'event_long', NOW()),
+            ('cross_market_corr',   0.0, 'event_long', NOW()),
+            ('price_divergence',    0.0, 'event_long', NOW()),
+            ('attention_spike',     0.0, 'event_long', NOW()),
+            ('news_sentiment',      0.0, 'event_long', NOW())
+          ON CONFLICT (signal_type, market_type) DO NOTHING;
+        `);
+
+        console.log('[server] signal_weights per-type schema migration applied');
+      } catch (err) {
+        console.error('[server] signal_weights per-type migration failed:', err);
+        throw err;
+      }
+
       // Sub-project B.2: seed consensus_discount_floor config row.
       // signal_weights uses the row-per-config pattern (same as
       // direction_multiplier). See docs/plans/2026-04-25-signal-consensus-design.md.
       await query(`
-        INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
-        VALUES ('consensus_discount_floor', 0.5, true, 0.0, NOW())
-        ON CONFLICT (signal_type) DO NOTHING;
+        INSERT INTO signal_weights (signal_type, weight, market_type, is_enabled, min_confidence, updated_at)
+        VALUES ('consensus_discount_floor', 0.5, '__global__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type) DO NOTHING;
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
