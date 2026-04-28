@@ -300,3 +300,71 @@ describe('WeightedAverageCombiner — consensus discount integration', () => {
     // If threshold fails for reasons unrelated to consensus, that's also fine
   });
 });
+
+describe('WeightedAverageCombiner — typeWeights fallback', () => {
+  it('drops a signal whose generator is not listed in typeWeights[marketType]', () => {
+    // Setup: typeWeights for "event_financial" lists ONLY mean_reversion.
+    // An unlisted generator (e.g. news_sentiment) should NOT contribute to the
+    // combined output — its fallback weight must be 0, dropping it via the
+    // s.weight !== 0 filter inside combine().
+    const combiner = new WeightedAverageCombiner(
+      {},
+      { minCombinedStrength: 0.01, minCombinedConfidence: 0.01 }
+    );
+    combiner.setTypeWeights({
+      event_financial: { mean_reversion: 0.6 },
+    });
+    combiner.setDirectionMultiplier(1); // disable contrarian flip for this test
+
+    const listedSignal = buildSignal({
+      signalId: 'mean_reversion',
+      direction: 'long',
+      strength: 0.5,
+      confidence: 0.8,
+    });
+    const unlistedSignal = buildSignal({
+      signalId: 'news_sentiment',
+      direction: 'short',
+      strength: 0.9,
+      confidence: 0.9,
+    });
+
+    const result = combiner.combine([listedSignal, unlistedSignal], undefined, 'event_financial');
+
+    expect(result).not.toBeNull();
+    // If the unlisted SHORT contributed, its high strength (0.9) and
+    // pre-fix weight 1.0/0.6 ≈ 1.67x mean_reversion would push the
+    // combined direction to SHORT. With the fix it's silenced and the
+    // LONG mean_reversion alone defines the direction.
+    expect(result!.direction).toBe('LONG');
+  });
+
+  it('keeps explicit per-type weight for a listed generator', () => {
+    // Sanity check: a listed generator still gets its specified weight.
+    // This guards against accidentally also dropping listed signals.
+    const combiner = new WeightedAverageCombiner(
+      {},
+      { minCombinedStrength: 0.01, minCombinedConfidence: 0.01 }
+    );
+    combiner.setTypeWeights({
+      event_financial: { mean_reversion: 0.6, momentum: -0.3 },
+    });
+    combiner.setDirectionMultiplier(1);
+
+    const meanRevSignal = buildSignal({
+      signalId: 'mean_reversion',
+      direction: 'long',
+      strength: 0.4,
+      confidence: 0.7,
+    });
+
+    const result = combiner.combine([meanRevSignal], undefined, 'event_financial');
+
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('LONG');
+    // strength is positive and proportional to weight × signal strength.
+    // We don't assert exact value (depends on normalize, time decay, etc.)
+    // but it must be well above the minCombinedStrength threshold of 0.01.
+    expect(result!.strength).toBeGreaterThan(0.01);
+  });
+});
