@@ -20,7 +20,7 @@ let weight = weightSource[signal.signalId] ?? 1;
 
 When any of those 6 unlisted generators emits a signal for a known market_type, the lookup `weightSource[signal.signalId]` returns `undefined`, the `?? 1` fallback applies, and that generator gets **weight 1.0** — higher than every weight in DEFAULT_TYPE_WEIGHTS (whose values range -0.4 to 0.6).
 
-After the combiner's `normalize: true` pass, this 1.0 fallback is much higher than the deliberately set per-type weights. Concrete example for event_financial:
+The normalize pass in `getSignalWeight` (lines 455-460) divides each signal's weight by `totalWeight = Object.values(weightSource).reduce((a, b) => a + b, 0)`. The total iterates only over the explicit keys of `weightSource` — the fallback values are NOT included in the total. Concrete example for event_financial:
 
 ```
 typeWeights["event_financial"] explicit:
@@ -30,15 +30,16 @@ typeWeights["event_financial"] explicit:
   mlofi:            0.4
   hawkes:           0.3
 
+totalWeight = -0.3 + 0.6 + 0.4 + 0.4 + 0.3 = 1.4
+
 If a 6th generator (e.g. news_sentiment) fires:
-  Total before normalize:  -0.3 + 0.6 + 0.4 + 0.4 + 0.3 + 1.0 (fallback) = 2.4
-  Normalized share of mean_reversion:    0.6 / 2.4 = 0.25
-  Normalized share of fallback news:     1.0 / 2.4 = 0.42
+  weightSource[news_sentiment] = undefined → fallback 1.0 → normalized: 1.0 / 1.4 = 0.714
+  weightSource[mean_reversion] = 0.6        → normalized: 0.6 / 1.4 = 0.428
 ```
 
-The unlisted (fallback) generator dominates mean_reversion in the combine output — the opposite of the design intent.
+The unlisted (fallback) generator gets normalized weight 0.714 vs mean_reversion's 0.428 — the unlisted has **1.67× the influence** of the deliberately-listed mean_reversion. The opposite of the design intent.
 
-This is a defect, not a design choice. The author of `DEFAULT_TYPE_WEIGHTS` intended "these are the generators that apply for this type"; the fallback subverts that intent.
+This is a defect in the typeWeights branch, not a design choice. The author of `DEFAULT_TYPE_WEIGHTS` intended "these are the generators that apply for this type"; the fallback subverts that intent.
 
 ## Why this matters now
 
@@ -58,42 +59,54 @@ This is **not** a fix for the bigger architectural gap (Optuna→typeWeights byp
 
 ## Architecture
 
-Single-line code change in `packages/signals/src/combiners/WeightedAverageCombiner.ts`:
+Surgical edit in `packages/signals/src/combiners/WeightedAverageCombiner.ts`. Split the single fallback into two branch-specific defaults that preserve the design intent of each path:
 
-**Before** (line 452):
+**Before** (lines 446-452):
 ```ts
-let weight = weightSource[signal.signalId] ?? 1;
+private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
+  // Use type-specific weights if market type is known
+  const weightSource = (marketType && this.typeWeights[marketType])
+    ? this.typeWeights[marketType]
+    : this.weights;
+
+  let weight = weightSource[signal.signalId] ?? 1;
+  ...
+}
 ```
 
 **After**:
 ```ts
-let weight = weightSource[signal.signalId] ?? 0;
+private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
+  // Per-type weights are explicit allowlists — generators not listed for this
+  // market_type intentionally do not contribute. Default 0 honors that intent
+  // (previous default of 1 caused unlisted generators to dominate via normalize).
+  // The legacy this.weights branch keeps default 1 for backward compatibility
+  // with markets that have no type-specific entry.
+  let weight: number;
+  if (marketType && this.typeWeights[marketType]) {
+    weight = this.typeWeights[marketType][signal.signalId] ?? 0;
+  } else {
+    weight = this.weights[signal.signalId] ?? 1;
+  }
+  ...
+}
 ```
 
-No schema changes. No new tables. No changes to any other file. No changes to env vars or docker-compose. No changes to scripts or daily-review.
+The remaining body of `getSignalWeight` (the normalize pass and return) stays unchanged.
 
-The behavior change is **localized and predictable**: a generator with no entry in the type-specific weights table contributes 0 to combined output for that market type. With `normalize: true`, the normalization total decreases by the count of fallback generators × 1.0, raising the relative share of the explicitly-listed generators.
+**Why surgical, not unconditional**: the two branches encode different design intents. The per-type branch is an explicit allowlist; absence means "not applicable". The legacy branch (`this.weights`) is loaded from `signal_weights` table and used for markets without a known type — its design is "register all generators with default 1, optimizer overrides". Changing the legacy fallback could break behavior for markets that fall through to that path. The fix only addresses the per-type branch where the bug is.
+
+No schema changes. No new tables. No changes to any other file. No changes to env vars, docker-compose, scripts, or daily-review.
 
 ## Components
 
 ### `packages/signals/src/combiners/WeightedAverageCombiner.ts`
 
-One character changed (literal `1` → `0`) on line 452. Comment update one line above to document the rationale:
+Replace the single-fallback line with the two-branch structure shown in Architecture above. Roughly 4 lines added in place of 4-5 lines (depending on intermediate `weightSource` declaration). Add the comment block explaining the rationale.
 
-**Before**:
-```ts
-let weight = weightSource[signal.signalId] ?? 1;
-```
+The variable `weightSource` becomes redundant after the refactor and can be removed; alternatively keep it for symmetry with the existing tests that may reference it. Implementer judgment.
 
-**After**:
-```ts
-// Default 0: a generator not listed in DEFAULT_TYPE_WEIGHTS for this market_type
-// does not contribute. Previous default of 1 caused unlisted generators to dominate
-// the explicitly-listed per-type weights via the normalization pass.
-let weight = weightSource[signal.signalId] ?? 0;
-```
-
-### `packages/signals/src/combiners/WeightedAverageCombiner.test.ts` (or equivalent test file location for this package)
+### `packages/signals/src/combiners/WeightedAverageCombiner.test.ts`
 
 Two new tests:
 
@@ -105,14 +118,18 @@ Two new tests:
 
 ## Data Flow — What Changes At Runtime
 
-**Before fix** (event_financial example, hypothetically all 11 generators emit signals):
-- Five listed contributions: -0.3 + 0.6 + 0.4 + 0.4 + 0.3 = 1.4
-- Six unlisted contributions (fallback): 6 × 1.0 = 6.0
-- Total for normalization: 7.4
-- mean_reversion's normalized share: 0.6 / 7.4 = 0.081
-- Each unlisted generator's normalized share: 1.0 / 7.4 = 0.135
-- → unlisted generators each have ~1.7× the influence of the deliberately-listed mean_reversion.
-- In practice, only the generators that actually fire on a given tick contribute. But any tick where at least one unlisted generator fires, that fallback dilutes the listed weights significantly.
+**Before fix** (event_financial, normalize=true):
+- `totalWeight = sum of explicit typeWeights["event_financial"] values = -0.3 + 0.6 + 0.4 + 0.4 + 0.3 = 1.4`
+- Listed signal that fires (e.g. mean_reversion): `weight = 0.6 / 1.4 = 0.428`
+- Unlisted signal that fires (e.g. news_sentiment, fallback=1.0): `weight = 1.0 / 1.4 = 0.714`
+- → Each unlisted generator has 1.67× the normalized weight of the explicitly-listed mean_reversion.
+- The combiner's downstream filter `s.weight !== 0` keeps these unlisted contributions; they participate in the conflict resolution and final strength calculation.
+
+**After fix** (?? 0 in per-type branch only):
+- `totalWeight` unchanged: 1.4
+- Listed signal: `weight = 0.428` (unchanged)
+- Unlisted signal: `weight = 0 / 1.4 = 0` → caught by the existing `s.weight !== 0` filter (line 211) and dropped before conflict resolution.
+- Net effect: only the 5 listed generators contribute to the combined signal for event_financial. Their relative shares are exactly what the per-type table specifies. No spurious dominance.
 
 **After fix**:
 - If generator emits and is listed → normalized weight = listed_weight / sum_of_listed.
