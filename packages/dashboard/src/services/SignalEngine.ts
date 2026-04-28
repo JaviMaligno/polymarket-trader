@@ -313,6 +313,19 @@ export class SignalEngine extends EventEmitter {
       if (dmEntry) {
         this.combiner.setDirectionMultiplier(globalDirectionMultiplier);
       }
+
+      // Sync per-type weights from DB. Fills combiner.typeWeights, which is the
+      // authoritative source for runtime weight lookup on known market types.
+      try {
+        const perTypeWeights = await signalWeightsRepo.getAllPerType();
+        this.combiner.setTypeWeights(perTypeWeights);
+        console.log(
+          `[SignalEngine] Synced typeWeights from database: ${Object.keys(perTypeWeights).length} types`
+        );
+      } catch (err) {
+        console.error('[SignalEngine] Failed to sync per-type weights:', err);
+        // Continue with empty typeWeights; combiner falls back to this.weights.
+      }
     } catch (error) {
       console.error('[SignalEngine] Failed to sync weights:', error);
     }
