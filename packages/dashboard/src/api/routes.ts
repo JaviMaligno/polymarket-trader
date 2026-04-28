@@ -725,7 +725,7 @@ export async function registerRoutes(
         lastIncrementalAt: state.lastIncrementalAt,
         lastFullAt: state.lastFullAt,
         bestParams: state.bestParams,
-        bestSharpe: state.bestSharpe,
+        bestSharpePerType: state.bestSharpePerType,
       };
     } catch {
       optimizationMetrics = null;
@@ -1819,12 +1819,12 @@ export async function registerRoutes(
         for (const [signalType, weight] of Object.entries(weights)) {
           // Use raw query for upsert since repo doesn't have it
           await query(
-            `INSERT INTO signal_weights (signal_type, weight, is_enabled, min_confidence, updated_at)
-             VALUES ($1, $2, true, 0.6, NOW())
-             ON CONFLICT (signal_type) DO UPDATE SET
+            `INSERT INTO signal_weights (signal_type, market_type, weight, is_enabled, min_confidence, updated_at)
+             VALUES ($1, $2, $3, true, 0.6, NOW())
+             ON CONFLICT (signal_type, market_type) DO UPDATE SET
                weight = EXCLUDED.weight,
                updated_at = NOW()`,
-            [signalType, weight]
+            [signalType, '__global__', weight]
           );
         }
       }
@@ -2860,7 +2860,7 @@ export async function registerRoutes(
           lastIncrementalAt: state.lastIncrementalAt,
           lastFullAt: state.lastFullAt,
           bestParams: state.bestParams,
-          bestSharpe: state.bestSharpe,
+          bestSharpePerType: state.bestSharpePerType,
         },
         timestamp: new Date(),
       });

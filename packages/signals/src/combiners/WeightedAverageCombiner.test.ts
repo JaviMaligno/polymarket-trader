@@ -368,3 +368,26 @@ describe('WeightedAverageCombiner — typeWeights fallback', () => {
     expect(result!.strength).toBeGreaterThan(0.01);
   });
 });
+
+describe('WeightedAverageCombiner — empty typeWeights at construction', () => {
+  it('does NOT auto-populate from DEFAULT_TYPE_WEIGHTS; caller must setTypeWeights', () => {
+    const combiner = new WeightedAverageCombiner(
+      { momentum: 1, mean_reversion: 1 },
+      { minCombinedStrength: 0.01, minCombinedConfidence: 0.01 }
+    );
+    combiner.setDirectionMultiplier(1);
+
+    const signal = buildSignal({
+      signalId: 'momentum',
+      direction: 'long',
+      strength: 0.5,
+      confidence: 0.8,
+    });
+
+    const result = combiner.combine([signal], undefined, 'event_financial');
+
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('LONG');
+    expect(result!.strength).toBeGreaterThan(0);
+  });
+});

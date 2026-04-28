@@ -121,7 +121,11 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   ) {
     this.logger = pino({ name: 'weighted-average-combiner' });
     this.weights = { ...initialWeights };
-    this.typeWeights = { ...DEFAULT_TYPE_WEIGHTS };
+    // Per-type weights are populated externally via setTypeWeights() —
+    // typically from DB in SignalEngine.setupCombiner(). DEFAULT_TYPE_WEIGHTS
+    // constant is kept in this file as dead code for one release cycle
+    // (rollback safety).
+    this.typeWeights = {};
     this.parameters = {
       minConfidence: 0.2,
       normalizeWeights: true,
