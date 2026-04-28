@@ -539,6 +539,55 @@ describe('AutoSignalExecutor', () => {
   });
 
   // =========================================================
+  // Drawdown proximity check uses equity (capital + open positions)
+  // =========================================================
+  describe('Drawdown proximity check', () => {
+    it('blocks new opens when equity drawdown exceeds CB_THRESHOLD - 2', async () => {
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
+      (query as any).mockImplementation((sql: string) => {
+        if (sql.includes('FROM markets WHERE id')) {
+          return Promise.resolve({ rows: [{ is_active: true, is_resolved: false, end_date: null }] });
+        }
+        if (sql.includes('FROM paper_account')) {
+          // Capital $8649 with initial $10000 → capital drawdown 13.51% > 15-2=13%
+          return Promise.resolve({ rows: [{ available_capital: '8549', current_capital: '8649' }] });
+        }
+        if (sql.includes('FROM paper_positions WHERE closed_at IS NULL')) {
+          // No open positions → equity == capital → equity drawdown also 13.51%
+          return Promise.resolve({ rows: [{ total_exposure: '0' }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      const result = await exec.processSignal(makeSignal({ direction: 'long', price: 0.50 }));
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/drawdown.*too close/i);
+    });
+
+    it('allows new opens when equity drawdown is below CB_THRESHOLD - 2 even if capital-only exceeds it', async () => {
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
+      (query as any).mockImplementation((sql: string) => {
+        if (sql.includes('FROM markets WHERE id')) {
+          return Promise.resolve({ rows: [{ is_active: true, is_resolved: false, end_date: null }] });
+        }
+        if (sql.includes('FROM paper_account')) {
+          // Capital $8649: capital-only drawdown = 13.51% > 13% (would block without equity fix)
+          return Promise.resolve({ rows: [{ available_capital: '8549', current_capital: '8649' }] });
+        }
+        if (sql.includes('FROM paper_positions WHERE closed_at IS NULL')) {
+          // Open position worth $200: equity = $8849, equity drawdown = 11.51% < 13% → allow
+          return Promise.resolve({ rows: [{ total_exposure: '200' }] });
+        }
+        if (sql.includes('market_score') && sql.includes('current_price_yes')) {
+          return Promise.resolve({ rows: [{ market_score: '0.5', current_price_yes: '0.5', volume_24h: '1000', spread: '0.01', end_date: null }] });
+        }
+        return Promise.resolve({ rows: [] });
+      });
+      const result = await exec.processSignal(makeSignal({ direction: 'long', price: 0.50 }));
+      expect(result.reason).not.toMatch(/drawdown.*too close/i);
+    });
+  });
+
+  // =========================================================
   // T11: direction multiplier + exploration flag propagation
   // =========================================================
   describe('AutoSignalExecutor — direction multiplier propagation', () => {
