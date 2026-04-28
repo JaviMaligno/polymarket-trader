@@ -8,6 +8,7 @@ vi.mock('../database/index.js', () => ({
 vi.mock('../database/repositories.js', () => ({
   signalWeightsRepo: {
     update: vi.fn().mockResolvedValue(undefined),
+    updatePerType: vi.fn().mockResolvedValue(undefined),
   },
 }));
 

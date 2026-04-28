@@ -51,6 +51,12 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.crossMarketCorrWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.priceDivergenceWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.attentionSpikeWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.newsSentimentWeight', type: 'float', low: 0.0, high: 2.0 },
   // Risk
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
@@ -75,6 +81,12 @@ const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.crossMarketCorrWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.priceDivergenceWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.attentionSpikeWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.newsSentimentWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
@@ -521,6 +533,15 @@ export class OptimizationScheduler {
       combinerConfig: {
         momentumWeight: params['combiner.momentumWeight'],
         meanReversionWeight: params['combiner.meanReversionWeight'],
+        ofiWeight: params['combiner.ofiWeight'],
+        mlofiWeight: params['combiner.mlofiWeight'],
+        hawkesWeight: params['combiner.hawkesWeight'],
+        volumeAnomalyWeight: params['combiner.volumeAnomalyWeight'],
+        spreadCompressionWeight: params['combiner.spreadCompressionWeight'],
+        crossMarketCorrWeight: params['combiner.crossMarketCorrWeight'],
+        priceDivergenceWeight: params['combiner.priceDivergenceWeight'],
+        attentionSpikeWeight: params['combiner.attentionSpikeWeight'],
+        newsSentimentWeight: params['combiner.newsSentimentWeight'],
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
@@ -855,8 +876,13 @@ export class OptimizationScheduler {
         const weight = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Number(rawWeight)));
 
         try {
-          await signalWeightsRepo.update(signalType, weight, `optimization-${new Date().toISOString().slice(0, 10)}`);
-          console.log(`[OptimizationScheduler] Updated signal weight: ${signalType} = ${weight.toFixed(4)}`);
+          await signalWeightsRepo.updatePerType(
+            signalType,
+            marketType,
+            weight,
+            `optimization-${new Date().toISOString().slice(0, 10)}-${marketType}`
+          );
+          console.log(`[OptimizationScheduler] Updated signal weight: ${signalType}[${marketType}] = ${weight.toFixed(4)}`);
         } catch (err) {
           console.error(`[OptimizationScheduler] Failed to update weight ${signalType}:`, err);
         }
