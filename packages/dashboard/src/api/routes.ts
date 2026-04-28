@@ -725,7 +725,7 @@ export async function registerRoutes(
         lastIncrementalAt: state.lastIncrementalAt,
         lastFullAt: state.lastFullAt,
         bestParams: state.bestParams,
-        bestSharpe: state.bestSharpe,
+        bestSharpePerType: state.bestSharpePerType,
       };
     } catch {
       optimizationMetrics = null;
@@ -2860,7 +2860,7 @@ export async function registerRoutes(
           lastIncrementalAt: state.lastIncrementalAt,
           lastFullAt: state.lastFullAt,
           bestParams: state.bestParams,
-          bestSharpe: state.bestSharpe,
+          bestSharpePerType: state.bestSharpePerType,
         },
         timestamp: new Date(),
       });

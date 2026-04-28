@@ -107,6 +107,9 @@ const OOS_SAFETY_FLOOR = {
   minMarkets: parseInt(process.env.OPTIMIZER_MIN_MARKETS_FOR_APPLY || '8', 10),
 };
 
+const MARKET_TYPES = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short', 'event_long'] as const;
+type MarketType = typeof MARKET_TYPES[number];
+
 // Decay factor cold start: used when fewer than 10 runs have OOS data
 const DECAY_FACTOR_COLD_START = 0.3;
 const DECAY_FACTOR_MIN_ROWS = 10;
@@ -144,7 +147,7 @@ interface SchedulerState {
   lastFullAt: Date | null;
   currentRunType: 'idle' | 'incremental' | 'full';
   bestParams: Record<string, any>;
-  bestSharpe: number;
+  bestSharpePerType: Record<string, number>;
 }
 
 export class OptimizationScheduler {
@@ -154,7 +157,7 @@ export class OptimizationScheduler {
     lastFullAt: null,
     currentRunType: 'idle',
     bestParams: { ...DEFAULT_BEST_PARAMS },
-    bestSharpe: 0,
+    bestSharpePerType: {},
   };
 
   private mainLoopInterval: NodeJS.Timeout | null = null;
@@ -279,27 +282,38 @@ export class OptimizationScheduler {
   }
 
   private async runIncrementalOptimization(): Promise<void> {
-    console.log('[OptimizationScheduler] Starting incremental optimization...');
+    console.log('[OptimizationScheduler] Starting incremental optimization (per-type)...');
     this.state.currentRunType = 'incremental';
 
     try {
-      const results = await this.runOptimization(this.incrementalIterations, 'incremental');
-      if (results.length === 0) return;
+      for (const marketType of MARKET_TYPES) {
+        console.log(`[OptimizationScheduler] === ${marketType} ===`);
+        try {
+          const results = await this.runOptimization(this.incrementalIterations, 'incremental', marketType);
+          if (results.length === 0) {
+            console.log(`[OptimizationScheduler] No results for ${marketType}, skipping`);
+            continue;
+          }
 
-      const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
+          const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
 
-      // Always run OOS validation and persist score (feeds decay factor history)
-      await this.runOOSAndPersist(best);
+          // Always run OOS validation and persist score (feeds decay factor history)
+          await this.runOOSAndPersist(best, marketType);
 
-      if (best.sharpe >= this.state.bestSharpe) {
-        console.log(`[OptimizationScheduler] Found better params: Sharpe ${best.sharpe.toFixed(2)} vs ${this.state.bestSharpe.toFixed(2)}`);
-        await this.updateStrategy(best);
+          const priorBest = this.state.bestSharpePerType[marketType] ?? 0;
+          if (best.sharpe >= priorBest) {
+            console.log(`[OptimizationScheduler] ${marketType}: better params Sharpe ${best.sharpe.toFixed(2)} vs ${priorBest.toFixed(2)}`);
+            await this.updateStrategy(best, marketType);
+          }
+        } catch (err) {
+          console.error(`[OptimizationScheduler] ${marketType} failed:`, err);
+        }
       }
 
       this.state.lastIncrementalAt = new Date();
-      console.log('[OptimizationScheduler] Incremental optimization completed');
+      console.log('[OptimizationScheduler] Incremental optimization completed (all types)');
     } catch (error) {
-      console.error('[OptimizationScheduler] Incremental optimization failed:', error);
+      console.error('[OptimizationScheduler] Incremental orchestration failed:', error);
     } finally {
       this.state.currentRunType = 'idle';
       await this.saveState();
@@ -307,28 +321,39 @@ export class OptimizationScheduler {
   }
 
   private async runFullOptimization(): Promise<void> {
-    console.log('[OptimizationScheduler] Starting full optimization...');
+    console.log('[OptimizationScheduler] Starting full optimization (per-type)...');
     this.state.currentRunType = 'full';
 
     try {
-      const results = await this.runOptimization(this.fullIterations, 'full');
-      if (results.length === 0) return;
+      for (const marketType of MARKET_TYPES) {
+        console.log(`[OptimizationScheduler] === ${marketType} ===`);
+        try {
+          const results = await this.runOptimization(this.fullIterations, 'full', marketType);
+          if (results.length === 0) {
+            console.log(`[OptimizationScheduler] No results for ${marketType}, skipping`);
+            continue;
+          }
 
-      const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
+          const best = results.reduce((a, b) => a.sharpe > b.sharpe ? a : b);
 
-      // Always run OOS validation and persist score (feeds decay factor history)
-      await this.runOOSAndPersist(best);
+          // Always run OOS validation and persist score (feeds decay factor history)
+          await this.runOOSAndPersist(best, marketType);
 
-      if (best.sharpe > this.state.bestSharpe) {
-        console.log(`[OptimizationScheduler] Found better params: Sharpe ${best.sharpe.toFixed(2)} vs ${this.state.bestSharpe.toFixed(2)}`);
-        await this.updateStrategy(best);
+          const priorBest = this.state.bestSharpePerType[marketType] ?? 0;
+          if (best.sharpe >= priorBest) {
+            console.log(`[OptimizationScheduler] ${marketType}: better params Sharpe ${best.sharpe.toFixed(2)} vs ${priorBest.toFixed(2)}`);
+            await this.updateStrategy(best, marketType);
+          }
+        } catch (err) {
+          console.error(`[OptimizationScheduler] ${marketType} failed:`, err);
+        }
       }
 
       this.state.lastFullAt = new Date();
       this.state.lastIncrementalAt = new Date();
-      console.log('[OptimizationScheduler] Full optimization completed');
+      console.log('[OptimizationScheduler] Full optimization completed (all types)');
     } catch (error) {
-      console.error('[OptimizationScheduler] Full optimization failed:', error);
+      console.error('[OptimizationScheduler] Full orchestration failed:', error);
     } finally {
       this.state.currentRunType = 'idle';
       await this.saveState();
@@ -338,19 +363,18 @@ export class OptimizationScheduler {
   // ============================================================
   // Core optimization dispatcher
   // ============================================================
-  private async runOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
+  private async runOptimization(iterations: number, type: 'incremental' | 'full', marketType: string): Promise<OptimizationResult[]> {
     if (this.optunaClient) {
-      // Use refinement space for incremental, full space for full optimization
       const paramSpace = type === 'incremental' ? REFINEMENT_PARAM_SPACE : OPTUNA_PARAM_SPACE;
-      return this.runOptunaOptimization(iterations, type, paramSpace);
+      return this.runOptunaOptimization(iterations, type, marketType, paramSpace);
     }
-    return this.runGridOptimization(iterations, type);
+    return this.runGridOptimization(iterations, type, marketType);
   }
 
   // ============================================================
   // Optuna Bayesian optimization
   // ============================================================
-  private async runOptunaOptimization(iterations: number, type: string, paramSpace?: ParameterDef[]): Promise<OptimizationResult[]> {
+  private async runOptunaOptimization(iterations: number, type: string, marketType: string, paramSpace?: ParameterDef[]): Promise<OptimizationResult[]> {
     const client = this.optunaClient!;
     const runStartedAt = new Date();
     const results: OptimizationResult[] = [];
@@ -360,7 +384,7 @@ export class OptimizationScheduler {
     const alive = await client.ping();
     if (!alive) {
       console.error('[OptimizationScheduler] Optuna server unreachable, falling back to grid search');
-      return this.runGridOptimization(iterations, type as any);
+      return this.runGridOptimization(iterations, type as any, marketType);
     }
 
     // Create fresh optimizer for this run
@@ -368,7 +392,7 @@ export class OptimizationScheduler {
     const nStartupTrials = Math.ceil(iterations * 0.3);  // 30% random exploration
 
     const optimizerId = await client.createOptimizer(
-      `${type}-${new Date().toISOString().slice(0, 10)}`,
+      `${type}-${new Date().toISOString().slice(0, 10)}-${marketType}`,
       effectiveParamSpace,
       { sampler: 'tpe', nStartupTrials }
     );
@@ -385,7 +409,7 @@ export class OptimizationScheduler {
 
     // Preload backtest data once for all trials (same training period)
     console.log('[OptimizationScheduler] Preloading backtest data...');
-    const preloadedData: MarketData[] = await this.backtestService.fetchHistoricalData(startDate, endDate);
+    const preloadedData: MarketData[] = await this.backtestService.fetchHistoricalData(startDate, endDate, undefined, marketType);
     console.log(`[OptimizationScheduler] Preloaded ${preloadedData.length} markets`);
 
     try {
@@ -507,7 +531,7 @@ export class OptimizationScheduler {
   // ============================================================
   // Legacy grid/random search (fallback)
   // ============================================================
-  private async runGridOptimization(iterations: number, type: 'incremental' | 'full'): Promise<OptimizationResult[]> {
+  private async runGridOptimization(iterations: number, type: 'incremental' | 'full', marketType: string): Promise<OptimizationResult[]> {
     const runStartedAt = new Date();
     const results: OptimizationResult[] = [];
     // Use training period only (exclude OOS period)
@@ -611,7 +635,7 @@ export class OptimizationScheduler {
   /**
    * Validate parameters on out-of-sample data
    */
-  private async validateOnOOS(params: Record<string, any>, isScore: number): Promise<OOSValidationResult> {
+  private async validateOnOOS(params: Record<string, any>, isScore: number, marketType: string): Promise<OOSValidationResult> {
     // Gate: don't validate negative in-sample
     if (isScore <= 0) {
       return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: 'IS Sharpe <= 0, nothing to validate' };
@@ -638,7 +662,8 @@ export class OptimizationScheduler {
             },
           };
 
-      const backtest = await this.backtestService.runBacktest(request);
+      const oosData: MarketData[] = await this.backtestService.fetchHistoricalData(oosStartDate, oosEndDate, undefined, marketType);
+      const backtest = await this.backtestService.runBacktest(request, oosData);
 
       if (!backtest.result || !backtest.result.metrics) {
         return { passed: false, sharpeOOS: 0, drawdownOOS: 1, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: 'Backtest failed to produce results' };
@@ -719,9 +744,9 @@ export class OptimizationScheduler {
   // ============================================================
   // OOS validation + persistence (runs always, not just when deploying)
   // ============================================================
-  private async runOOSAndPersist(best: OptimizationResult): Promise<void> {
+  private async runOOSAndPersist(best: OptimizationResult, marketType: string): Promise<void> {
     try {
-      const oosResult = await this.validateOnOOS(best.params, best.sharpe);
+      const oosResult = await this.validateOnOOS(best.params, best.sharpe, marketType);
 
       // Persist OOS score for decay factor history (even if gate failed)
       if (isDatabaseConfigured()) {
@@ -752,7 +777,7 @@ export class OptimizationScheduler {
   // ============================================================
   // Strategy update
   // ============================================================
-  private async updateStrategy(result: OptimizationResult): Promise<void> {
+  private async updateStrategy(result: OptimizationResult, marketType: string): Promise<void> {
     // Basic sanity checks
     if (result.sharpe > 8) {
       console.log(`[OptimizationScheduler] Extremely high Sharpe ${result.sharpe.toFixed(2)}, proceeding with caution`);
@@ -780,7 +805,7 @@ export class OptimizationScheduler {
 
     // Update local state
     this.state.bestParams = result.params;
-    this.state.bestSharpe = result.sharpe;
+    this.state.bestSharpePerType[marketType] = result.sharpe;
 
     // Save to DB
     if (isDatabaseConfigured()) {
@@ -954,7 +979,10 @@ export class OptimizationScheduler {
         const row = result.rows[0];
         if (row.best_params) {
           this.state.bestParams = row.best_params;
-          this.state.bestSharpe = row.best_score;
+          // Legacy row may not carry market_type; per-type ratchet starts fresh on first
+          // per-type run after migration. Assign under '__legacy__' so the structure is
+          // non-empty and the next per-type comparison falls back to 0 cleanly.
+          this.state.bestSharpePerType = { __legacy__: row.best_score };
           this.state.lastFullAt = row.completed_at;
         }
       }
@@ -972,7 +1000,7 @@ export class OptimizationScheduler {
       }
 
       console.log('[OptimizationScheduler] Loaded state:', {
-        bestSharpe: this.state.bestSharpe,
+        bestSharpePerType: this.state.bestSharpePerType,
         lastIncremental: this.state.lastIncrementalAt,
         lastFull: this.state.lastFullAt,
         mode: this.optunaClient ? 'optuna' : 'grid',
