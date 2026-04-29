@@ -96,14 +96,6 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
     description: 'Weight for order flow imbalance signals',
   },
   {
-    name: 'combiner.mlofiWeight',
-    type: 'float',
-    low: 0.0,
-    high: 3.0,
-    category: 'combiner',
-    description: 'Weight for multi-level OFI signals',
-  },
-  {
     name: 'combiner.hawkesWeight',
     type: 'float',
     low: 0.0,
@@ -119,46 +111,11 @@ export const FULL_PARAMETER_SPACE: ParameterDefinition[] = [
     category: 'combiner',
     description: 'Weight for volume anomaly signals',
   },
-  {
-    name: 'combiner.spreadCompressionWeight',
-    type: 'float',
-    low: 0.0,
-    high: 2.0,
-    category: 'combiner',
-    description: 'Weight for spread compression signals',
-  },
-  {
-    name: 'combiner.crossMarketCorrWeight',
-    type: 'float',
-    low: 0.0,
-    high: 2.0,
-    category: 'combiner',
-    description: 'Weight for cross-market correlation signals',
-  },
-  {
-    name: 'combiner.priceDivergenceWeight',
-    type: 'float',
-    low: 0.0,
-    high: 2.0,
-    category: 'combiner',
-    description: 'Weight for price divergence signals',
-  },
-  {
-    name: 'combiner.attentionSpikeWeight',
-    type: 'float',
-    low: 0.0,
-    high: 2.0,
-    category: 'combiner',
-    description: 'Weight for attention spike signals',
-  },
-  {
-    name: 'combiner.newsSentimentWeight',
-    type: 'float',
-    low: 0.0,
-    high: 2.0,
-    category: 'combiner',
-    description: 'Weight for news sentiment signals',
-  },
+  // Note: mlofi, spread_compression, cross_market_corr, price_divergence,
+  // attention_spike, news_sentiment removed per #143 (PR #155). They are not
+  // wired in BacktestService.createSignals so Optuna had zero fitness gradient
+  // on their weights. When backtest plumbing for any of them lands, restore
+  // the entry here. See project_backtest_signal_coverage.md.
   {
     name: 'combiner.conflictResolution',
     type: 'categorical',
@@ -437,7 +394,6 @@ export const MINIMAL_PARAMETER_SPACE: ParameterDefinition[] =
       'combiner.momentumWeight',
       'combiner.meanReversionWeight',
       'combiner.ofiWeight',
-      'combiner.mlofiWeight',
       'combiner.hawkesWeight',
       'risk.maxPositionSizePct',
       'risk.maxPositions',
@@ -736,7 +692,6 @@ export const LEAN_PARAMETER_SPACE: ParameterDefinition[] = FULL_PARAMETER_SPACE.
     'combiner.momentumWeight',
     'combiner.meanReversionWeight',
     'combiner.ofiWeight',
-    'combiner.mlofiWeight',
     'combiner.hawkesWeight',
     'combiner.conflictResolution',
     // Risk (position sizing is critical)
