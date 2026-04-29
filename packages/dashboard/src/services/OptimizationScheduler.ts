@@ -45,18 +45,12 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
   { name: 'combiner.onlyDirection', type: 'categorical', choices: [null, 'LONG', 'SHORT'] },
-  // Signal weights — all active generators
+  // Signal weights — 5 wired generators only
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
   { name: 'combiner.meanReversionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.crossMarketCorrWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.priceDivergenceWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.attentionSpikeWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.newsSentimentWeight', type: 'float', low: 0.0, high: 2.0 },
   // Risk
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
@@ -70,7 +64,7 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
 
 /**
  * Reduced parameter space for incremental refinement
- * Only the 8 most impactful parameters
+ * 5 wired generators only
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   // direction_multiplier excluded — pinned to -1.0 (see OPTUNA_PARAM_SPACE comment above)
@@ -79,14 +73,8 @@ const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
   { name: 'combiner.meanReversionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.crossMarketCorrWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.priceDivergenceWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.attentionSpikeWeight', type: 'float', low: 0.0, high: 2.0 },
-  { name: 'combiner.newsSentimentWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
@@ -583,14 +571,8 @@ export class OptimizationScheduler {
         momentumWeight: params['combiner.momentumWeight'],
         meanReversionWeight: params['combiner.meanReversionWeight'],
         ofiWeight: params['combiner.ofiWeight'],
-        mlofiWeight: params['combiner.mlofiWeight'],
         hawkesWeight: params['combiner.hawkesWeight'],
         volumeAnomalyWeight: params['combiner.volumeAnomalyWeight'],
-        spreadCompressionWeight: params['combiner.spreadCompressionWeight'],
-        crossMarketCorrWeight: params['combiner.crossMarketCorrWeight'],
-        priceDivergenceWeight: params['combiner.priceDivergenceWeight'],
-        attentionSpikeWeight: params['combiner.attentionSpikeWeight'],
-        newsSentimentWeight: params['combiner.newsSentimentWeight'],
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
@@ -920,14 +902,8 @@ export class OptimizationScheduler {
       'combiner.momentumWeight': 'momentum',
       'combiner.meanReversionWeight': 'mean_reversion',
       'combiner.ofiWeight': 'ofi',
-      'combiner.mlofiWeight': 'mlofi',
       'combiner.hawkesWeight': 'hawkes',
       'combiner.volumeAnomalyWeight': 'volume_anomaly',
-      'combiner.spreadCompressionWeight': 'spread_compression',
-      'combiner.crossMarketCorrWeight': 'cross_market_corr',
-      'combiner.priceDivergenceWeight': 'price_divergence',
-      'combiner.attentionSpikeWeight': 'attention_spike',
-      'combiner.newsSentimentWeight': 'news_sentiment',
     };
 
     const MIN_WEIGHT = -1.5;  // Allow negative (contrarian) weights
