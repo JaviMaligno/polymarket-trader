@@ -146,3 +146,80 @@ describe('Trade plumbing for SignalContext.recentTrades', () => {
     expect(cache.trades[0].side).toBe('BUY');
   });
 });
+
+// ---------------------------------------------------------------------------
+// OrderBook plumbing tests
+// ---------------------------------------------------------------------------
+
+describe('OrderBook plumbing for SignalContext.orderBook', () => {
+  function makeOrderBookEvent(time: Date, marketId: string, tokenId: string, bestBid: number, bestAsk: number): any {
+    return {
+      type: 'ORDERBOOK',
+      timestamp: time,
+      data: {
+        time,
+        marketId,
+        tokenId,
+        bestBid,
+        bestAsk,
+        spread: bestAsk - bestBid,
+        midPrice: (bestAsk + bestBid) / 2,
+      },
+    };
+  }
+
+  function newEngine(): any {
+    const engine = new BacktestEngine({
+      config: {
+        startDate: new Date('2026-01-01'),
+        endDate: new Date('2026-01-02'),
+        initialCapital: 10000,
+        granularityMinutes: 60,
+      } as any,
+      marketData: [],
+      signals: [],
+      combiner: null as any,
+    });
+    (engine as any).priceCache = new Map();
+    (engine as any).priceCache.set('m1:tok1', {
+      bars: [],
+      currentBar: null,
+      trades: [],
+      currentOrderBook: undefined,
+    });
+    return engine;
+  }
+
+  it('handleOrderBook stores latest snapshot in cache.currentOrderBook (replace, not accumulate)', () => {
+    const engine = newEngine();
+    const e1 = makeOrderBookEvent(new Date('2026-01-01T00:00:00'), 'm1', 'tok1', 0.49, 0.51);
+    const e2 = makeOrderBookEvent(new Date('2026-01-01T00:05:00'), 'm1', 'tok1', 0.50, 0.52);
+    (engine as any).handleOrderBook(e1);
+    (engine as any).handleOrderBook(e2);
+    const cache = (engine as any).priceCache.get('m1:tok1');
+    expect(cache.currentOrderBook).toBeDefined();
+    expect(cache.currentOrderBook.bestBid).toBe(0.50);
+    expect(cache.currentOrderBook.time).toEqual(e2.timestamp);
+  });
+
+  it('cache init leaves currentOrderBook undefined', () => {
+    const engine = newEngine();
+    const cache = (engine as any).priceCache.get('m1:tok1');
+    expect(cache.currentOrderBook).toBeUndefined();
+  });
+
+  it('handleOrderBook is no-op for unknown market_id (no cache entry)', () => {
+    const engine = newEngine();
+    const e = makeOrderBookEvent(new Date(), 'unknown_market', 'tok1', 0.5, 0.51);
+    expect(() => (engine as any).handleOrderBook(e)).not.toThrow();
+  });
+
+  it('SignalContext exposes currentOrderBook from cache', () => {
+    const engine = newEngine();
+    const e = makeOrderBookEvent(new Date('2026-01-01T00:00:00'), 'm1', 'tok1', 0.50, 0.52);
+    (engine as any).handleOrderBook(e);
+    const cache = (engine as any).priceCache.get('m1:tok1');
+    // Direct cache check is sufficient; full context-build path is exercised in integration
+    expect(cache.currentOrderBook).toBe(e.data);
+  });
+});

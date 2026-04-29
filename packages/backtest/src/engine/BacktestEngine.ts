@@ -15,6 +15,7 @@ import type {
   PortfolioSnapshot,
   PerformanceMetrics,
   PredictionMarketMetrics,
+  OrderBookSnapshot,
 } from '../types/index.js';
 
 import type { ISignal, ISignalCombiner, SignalContext, SignalOutput, Trade } from '@polymarket-trader/signals';
@@ -24,6 +25,11 @@ interface BacktestEngineOptions {
   marketData: MarketData[];
   signals: ISignal[];
   combiner: ISignalCombiner;
+}
+
+export interface OrderBookEvent extends BacktestEvent {
+  type: 'ORDERBOOK';
+  data: OrderBookSnapshot;
 }
 
 export interface IPortfolioManager {
@@ -86,7 +92,7 @@ export class BacktestEngine {
   private isPaused = false;
 
   // Price cache for signal context
-  private priceCache: Map<string, { bars: HistoricalBar[]; currentBar: HistoricalBar; trades: Trade[] }> = new Map();
+  private priceCache: Map<string, { bars: HistoricalBar[]; currentBar: HistoricalBar; trades: Trade[]; currentOrderBook?: OrderBookSnapshot }> = new Map();
 
   constructor(options: BacktestEngineOptions) {
     this.config = options.config;
@@ -143,6 +149,10 @@ export class BacktestEngine {
 
     this.eventBus.on<MarketResolvedEvent>('MARKET_RESOLVED', (event) => {
       this.handleMarketResolved(event);
+    });
+
+    this.eventBus.on<OrderBookEvent>('ORDERBOOK', (event) => {
+      this.handleOrderBook(event);
     });
   }
 
@@ -379,6 +389,20 @@ export class BacktestEngine {
         events.push(tradeEvent);
       }
 
+      // Generate order book events
+      if (market.orderBook) {
+        for (const snap of market.orderBook) {
+          if (snap.time >= this.config.startDate && snap.time <= this.config.endDate) {
+            const obEvent: OrderBookEvent = {
+              type: 'ORDERBOOK',
+              timestamp: snap.time,
+              data: snap,
+            };
+            events.push(obEvent);
+          }
+        }
+      }
+
       // Generate market resolved event if applicable
       if (market.resolved && market.resolutionOutcome && market.endDate) {
         const resolvedEvent: MarketResolvedEvent = {
@@ -406,7 +430,7 @@ export class BacktestEngine {
     // Update price cache
     let cache = this.priceCache.get(key);
     if (!cache) {
-      cache = { bars: [], currentBar: this.priceToBar(event), trades: [] };
+      cache = { bars: [], currentBar: this.priceToBar(event), trades: [], currentOrderBook: undefined };
       this.priceCache.set(key, cache);
     }
 
@@ -470,6 +494,18 @@ export class BacktestEngine {
       if (cache.trades.length > cap) {
         cache.trades.splice(0, cache.trades.length - cap); // trim oldest (FIFO)
       }
+    }
+  }
+
+  /**
+   * Handle order book event — replace (not accumulate) latest snapshot in cache.
+   * Consumed by mlofi and spread_compression via SignalContext.orderBook.
+   */
+  private handleOrderBook(event: OrderBookEvent): void {
+    const cacheKey = `${event.data.marketId}:${event.data.tokenId}`;
+    const cache = this.priceCache.get(cacheKey);
+    if (cache) {
+      cache.currentOrderBook = event.data;
     }
   }
 
@@ -714,6 +750,7 @@ export class BacktestEngine {
           return allBars;
         })(),
         recentTrades: cache.trades,
+        orderBook: cache.currentOrderBook,
       };
 
       // Compute each signal

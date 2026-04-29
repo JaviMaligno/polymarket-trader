@@ -189,7 +189,6 @@ export {
   DEFAULT_RL_CONFIG,
   DQNAgent,
   MarketMakingEnvironment,
-  type OrderBookSnapshot,
   type MarketTick,
   type StepResult,
   ReplayBuffer,
