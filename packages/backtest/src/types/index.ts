@@ -12,6 +12,8 @@ import type {
   AdaptiveMode as AdaptiveModeImport,
 } from './RiskProfiles.js';
 
+import type { OrderBookSnapshot } from '@polymarket-trader/signals';
+
 import {
   getRiskProfile as getRiskProfileImport,
   getDefaultRiskProfile as getDefaultRiskProfileImport,
@@ -31,6 +33,7 @@ import {
 export type RiskConfig = RiskConfigImport;
 export type RiskProfileType = RiskProfileTypeImport;
 export type AdaptiveMode = AdaptiveModeImport;
+export type { OrderBookSnapshot };
 
 // Re-export functions and constants
 export const getRiskProfile = getRiskProfileImport;
@@ -385,4 +388,7 @@ export interface MarketData {
   resolutionOutcome?: 'YES' | 'NO' | 'INVALID';
   bars: HistoricalBar[];
   trades: HistoricalTrade[];
+  /** Order book snapshots, sampled at 5-min cadence to manage memory.
+   *  Consumed by mlofi and spread_compression generators via SignalContext.orderBook. */
+  orderBook?: OrderBookSnapshot[];
 }
