@@ -45,12 +45,14 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
   { name: 'combiner.onlyDirection', type: 'categorical', choices: [null, 'LONG', 'SHORT'] },
-  // Signal weights — 5 wired generators only
+  // Signal weights — 7 wired generators
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
   { name: 'combiner.meanReversionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
   // Risk
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
@@ -64,7 +66,7 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
 
 /**
  * Reduced parameter space for incremental refinement
- * 5 wired generators only
+ * 7 wired generators
  */
 const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   // direction_multiplier excluded — pinned to -1.0 (see OPTUNA_PARAM_SPACE comment above)
@@ -75,6 +77,8 @@ const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.ofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.hawkesWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
@@ -573,6 +577,8 @@ export class OptimizationScheduler {
         ofiWeight: params['combiner.ofiWeight'],
         hawkesWeight: params['combiner.hawkesWeight'],
         volumeAnomalyWeight: params['combiner.volumeAnomalyWeight'],
+        mlofiWeight: params['combiner.mlofiWeight'],
+        spreadCompressionWeight: params['combiner.spreadCompressionWeight'],
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
@@ -904,6 +910,8 @@ export class OptimizationScheduler {
       'combiner.ofiWeight': 'ofi',
       'combiner.hawkesWeight': 'hawkes',
       'combiner.volumeAnomalyWeight': 'volume_anomaly',
+      'combiner.mlofiWeight': 'mlofi',
+      'combiner.spreadCompressionWeight': 'spread_compression',
     };
 
     const MIN_WEIGHT = -1.5;  // Allow negative (contrarian) weights

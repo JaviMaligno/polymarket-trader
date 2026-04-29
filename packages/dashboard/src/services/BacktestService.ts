@@ -74,6 +74,8 @@ export interface BacktestRequest {
     ofiWeight?: number;
     hawkesWeight?: number;
     volumeAnomalyWeight?: number;
+    mlofiWeight?: number;
+    spreadCompressionWeight?: number;
     minCombinedConfidence?: number;
     minCombinedStrength?: number;
     onlyDirection?: string | null;
@@ -172,6 +174,8 @@ export class BacktestService extends EventEmitter {
         ofi: cc?.ofiWeight ?? 0,
         hawkes: cc?.hawkesWeight ?? 0,
         volume_anomaly: cc?.volumeAnomalyWeight ?? 0,
+        mlofi: cc?.mlofiWeight ?? 0,
+        spread_compression: cc?.spreadCompressionWeight ?? 0,
         wallet_tracking: 0.3,
       };
       const combiner = new WeightedAverageCombiner(weights, cc ? {
