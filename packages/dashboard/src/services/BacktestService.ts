@@ -28,6 +28,7 @@ import {
   HawkesSignal,
   VolumeAnomalyGenerator,
   type ISignal,
+  type OrderBookSnapshot,
 } from '@polymarket-trader/signals';
 import { isDatabaseConfigured, query, transaction, type PoolClient } from '../database/index.js';
 
@@ -412,6 +413,56 @@ export class BacktestService extends EventEmitter {
 
       console.log(`[BacktestService] Fetched ${priceResult.rows.length} price bars from database`);
 
+      // Fetch orderbook snapshots at 5-min cadence (DISTINCT ON bucket keeps latest per bucket)
+      const orderBookResult = await transaction(async (client: PoolClient) => {
+        await client.query('SET LOCAL timescaledb.enable_vectorized_aggregation = off');
+        return client.query<{
+          time: Date;
+          market_id: string;
+          token_id: string;
+          best_bid: string;
+          best_ask: string;
+          spread: string;
+          mid_price: string;
+          bid_depth_10pct: string | null;
+          ask_depth_10pct: string | null;
+        }>(
+          `SELECT DISTINCT ON (market_id, bucket)
+             ob.time, ob.market_id, ob.token_id,
+             ob.best_bid, ob.best_ask, ob.spread, ob.mid_price,
+             ob.bid_depth_10pct, ob.ask_depth_10pct,
+             date_trunc('hour', ob.time)
+               + (EXTRACT(MINUTE FROM ob.time)::int / 5) * INTERVAL '5 minutes' AS bucket
+           FROM orderbook_snapshots ob
+           JOIN markets m ON ob.market_id = m.id
+           WHERE ob.time >= $1 AND ob.time <= $2
+             AND ob.market_id = ANY($3)
+             AND ob.token_id = m.clob_token_id_yes
+           ORDER BY market_id, bucket, time DESC`,
+          [startDate, endDate, selectedMarkets],
+        );
+      });
+
+      console.log(`[BacktestService] Fetched ${orderBookResult.rows.length} orderbook snapshots`);
+
+      // Group orderbook snapshots by market_id
+      const orderBookByMarket = new Map<string, OrderBookSnapshot[]>();
+      for (const row of orderBookResult.rows) {
+        const list = orderBookByMarket.get(row.market_id) || [];
+        list.push({
+          time: row.time,
+          marketId: row.market_id,
+          tokenId: row.token_id,
+          bestBid: parseFloat(row.best_bid),
+          bestAsk: parseFloat(row.best_ask),
+          spread: parseFloat(row.spread),
+          midPrice: parseFloat(row.mid_price),
+          bidDepth10Pct: row.bid_depth_10pct ? parseFloat(row.bid_depth_10pct) : undefined,
+          askDepth10Pct: row.ask_depth_10pct ? parseFloat(row.ask_depth_10pct) : undefined,
+        });
+        orderBookByMarket.set(row.market_id, list);
+      }
+
       // Group by market
       const marketMap = new Map<string, MarketData>();
 
@@ -425,6 +476,7 @@ export class BacktestService extends EventEmitter {
             resolved: false,
             bars: [],
             trades: [],
+            orderBook: orderBookByMarket.get(marketId) || [],
           });
         }
 
