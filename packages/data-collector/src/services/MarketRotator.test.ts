@@ -736,7 +736,9 @@ describe('MarketRotator', () => {
 
       const sqlsSeen: string[] = [];
       mockedQuery.mockImplementation(async (sql: string) => {
-        if (typeof sql === 'string' && sql.includes('tracking_status IN')) {
+        // Only capture SELECT queries for tracked markets — the rotateAll pre-step
+        // also includes 'tracking_status IN' (UPDATE), so filter to SELECTs only.
+        if (typeof sql === 'string' && sql.trimStart().startsWith('SELECT') && sql.includes('tracking_status IN')) {
           sqlsSeen.push(sql);
         }
         return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
