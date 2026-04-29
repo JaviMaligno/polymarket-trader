@@ -57,6 +57,7 @@ import { query } from '../database/index.js';
 import { paperPositionsRepo } from '../database/repositories.js';
 import { getPositionClosingService } from './PositionClosingService.js';
 import { AutoSignalExecutor, type SignalResult } from './AutoSignalExecutor.js';
+import { getSignalSigmaCache, __resetSignalSigmaCacheForTests } from './SignalSigmaCache.js';
 
 const makeSignal = (overrides?: Partial<SignalResult>): SignalResult => ({
   signalId: 'momentum',
@@ -652,6 +653,108 @@ describe('AutoSignalExecutor', () => {
       expect(positionArg.applied_direction_multiplier ?? null).toBeNull();
       expect(positionArg.was_exploration ?? false).toBe(false);
       openSpy.mockRestore();
+    });
+  });
+
+  // =========================================================
+  // Task 5: Concentration gate (same-direction re-entry filter)
+  // =========================================================
+  describe('Concentration gate', () => {
+    beforeEach(() => {
+      __resetSignalSigmaCacheForTests();
+      // Pre-populate cache via direct getter mutation (test-only)
+      const cache = getSignalSigmaCache();
+      (cache as any).sigmas = new Map([
+        ['event_financial', 0.353],
+      ]);
+    });
+
+    it('blocks same-direction re-entry with weaker conviction than prev close', async () => {
+      // Mock chain: market query (1st), consecutive-loss check (2nd, empty),
+      // long-term loser ban (3rd, empty), prev-close signal (4th)
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null, market_type: 'event_financial' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] })
+        .mockResolvedValueOnce({
+          rows: [{ direction: 'short', strength: '-0.5', confidence: '0.8' }], // prev close: |s×c| = 0.40
+        });
+
+      const signal = makeSignal({ direction: 'short', strength: -0.4, confidence: 0.6 }); // |s×c| = 0.24
+      const result = await executor.processSignal(signal);
+
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/Same-direction re-entry conviction/i);
+      expect(result.reason).toMatch(/0\.240/); // newSxC in reason
+      expect(result.reason).toMatch(/event_financial/);
+    });
+
+    it('allows same-direction re-entry when conviction is ≥ 1σ stronger', async () => {
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null, market_type: 'event_financial' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] })
+        .mockResolvedValueOnce({
+          rows: [{ direction: 'short', strength: '-0.5', confidence: '0.8' }], // prev: 0.40
+        });
+
+      const signal = makeSignal({ direction: 'short', strength: -0.95, confidence: 0.9 }); // 0.855 > 0.40+0.353
+      const result = await executor.processSignal(signal);
+
+      if (!result.executed) {
+        expect(result.reason).not.toMatch(/Same-direction re-entry conviction/i);
+      }
+    });
+
+    it('allows direction flip regardless of conviction', async () => {
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null, market_type: 'event_financial' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] })
+        .mockResolvedValueOnce({
+          rows: [{ direction: 'short', strength: '-0.8', confidence: '0.9' }], // prev: 0.72 (very strong)
+        });
+
+      const signal = makeSignal({ direction: 'long', strength: 0.3, confidence: 0.5 }); // weak but flipped
+      const result = await executor.processSignal(signal);
+
+      if (!result.executed) {
+        expect(result.reason).not.toMatch(/Same-direction re-entry conviction/i);
+      }
+    });
+
+    it('allows when no prior close on this market exists', async () => {
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null, market_type: 'event_financial' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] })
+        .mockResolvedValueOnce({ rows: [] }); // no prev close
+
+      const signal = makeSignal({ direction: 'long', strength: 0.3, confidence: 0.5 });
+      const result = await executor.processSignal(signal);
+
+      if (!result.executed) {
+        expect(result.reason).not.toMatch(/Same-direction re-entry conviction/i);
+      }
+    });
+
+    it('uses 0.3 fallback σ for unknown market_type', async () => {
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null, market_type: 'event_long' }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] })
+        .mockResolvedValueOnce({
+          rows: [{ direction: 'short', strength: '-0.5', confidence: '0.8' }], // prev: 0.40
+        });
+
+      // With σ = 0.3 (fallback), threshold = 0.40 + 0.3 = 0.70
+      // signal s×c = 0.65 → block
+      const signal = makeSignal({ direction: 'short', strength: -0.65, confidence: 1.0 });
+      const result = await executor.processSignal(signal);
+
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/Same-direction re-entry conviction/i);
+      expect(result.reason).toMatch(/event_long/);
     });
   });
 });
