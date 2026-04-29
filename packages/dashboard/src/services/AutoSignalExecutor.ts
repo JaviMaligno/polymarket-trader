@@ -25,6 +25,8 @@ import { getTokenPrice } from './PriceService.js';
 import { getCircuitBreakerService } from './CircuitBreakerService.js';
 import { getExecutionRouter } from './ExecutionRouter.js';
 import { OrderBookExecutionSimulator, type SimulationResult } from './OrderBookExecutionSimulator.js';
+import { getSignalSigmaCache } from './SignalSigmaCache.js';
+import { shouldBlockReopen, getKSigma, type PrevCloseSignal } from './concentrationGate.js';
 
 // ---------------------------------------------------------------------------
 // Inline score helpers (mirror MarketScorer statics — no cross-package import)
@@ -403,10 +405,10 @@ export class AutoSignalExecutor extends EventEmitter {
     //   - CLOB API's condition_id (stored as 'condition_id' in DB)
     // We search by BOTH to handle signals from PolymarketService (uses condition_id)
     let isNearResolution = false;
-    let market: { is_active: boolean; is_resolved: boolean; end_date: string | null } | null = null;
+    let market: { is_active: boolean; is_resolved: boolean; end_date: string | null; market_type: string | null } | null = null;
     try {
-      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date: string | null }>(
-        `SELECT is_active, is_resolved, end_date FROM markets WHERE id = $1`,
+      const marketCheck = await query<{ is_active: boolean; is_resolved: boolean; end_date: string | null; market_type: string | null }>(
+        `SELECT is_active, is_resolved, end_date, market_type FROM markets WHERE id = $1`,
         [signal.marketId]
       );
 
@@ -677,6 +679,50 @@ export class AutoSignalExecutor extends EventEmitter {
         }
       } catch {
         // Non-fatal: proceed without the check
+      }
+
+      // 4d. Concentration gate: block same-direction re-entry unless conviction
+      // grew by ≥ k × σ since prior close on this market_id.
+      // Spec: docs/plans/2026-04-29-concentration-gate-design.md.
+      try {
+        const prevCloseResult = await query<{ direction: string; strength: string; confidence: string }>(
+          `SELECT direction, strength, confidence FROM signal_predictions
+           WHERE market_id = $1
+             AND metadata->>'action' = 'close'
+           ORDER BY time DESC
+           LIMIT 1`,
+          [signal.marketId],
+        );
+        const prevClose: PrevCloseSignal | null = prevCloseResult.rows[0]
+          ? {
+              direction: prevCloseResult.rows[0].direction as 'long' | 'short',
+              strength: parseFloat(prevCloseResult.rows[0].strength),
+              confidence: parseFloat(prevCloseResult.rows[0].confidence),
+            }
+          : null;
+
+        const marketType: string = signal.marketType
+          ?? market?.market_type
+          ?? 'unknown';
+
+        const sigma = getSignalSigmaCache().getSigma(marketType);
+        const k = getKSigma();
+
+        if (shouldBlockReopen(
+          { direction: signal.direction, strength: signal.strength, confidence: signal.confidence },
+          prevClose,
+          sigma,
+          k,
+        )) {
+          const newSxC = Math.abs(signal.strength * signal.confidence);
+          const prevSxC = prevClose ? Math.abs(prevClose.strength * prevClose.confidence) : 0;
+          const threshold = prevSxC + k * sigma;
+          const reason = `Same-direction re-entry conviction not materially stronger (s×c ${newSxC.toFixed(3)} < ${threshold.toFixed(3)} = prev ${prevSxC.toFixed(3)} + ${k.toFixed(2)}σ ${sigma.toFixed(3)}, ${marketType})`;
+          return { executed: false, reason };
+        }
+      } catch (err) {
+        console.error('[AutoExecutor] Concentration gate query failed (allowing open):', err);
+        // Non-fatal: proceed without the gate rather than blocking on DB error
       }
     }
 
