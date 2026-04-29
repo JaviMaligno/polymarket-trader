@@ -110,7 +110,8 @@ const OOS_SAFETY_FLOOR = {
   minSharpe: -1.0,
   /** Maximum OOS drawdown — reject catastrophic */
   maxDrawdown: 0.50,
-  /** Minimum trades in OOS for statistical signal */
+  /** Legacy default minimum trades for unknown market types. Per-type values
+   *  in OOS_MIN_TRADES_PER_TYPE override this. */
   minTrades: 20,
   /** Minimum distinct markets evaluated — prevents apply on tiny universes
    *  where local maxima are statistically meaningless. Triggered by the
@@ -118,6 +119,33 @@ const OOS_SAFETY_FLOOR = {
    *  direction_multiplier=+1.0208 (causing 13.5% drawdown). */
   minMarkets: parseInt(process.env.OPTIMIZER_MIN_MARKETS_FOR_APPLY || '8', 10),
 };
+
+/** Per-market-type OOS minimum-trade floors. Reflect realistic trade counts
+ *  per OOS window (4 days) given each type's holding-time distribution.
+ *  Empirically: event_long observed 7 trades / 4d window (rejected by the old
+ *  uniform floor of 20 even with positive IS Sharpe 0.113); event_financial
+ *  observed 34 trades / 4d window. See issue #147 — proper fix is adaptive
+ *  thresholds derived from per-type historical trade-count distributions. */
+export const OOS_MIN_TRADES_PER_TYPE: Record<string, number> = {
+  crypto_intraday: 30,
+  crypto_daily: 20,
+  event_financial: 15,
+  event_short: 10,
+  event_long: 5,
+};
+
+/** Resolves the OOS min-trade floor for a given market_type, honoring the
+ *  OPTIMIZER_MIN_TRADES_<TYPE> env override. Falls back to OOS_SAFETY_FLOOR.minTrades
+ *  for unknown types. Invalid env values (non-numeric, ≤ 0) are ignored. */
+export function getOosMinTrades(marketType: string): number {
+  const envKey = `OPTIMIZER_MIN_TRADES_${marketType.toUpperCase()}`;
+  const envVal = process.env[envKey];
+  if (envVal !== undefined) {
+    const parsed = parseInt(envVal, 10);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return OOS_MIN_TRADES_PER_TYPE[marketType] ?? OOS_SAFETY_FLOOR.minTrades;
+}
 
 const MARKET_TYPES = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short', 'event_long'] as const;
 type MarketType = typeof MARKET_TYPES[number];
@@ -700,8 +728,9 @@ export class OptimizationScheduler {
       if (marketsEvaluated < OOS_SAFETY_FLOOR.minMarkets) {
         return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Markets ${marketsEvaluated} < ${OOS_SAFETY_FLOOR.minMarkets} (universe too small to apply)` };
       }
-      if (trades < OOS_SAFETY_FLOOR.minTrades) {
-        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Trades ${trades} < ${OOS_SAFETY_FLOOR.minTrades}` };
+      const minTradesForType = getOosMinTrades(marketType);
+      if (trades < minTradesForType) {
+        return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `Trades ${trades} < ${minTradesForType} (${marketType} min)` };
       }
       if (oosScore < OOS_SAFETY_FLOOR.minSharpe) {
         return { passed: false, sharpeOOS: oosScore, drawdownOOS: metrics.maxDrawdown, tradesOOS: trades, winRateOOS: metrics.winRate, marketsEvaluated, reason: `OOS Sharpe ${oosScore.toFixed(3)} < ${OOS_SAFETY_FLOOR.minSharpe}` };
