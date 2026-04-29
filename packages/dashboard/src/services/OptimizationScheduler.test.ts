@@ -274,3 +274,101 @@ describe('runGridOptimization marketType filter (#146)', () => {
     expect(preloadedArg).toBe(filteredData);
   });
 });
+
+describe('applyGlobalThresholds — once per cycle, max-Sharpe winner (#145)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(query).mockResolvedValue({ rows: [] } as any);
+  });
+
+  it('updateStrategy returns wasApplied=true when OOS passes', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = {
+      passed: true,
+      sharpeOOS: 0.5,
+      drawdownOOS: 0.1,
+      tradesOOS: 30,
+      winRateOOS: 0.5,
+      marketsEvaluated: 10,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    const result = await (scheduler as any).updateStrategy(
+      { params: {}, sharpe: 0.5, totalReturn: 0.05, trades: 30 },
+      'event_financial',
+    );
+
+    expect(result.wasApplied).toBe(true);
+  });
+
+  it('updateStrategy returns wasApplied=false when OOS fails', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = {
+      passed: false,
+      sharpeOOS: 0,
+      drawdownOOS: 0,
+      tradesOOS: 0,
+      winRateOOS: 0,
+      marketsEvaluated: 0,
+      reason: 'low Sharpe',
+    };
+
+    const result = await (scheduler as any).updateStrategy(
+      { params: {}, sharpe: 0.5, totalReturn: 0.05, trades: 30 },
+      'event_financial',
+    );
+
+    expect(result.wasApplied).toBe(false);
+  });
+
+  it('updateStrategy returns wasApplied=false when totalReturn < -0.1', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = { passed: true };
+
+    const result = await (scheduler as any).updateStrategy(
+      { params: {}, sharpe: 0.5, totalReturn: -0.5, trades: 30 },
+      'event_financial',
+    );
+
+    expect(result.wasApplied).toBe(false);
+  });
+
+  it('updateStrategy no longer touches global executor config or strategy API', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = {
+      passed: true,
+      sharpeOOS: 0.5,
+      drawdownOOS: 0.1,
+      tradesOOS: 30,
+      winRateOOS: 0.5,
+      marketsEvaluated: 10,
+    };
+    const fetchSpy = vi.fn().mockResolvedValue({ ok: false, json: vi.fn() });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await (scheduler as any).updateStrategy(
+      { params: {}, sharpe: 0.5, totalReturn: 0.05, trades: 30 },
+      'event_financial',
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('applyGlobalThresholds calls strategy API and updates executor config', async () => {
+    const scheduler = new OptimizationScheduler();
+    const fetchSpy = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ data: { strategies: [] } }) })
+      .mockResolvedValueOnce({ ok: true, json: vi.fn().mockResolvedValue({ data: { id: 'new-strat' } }) })
+      .mockResolvedValueOnce({ ok: true });
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await (scheduler as any).applyGlobalThresholds(
+      { params: { 'combiner.minCombinedStrength': 0.3, 'combiner.minCombinedConfidence': 0.5 }, sharpe: 0.5, totalReturn: 0.05, trades: 30 },
+      'event_financial',
+    );
+
+    expect(fetchSpy).toHaveBeenCalled();
+    // 1st GET strategies, 2nd POST create, 3rd POST start
+    expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});

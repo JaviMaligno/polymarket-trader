@@ -325,6 +325,8 @@ export class OptimizationScheduler {
     console.log('[OptimizationScheduler] Starting incremental optimization (per-type)...');
     this.state.currentRunType = 'incremental';
 
+    const winners: Array<{ marketType: string; result: OptimizationResult }> = [];
+
     try {
       for (const marketType of MARKET_TYPES) {
         console.log(`[OptimizationScheduler] === ${marketType} ===`);
@@ -343,11 +345,20 @@ export class OptimizationScheduler {
           const priorBest = this.state.bestSharpePerType[marketType] ?? 0;
           if (best.sharpe >= priorBest) {
             console.log(`[OptimizationScheduler] ${marketType}: better params Sharpe ${best.sharpe.toFixed(2)} vs ${priorBest.toFixed(2)}`);
-            await this.updateStrategy(best, marketType);
+            const { wasApplied } = await this.updateStrategy(best, marketType);
+            if (wasApplied) winners.push({ marketType, result: best });
           }
         } catch (err) {
           console.error(`[OptimizationScheduler] ${marketType} failed:`, err);
         }
+      }
+
+      // #145 fix: deploy global thresholds ONCE per cycle with the max-Sharpe winner.
+      // Pre-fix this ran inside updateStrategy per-type → last-in wins on minEdge/minConfidence.
+      if (winners.length > 0) {
+        const winner = winners.reduce((a, b) => a.result.sharpe > b.result.sharpe ? a : b);
+        console.log(`[OptimizationScheduler] Cycle winner: ${winner.marketType} (Sharpe ${winner.result.sharpe.toFixed(3)}, ${winners.length} types qualified)`);
+        await this.applyGlobalThresholds(winner.result, winner.marketType);
       }
 
       this.state.lastIncrementalAt = new Date();
@@ -363,6 +374,8 @@ export class OptimizationScheduler {
   private async runFullOptimization(): Promise<void> {
     console.log('[OptimizationScheduler] Starting full optimization (per-type)...');
     this.state.currentRunType = 'full';
+
+    const winners: Array<{ marketType: string; result: OptimizationResult }> = [];
 
     try {
       for (const marketType of MARKET_TYPES) {
@@ -382,11 +395,19 @@ export class OptimizationScheduler {
           const priorBest = this.state.bestSharpePerType[marketType] ?? 0;
           if (best.sharpe >= priorBest) {
             console.log(`[OptimizationScheduler] ${marketType}: better params Sharpe ${best.sharpe.toFixed(2)} vs ${priorBest.toFixed(2)}`);
-            await this.updateStrategy(best, marketType);
+            const { wasApplied } = await this.updateStrategy(best, marketType);
+            if (wasApplied) winners.push({ marketType, result: best });
           }
         } catch (err) {
           console.error(`[OptimizationScheduler] ${marketType} failed:`, err);
         }
+      }
+
+      // #145 fix: deploy global thresholds ONCE per cycle with the max-Sharpe winner.
+      if (winners.length > 0) {
+        const winner = winners.reduce((a, b) => a.result.sharpe > b.result.sharpe ? a : b);
+        console.log(`[OptimizationScheduler] Cycle winner: ${winner.marketType} (Sharpe ${winner.result.sharpe.toFixed(3)}, ${winners.length} types qualified)`);
+        await this.applyGlobalThresholds(winner.result, winner.marketType);
       }
 
       this.state.lastFullAt = new Date();
@@ -832,9 +853,15 @@ export class OptimizationScheduler {
   private _lastOOSResult: OOSValidationResult | null = null;
 
   // ============================================================
-  // Strategy update
+  // Strategy update — Phase A: per-type writes (idempotent globals + per-type weights)
+  //
+  // Returns { wasApplied } so the caller can collect winners and invoke
+  // applyGlobalThresholds() ONCE per cycle with the highest-Sharpe winner.
+  // Pre-#145 this method also redeployed the global combo strategy and updated
+  // executor.config; that block now lives in applyGlobalThresholds. See
+  // docs/plans/2026-04-29-update-strategy-global-thresholds-design.md.
   // ============================================================
-  private async updateStrategy(result: OptimizationResult, marketType: string): Promise<void> {
+  private async updateStrategy(result: OptimizationResult, marketType: string): Promise<{ wasApplied: boolean }> {
     // Basic sanity checks
     if (result.sharpe > 8) {
       console.log(`[OptimizationScheduler] Extremely high Sharpe ${result.sharpe.toFixed(2)}, proceeding with caution`);
@@ -844,7 +871,7 @@ export class OptimizationScheduler {
     }
     if (result.totalReturn < -0.1) {
       console.log(`[OptimizationScheduler] Negative return (${(result.totalReturn * 100).toFixed(1)}%), skipping deployment`);
-      return;
+      return { wasApplied: false };
     }
 
     // OOS Validation Gate (already ran in runOOSAndPersist)
@@ -854,11 +881,11 @@ export class OptimizationScheduler {
       if (oosResult) {
         console.log(`[OptimizationScheduler] OOS metrics: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, DD=${(oosResult.drawdownOOS * 100).toFixed(1)}%, Trades=${oosResult.tradesOOS}, WR=${(oosResult.winRateOOS * 100).toFixed(1)}%`);
       }
-      return;
+      return { wasApplied: false };
     }
 
     console.log(`[OptimizationScheduler] OOS validation PASSED: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, Trades=${oosResult.tradesOOS}`);
-    console.log('[OptimizationScheduler] Deploying optimized strategy...');
+    console.log(`[OptimizationScheduler] Persisting per-type weights for ${marketType}...`);
 
     // Update local state
     this.state.bestParams = result.params;
@@ -925,6 +952,18 @@ export class OptimizationScheduler {
       }
     }
 
+    return { wasApplied: true };
+  }
+
+  // ============================================================
+  // Strategy update — Phase B: global threshold deploy
+  //
+  // Runs ONCE per cycle in runIncrementalOptimization / runFullOptimization,
+  // with the highest-Sharpe winner across the per-type loop. Pre-#145 this
+  // ran inside updateStrategy and was clobbered by whichever type processed
+  // last. See docs/plans/2026-04-29-update-strategy-global-thresholds-design.md.
+  // ============================================================
+  private async applyGlobalThresholds(result: OptimizationResult, marketType: string): Promise<void> {
     // Extract minEdge/minConfidence (works for both Optuna and grid params)
     const minEdge = result.params['combiner.minCombinedStrength']
       ?? result.params.minEdge
@@ -932,6 +971,8 @@ export class OptimizationScheduler {
     const minConfidence = result.params['combiner.minCombinedConfidence']
       ?? result.params.minConfidence
       ?? DEFAULT_BEST_PARAMS.minConfidence;
+
+    console.log(`[OptimizationScheduler] Applying global thresholds from ${marketType} winner: minEdge=${minEdge}, minConfidence=${minConfidence}`);
 
     // Update active strategy via API
     try {
@@ -983,7 +1024,7 @@ export class OptimizationScheduler {
         }
       }
     } catch (error) {
-      console.error('[OptimizationScheduler] Failed to update strategy:', error);
+      console.error('[OptimizationScheduler] Failed to apply global thresholds:', error);
     }
   }
 
