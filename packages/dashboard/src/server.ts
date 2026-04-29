@@ -30,6 +30,7 @@ import { RealExecutor } from './services/RealExecutor.js';
 import { ExecutionRouter, setExecutionRouter } from './services/ExecutionRouter.js';
 import { WalletMonitor, setWalletMonitor } from './services/WalletMonitor.js';
 import { getNotificationService } from './services/NotificationService.js';
+import { getSignalSigmaCache } from './services/SignalSigmaCache.js';
 
 const logger = pino({ name: 'server' });
 
@@ -442,6 +443,15 @@ async function main(): Promise<void> {
       } catch (err) {
         console.error('[server] best_sharpe_per_type migration failed:', err);
         throw err;
+      }
+
+      // Concentration gate prerequisite: cache σ(strength × confidence) per market_type
+      // and refresh every 6 h. See docs/plans/2026-04-29-concentration-gate-design.md.
+      try {
+        await getSignalSigmaCache().start();
+        console.log('[server] SignalSigmaCache started (refresh every 6 h)');
+      } catch (err) {
+        console.error('[server] SignalSigmaCache start failed (gate will use fallback σ):', err);
       }
 
       // Check for blocking autovacuum every 15 minutes
