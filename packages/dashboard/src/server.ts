@@ -430,6 +430,27 @@ async function main(): Promise<void> {
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
+      // #143 cleanup: drop per-type rows for generators not wired in BacktestService.createSignals.
+      // Idempotent — re-running deletes nothing on a clean DB.
+      // See docs/plans/2026-04-29-backtest-signal-coverage-design.md.
+      try {
+        await query(`
+          DELETE FROM signal_weights
+          WHERE market_type != '__global__'
+            AND signal_type IN (
+              'mlofi',
+              'spread_compression',
+              'cross_market_corr',
+              'price_divergence',
+              'attention_spike',
+              'news_sentiment'
+            );
+        `);
+        console.log('[server] backtest-signal-coverage cleanup migration applied');
+      } catch (err) {
+        console.error('[server] backtest-signal-coverage cleanup failed:', err);
+      }
+
       // Issue #144: persist per-type bestSharpe ratchet across restarts.
       // Without this column, loadState rebuilds bestSharpePerType as
       // { __legacy__: <last_overall_score> } and every real market_type
