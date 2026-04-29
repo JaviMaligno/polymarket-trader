@@ -17,7 +17,7 @@ import type {
   PredictionMarketMetrics,
 } from '../types/index.js';
 
-import type { ISignal, ISignalCombiner, SignalContext, SignalOutput } from '@polymarket-trader/signals';
+import type { ISignal, ISignalCombiner, SignalContext, SignalOutput, Trade } from '@polymarket-trader/signals';
 
 interface BacktestEngineOptions {
   config: BacktestConfig;
@@ -86,7 +86,7 @@ export class BacktestEngine {
   private isPaused = false;
 
   // Price cache for signal context
-  private priceCache: Map<string, { bars: HistoricalBar[]; currentBar: HistoricalBar }> = new Map();
+  private priceCache: Map<string, { bars: HistoricalBar[]; currentBar: HistoricalBar; trades: Trade[] }> = new Map();
 
   constructor(options: BacktestEngineOptions) {
     this.config = options.config;
@@ -406,7 +406,7 @@ export class BacktestEngine {
     // Update price cache
     let cache = this.priceCache.get(key);
     if (!cache) {
-      cache = { bars: [], currentBar: this.priceToBar(event) };
+      cache = { bars: [], currentBar: this.priceToBar(event), trades: [] };
       this.priceCache.set(key, cache);
     }
 
@@ -450,6 +450,26 @@ export class BacktestEngine {
   private handleTrade(event: TradeEvent): void {
     if (this.orderBookSimulator) {
       this.orderBookSimulator.handleTrade(event);
+    }
+
+    // Plumb trades through to per-market cache for SignalContext.recentTrades.
+    // Generators ofi / hawkes consume these. See spec
+    // docs/plans/2026-04-29-backtest-signal-coverage-design.md.
+    const cacheKey = `${event.data.marketId}:${event.data.tokenId}`;
+    const cache = this.priceCache.get(cacheKey);
+    if (cache) {
+      cache.trades.push({
+        time: event.timestamp,
+        marketId: event.data.marketId,
+        tokenId: event.data.tokenId,
+        side: event.data.side,
+        price: event.data.price,
+        size: event.data.size,
+      });
+      const cap = this.config.maxRecentTrades ?? 200;
+      if (cache.trades.length > cap) {
+        cache.trades.splice(0, cache.trades.length - cap); // trim oldest (FIFO)
+      }
     }
   }
 
@@ -693,7 +713,7 @@ export class BacktestEngine {
             : [...cache.bars, cache.currentBar];
           return allBars;
         })(),
-        recentTrades: [],
+        recentTrades: cache.trades,
       };
 
       // Compute each signal
