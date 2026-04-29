@@ -594,7 +594,14 @@ export class OptimizationScheduler {
 
     const shuffled = paramCombos.sort(() => Math.random() - 0.5).slice(0, iterations);
 
-    console.log(`[OptimizationScheduler] Running ${shuffled.length} grid-search backtests...`);
+    console.log(`[OptimizationScheduler] Running ${shuffled.length} grid-search backtests for ${marketType}...`);
+
+    // Preload filtered training data once per cycle (mirrors the Optuna path).
+    // Without this filter the grid path would backtest the full universe and
+    // write the result into a per-type row, producing meaningless per-type
+    // weights when Optuna is offline. See issue #146.
+    const preloadedData: MarketData[] = await this.backtestService.fetchHistoricalData(startDate, endDate, undefined, marketType);
+    console.log(`[OptimizationScheduler] Preloaded ${preloadedData.length} markets for ${marketType}`);
 
     for (let i = 0; i < shuffled.length; i++) {
       const params = shuffled[i];
@@ -616,7 +623,7 @@ export class OptimizationScheduler {
             minStrength: params.minEdge,
             minConfidence: params.minConfidence,
           },
-        });
+        }, preloadedData);
 
         if (backtest.result && backtest.result.metrics) {
           const result = {

@@ -219,3 +219,58 @@ describe('bestSharpePerType persistence', () => {
     expect((scheduler as any).state.bestSharpePerType).toEqual({ __legacy__: 0.42 });
   });
 });
+
+describe('runGridOptimization marketType filter (#146)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(query).mockResolvedValue({ rows: [] } as any);
+  });
+
+  it('preloads filtered data once per cycle via fetchHistoricalData(start, end, undefined, marketType)', async () => {
+    const scheduler = new OptimizationScheduler();
+    const filteredData = [{ marketId: 'm1' }, { marketId: 'm2' }] as any[];
+    const fetchSpy = vi.fn().mockResolvedValue(filteredData);
+    const runBacktestSpy = vi.fn().mockResolvedValue({
+      result: {
+        metrics: { sharpeRatio: 0.3, totalReturn: 0.05, maxDrawdown: 0.1 },
+        trades: [],
+      },
+    });
+    (scheduler as any).backtestService = {
+      fetchHistoricalData: fetchSpy,
+      runBacktest: runBacktestSpy,
+    };
+    (scheduler as any).backtestDelayMs = 0;
+
+    await (scheduler as any).runGridOptimization(2, 'incremental', 'event_long');
+
+    // Preloaded once with marketType='event_long'
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const args = fetchSpy.mock.calls[0];
+    expect(args[2]).toBeUndefined();          // marketIds
+    expect(args[3]).toBe('event_long');       // marketType
+  });
+
+  it('passes preloaded filtered data to runBacktest as second argument', async () => {
+    const scheduler = new OptimizationScheduler();
+    const filteredData = [{ marketId: 'm1' }] as any[];
+    const fetchSpy = vi.fn().mockResolvedValue(filteredData);
+    const runBacktestSpy = vi.fn().mockResolvedValue({
+      result: {
+        metrics: { sharpeRatio: 0.2, totalReturn: 0.04, maxDrawdown: 0.1 },
+        trades: [],
+      },
+    });
+    (scheduler as any).backtestService = {
+      fetchHistoricalData: fetchSpy,
+      runBacktest: runBacktestSpy,
+    };
+    (scheduler as any).backtestDelayMs = 0;
+
+    await (scheduler as any).runGridOptimization(1, 'incremental', 'crypto_daily');
+
+    expect(runBacktestSpy).toHaveBeenCalled();
+    const [, preloadedArg] = runBacktestSpy.mock.calls[0];
+    expect(preloadedArg).toBe(filteredData);
+  });
+});
