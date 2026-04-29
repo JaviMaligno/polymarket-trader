@@ -57,9 +57,11 @@ function shouldBlockReopen(signal, marketId, marketType):
   return true                                        // BLOCK: same bet, equal-or-weaker conviction
 ```
 
-If `shouldBlockReopen` returns true: refuse the open with reason `"Same-direction re-entry conviction not materially stronger (s×c ${newSxC} < ${threshold} = prev ${prevSxC} + 1σ ${sigma})"`. The rejection is logged at INFO level (not warning) and counted in the existing executor stats.
+If `shouldBlockReopen` returns true: refuse the open with reason `"Same-direction re-entry conviction not materially stronger (s×c ${newSxC} < ${threshold} = prev ${prevSxC} + ${k}σ ${sigma})"`. The rejection is logged at INFO level (not warning) and counted in the existing executor stats.
 
-The constant `k = 1.0` (in σ units) is hardcoded with a comment referencing the empirical sensitivity check. Future tuning happens via a separate spec, not an env var, to avoid silent runtime drift.
+`k` defaults to `1.0` (the empirically-validated knee of the diminishing-returns curve) and is overridable via env var `OPTIMIZER_CONCENTRATION_K_SIGMA`. Pattern mirrors `OPTIMIZER_MIN_TRADES_<TYPE>` introduced in PR #150 — runtime-tunable without a redeploy. Validation: env values that fail to parse as a positive number fall back to 1.0 with a startup warning.
+
+**Why env var instead of Optuna parameter**: making `k` optimizable via Optuna requires the BacktestEngine to apply this same concentration gate during trials so the optimizer can measure its effect on Sharpe. That parallel-implementation work is a separate spec (see Out of scope). Until the backtest gate exists, env var is the right tuning surface.
 
 ## σ computation and caching
 
@@ -105,6 +107,9 @@ The σ cache: new file `packages/dashboard/src/services/SignalSigmaCache.ts`, wi
 10. **σ refresh on schedule**: cache after refresh has expected values from mocked DB query.
 11. **DB query for prevClose returns null**: rule allows.
 12. **Rejection reason string contains numeric values for debugging**.
+13. **`OPTIMIZER_CONCENTRATION_K_SIGMA = '1.5'`**: gate uses 1.5σ instead of 1.0.
+14. **`OPTIMIZER_CONCENTRATION_K_SIGMA = 'abc'` (invalid)**: falls back to 1.0 default with warning logged.
+15. **`OPTIMIZER_CONCENTRATION_K_SIGMA = '-1'` (invalid, non-positive)**: falls back to 1.0.
 
 ## Acceptance criteria
 
@@ -124,6 +129,7 @@ The σ cache: new file `packages/dashboard/src/services/SignalSigmaCache.ts`, wi
 - Per-position-size adjustments based on signal strength delta: separate work.
 - Replacing this rule with Kelly sizing or risk-parity: aspirational, not in scope.
 - Direction-flip cooldown: data shows direction-flip openings are not the dominant loss driver.
+- **Making `k` Optuna-optimizable**: requires porting the concentration gate into `BacktestEngine` so that Optuna trials measure its effect on Sharpe, then adding `concentration.kSigmaThreshold` to `OPTUNA_PARAM_SPACE`. Tracked as a separate follow-up — when picked up, it should also revisit whether `k` should be per-market-type rather than global.
 
 ## Files touched
 
