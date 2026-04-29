@@ -352,6 +352,7 @@ export class MarketRotator {
          AND clob_token_id_yes IS NOT NULL
          AND market_score >= $1
          AND (current_price_yes IS NULL OR (current_price_yes >= 0.05 AND current_price_yes <= 0.95))
+         AND (end_date IS NULL OR end_date > NOW())
          AND ${candidateLane.sql}
        ORDER BY market_score DESC
        LIMIT 50`,
@@ -419,6 +420,14 @@ export class MarketRotator {
    * complicate lock contention on the markets table.
    */
   async rotateAll(): Promise<{ live: RotationResult; shadow: RotationResult }> {
+    // Evict markets whose end_date has passed before running either lane.
+    // Expired markets can't be traded, but without this step they hold warming/active
+    // slots indefinitely because the demotion logic only checks score and price.
+    await query(
+      `UPDATE markets SET tracking_status = 'cold', tracking_status_changed_at = NOW()
+       WHERE tracking_status IN ('warming', 'active', 'cooling')
+         AND end_date IS NOT NULL AND end_date < NOW()`,
+    );
     const live = await this.rotate('live');
     const shadow = await this.rotate('shadow');
     return { live, shadow };
