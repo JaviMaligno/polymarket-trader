@@ -69,14 +69,8 @@ export interface BacktestRequest {
     momentumWeight?: number;
     meanReversionWeight?: number;
     ofiWeight?: number;
-    mlofiWeight?: number;
     hawkesWeight?: number;
     volumeAnomalyWeight?: number;
-    spreadCompressionWeight?: number;
-    crossMarketCorrWeight?: number;
-    priceDivergenceWeight?: number;
-    attentionSpikeWeight?: number;
-    newsSentimentWeight?: number;
     minCombinedConfidence?: number;
     minCombinedStrength?: number;
     onlyDirection?: string | null;
@@ -173,14 +167,8 @@ export class BacktestService extends EventEmitter {
         momentum: cc?.momentumWeight ?? 0.5,
         mean_reversion: cc?.meanReversionWeight ?? 0.5,
         ofi: cc?.ofiWeight ?? 0,
-        mlofi: cc?.mlofiWeight ?? 0,
         hawkes: cc?.hawkesWeight ?? 0,
         volume_anomaly: cc?.volumeAnomalyWeight ?? 0,
-        spread_compression: cc?.spreadCompressionWeight ?? 0,
-        cross_market_corr: cc?.crossMarketCorrWeight ?? 0,
-        price_divergence: cc?.priceDivergenceWeight ?? 0,
-        attention_spike: cc?.attentionSpikeWeight ?? 0,
-        news_sentiment: cc?.newsSentimentWeight ?? 0,
         wallet_tracking: 0.3,
       };
       const combiner = new WeightedAverageCombiner(weights, cc ? {
