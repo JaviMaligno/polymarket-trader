@@ -24,6 +24,9 @@ import {
   MeanReversionSignal,
   WalletTrackingSignal,
   WeightedAverageCombiner,
+  OrderFlowImbalanceSignal,
+  HawkesSignal,
+  VolumeAnomalyGenerator,
   type ISignal,
 } from '@polymarket-trader/signals';
 import { isDatabaseConfigured, query, transaction, type PoolClient } from '../database/index.js';
@@ -534,6 +537,15 @@ export class BacktestService extends EventEmitter {
           break;
         case 'wallet_tracking':
           signals.push(new WalletTrackingSignal());
+          break;
+        case 'ofi':
+          signals.push(new OrderFlowImbalanceSignal());
+          break;
+        case 'hawkes':
+          signals.push(new HawkesSignal());
+          break;
+        case 'volume_anomaly':
+          signals.push(new VolumeAnomalyGenerator());
           break;
         default:
           console.warn(`[BacktestService] Unknown signal type: ${type}`);
