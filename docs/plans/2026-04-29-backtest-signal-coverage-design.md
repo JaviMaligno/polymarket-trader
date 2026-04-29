@@ -1,8 +1,6 @@
 # Backtest signal coverage — Design (Issue #143, B-extended)
 
-**Status**: **DEFERRED 2026-04-29**. Spec is complete and reviewed but de-prioritized. During brainstorm review against actual trading problems, the user concluded that shadow execution realism (`project_shadow_execution_realism.md`) and other root-cause levers move the trading needle more than this incremental optimizer cleanup. Re-evaluate after those land.
-
-When resumed: this spec is implementation-ready, no further design needed. Skip to writing-plans.
+**Status**: Active 2026-04-29 (resumed after concentration gate + #145 shipped). Implementation-ready.
 **Closes**: Issue #143 (partial — 5 of 11 generators wired; the remaining 6 documented as out-of-scope follow-ups).
 **Branch**: `feat/backtest-signal-coverage`.
 
