@@ -1042,8 +1042,12 @@ export class OptimizationScheduler {
         }
       }
 
-      const stateResult = await query<{ last_incremental_run_at: Date | null; last_full_run_at: Date | null }>(`
-        SELECT last_incremental_run_at, last_full_run_at
+      const stateResult = await query<{
+        last_incremental_run_at: Date | null;
+        last_full_run_at: Date | null;
+        best_sharpe_per_type: Record<string, number> | null;
+      }>(`
+        SELECT last_incremental_run_at, last_full_run_at, best_sharpe_per_type
         FROM optimization_service_state
         WHERE id = 'main'
       `);
@@ -1052,6 +1056,11 @@ export class OptimizationScheduler {
         const state = stateResult.rows[0];
         this.state.lastIncrementalAt = state.last_incremental_run_at;
         this.state.lastFullAt = state.last_full_run_at || this.state.lastFullAt;
+        // Restore per-type ratchet if populated; otherwise keep the legacy
+        // fallback assigned above. Empty {} is treated as "not yet populated".
+        if (state.best_sharpe_per_type && Object.keys(state.best_sharpe_per_type).length > 0) {
+          this.state.bestSharpePerType = state.best_sharpe_per_type;
+        }
       }
 
       console.log('[OptimizationScheduler] Loaded state:', {
@@ -1070,17 +1079,19 @@ export class OptimizationScheduler {
 
     try {
       await query(`
-        INSERT INTO optimization_service_state (id, is_running, last_incremental_run_at, last_full_run_at, updated_at)
-        VALUES ('main', $1, $2, $3, NOW())
+        INSERT INTO optimization_service_state (id, is_running, last_incremental_run_at, last_full_run_at, best_sharpe_per_type, updated_at)
+        VALUES ('main', $1, $2, $3, $4::jsonb, NOW())
         ON CONFLICT (id) DO UPDATE SET
-          is_running = $1,
-          last_incremental_run_at = $2,
-          last_full_run_at = $3,
-          updated_at = NOW()
+          is_running = EXCLUDED.is_running,
+          last_incremental_run_at = EXCLUDED.last_incremental_run_at,
+          last_full_run_at = EXCLUDED.last_full_run_at,
+          best_sharpe_per_type = EXCLUDED.best_sharpe_per_type,
+          updated_at = EXCLUDED.updated_at
       `, [
         this.state.isRunning,
         this.state.lastIncrementalAt,
         this.state.lastFullAt,
+        JSON.stringify(this.state.bestSharpePerType),
       ]);
     } catch (error) {
       console.error('[OptimizationScheduler] Failed to save state:', error);

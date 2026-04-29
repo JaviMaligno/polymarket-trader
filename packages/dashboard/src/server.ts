@@ -429,6 +429,21 @@ async function main(): Promise<void> {
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
+      // Issue #144: persist per-type bestSharpe ratchet across restarts.
+      // Without this column, loadState rebuilds bestSharpePerType as
+      // { __legacy__: <last_overall_score> } and every real market_type
+      // falls back to 0 on the next cycle. Mirror init/026_*.sql.
+      try {
+        await query(`
+          ALTER TABLE optimization_service_state
+            ADD COLUMN IF NOT EXISTS best_sharpe_per_type JSONB NOT NULL DEFAULT '{}'::jsonb;
+        `);
+        console.log('[server] optimization_service_state.best_sharpe_per_type column ensured');
+      } catch (err) {
+        console.error('[server] best_sharpe_per_type migration failed:', err);
+        throw err;
+      }
+
       // Check for blocking autovacuum every 15 minutes
       setInterval(async () => {
         try {
