@@ -38,6 +38,7 @@ vi.mock('../utils/vmHealth.js', () => ({
 }));
 
 import { signalWeightsRepo } from '../database/repositories.js';
+import { query } from '../database/index.js';
 import { OptimizationScheduler, getOosMinTrades, OOS_MIN_TRADES_PER_TYPE } from './OptimizationScheduler.js';
 
 describe('OptimizationScheduler', () => {
@@ -147,5 +148,74 @@ describe('getOosMinTrades', () => {
     expect(getOosMinTrades('event_long')).toBe(5);
     process.env.OPTIMIZER_MIN_TRADES_EVENT_LONG = '-3';
     expect(getOosMinTrades('event_long')).toBe(5);
+  });
+});
+
+describe('bestSharpePerType persistence', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(query).mockResolvedValue({ rows: [] } as any);
+  });
+
+  it('saveState writes bestSharpePerType as JSONB to optimization_service_state', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = {
+      event_financial: 0.42,
+      event_long: 0.11,
+    };
+
+    await (scheduler as any).saveState();
+
+    const stateUpsertCall = vi.mocked(query).mock.calls.find(
+      ([sql]) => typeof sql === 'string' && sql.includes('optimization_service_state'),
+    );
+    expect(stateUpsertCall).toBeDefined();
+    const params = stateUpsertCall?.[1] as unknown[];
+    // Last param is the JSON payload — assert it carries the per-type map.
+    const jsonParam = params.find(
+      (p) => typeof p === 'string' && p.includes('event_financial'),
+    );
+    expect(jsonParam).toBe(JSON.stringify({ event_financial: 0.42, event_long: 0.11 }));
+  });
+
+  it('loadState restores bestSharpePerType from optimization_service_state row', async () => {
+    const persisted = { event_financial: 0.55, event_short: 0.18 };
+    vi.mocked(query).mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM optimization_runs')) {
+        return { rows: [{ best_params: { foo: 1 }, best_score: 0.99, completed_at: new Date('2026-04-28') }] } as any;
+      }
+      if (sql.includes('FROM optimization_service_state')) {
+        return {
+          rows: [{
+            last_incremental_run_at: null,
+            last_full_run_at: null,
+            best_sharpe_per_type: persisted,
+          }],
+        } as any;
+      }
+      return { rows: [] } as any;
+    });
+
+    const scheduler = new OptimizationScheduler();
+    await (scheduler as any).loadState();
+
+    expect((scheduler as any).state.bestSharpePerType).toEqual(persisted);
+  });
+
+  it('loadState falls back to { __legacy__: best_score } when persisted column is absent or empty', async () => {
+    vi.mocked(query).mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM optimization_runs')) {
+        return { rows: [{ best_params: { foo: 1 }, best_score: 0.42, completed_at: new Date() }] } as any;
+      }
+      if (sql.includes('FROM optimization_service_state')) {
+        return { rows: [{ last_incremental_run_at: null, last_full_run_at: null, best_sharpe_per_type: {} }] } as any;
+      }
+      return { rows: [] } as any;
+    });
+
+    const scheduler = new OptimizationScheduler();
+    await (scheduler as any).loadState();
+
+    expect((scheduler as any).state.bestSharpePerType).toEqual({ __legacy__: 0.42 });
   });
 });
