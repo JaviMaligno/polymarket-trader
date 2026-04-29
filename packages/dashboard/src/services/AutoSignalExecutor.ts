@@ -807,8 +807,15 @@ export class AutoSignalExecutor extends EventEmitter {
       const currentCapital = parseFloat(accountResult.rows[0]?.current_capital ?? '0');
 
       // Don't open if near CB threshold — prevents open->CB->close->reopen cycle
+      // Use equity (capital + open position value) matching CircuitBreakerService calculation
       const initialCapital = parseFloat(process.env.INITIAL_CAPITAL || '10000');
-      const drawdownPct = ((initialCapital - currentCapital) / initialCapital) * 100;
+      const exposureResult = await query<{ total_exposure: string }>(
+        `SELECT COALESCE(SUM(size * current_price), 0) as total_exposure
+         FROM paper_positions WHERE closed_at IS NULL`
+      );
+      const totalExposure = parseFloat(exposureResult.rows[0]?.total_exposure || '0');
+      const currentEquity = currentCapital + totalExposure;
+      const drawdownPct = ((initialCapital - currentEquity) / initialCapital) * 100;
       const CB_THRESHOLD = parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100; // env is decimal (0.15 = 15%)
       if (drawdownPct > CB_THRESHOLD - 2) {
         console.log(`[AutoSignalExecutor] Skipping open — drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%`);
