@@ -223,6 +223,10 @@ export interface BacktestConfig {
     minStrength?: number;
     minConfidence?: number;
   };
+  /** Max number of recent trades retained per market in BacktestEngine cache.
+   *  Used by signal generators that consume `SignalContext.recentTrades` (ofi, hawkes).
+   *  Default 200 — covers typical generator lookbacks (5–50 events) with 4× margin. */
+  maxRecentTrades?: number;
 }
 
 export interface SlippageConfig {
