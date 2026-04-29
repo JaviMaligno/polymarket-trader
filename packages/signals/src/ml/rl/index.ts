@@ -14,7 +14,6 @@ export * from './types.js';
 export { DQNAgent } from './DQNAgent.js';
 export {
   MarketMakingEnvironment,
-  type OrderBookSnapshot,
   type MarketTick,
   type StepResult,
 } from './Environment.js';
