@@ -27,6 +27,8 @@ import {
   OrderFlowImbalanceSignal,
   HawkesSignal,
   VolumeAnomalyGenerator,
+  MultiLevelOFISignal,
+  SpreadCompressionGenerator,
   type ISignal,
   type OrderBookSnapshot,
 } from '@polymarket-trader/signals';
@@ -586,6 +588,12 @@ export class BacktestService extends EventEmitter {
           break;
         case 'volume_anomaly':
           signals.push(new VolumeAnomalyGenerator());
+          break;
+        case 'mlofi':
+          signals.push(new MultiLevelOFISignal());
+          break;
+        case 'spread_compression':
+          signals.push(new SpreadCompressionGenerator());
           break;
         default:
           console.warn(`[BacktestService] Unknown signal type: ${type}`);
