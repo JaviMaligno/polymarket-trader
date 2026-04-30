@@ -36,9 +36,11 @@ OptimizationScheduler.runIncrementalOptimization (per-type loop)
     ↓ post-OOS write
 signal_weights row: (signal_type='direction_multiplier', market_type=X) → ±1
     ↓ next sync cycle
-SignalEngine.syncTypeWeights() loads typeDirectionMultipliers map
+SignalEngine.syncTypeWeights() calls combiner.setDirectionMultipliers({[marketType]: dm})
     ↓ at signal emission
-WeightedAverageCombiner.applyDirectionMultiplier(combinedSignal, marketType)
+DirectionResolver returns contextKey = marketType
+    ↓
+WeightedAverageCombiner.getDirectionMultiplier(contextKey) → looks up contextDirectionMultipliers
 ```
 
 Reuses every component shipped in PR #143/#155/#157. No new tables, no new services, no new schedulers.
@@ -89,48 +91,76 @@ The plan picks Path A unless the existing startup bootstrap turns out to be one-
 
 ## 5. Runtime changes
 
-### 5.1 `WeightedAverageCombiner.ts`
+The combiner already has the API we need (`setDirectionMultipliers(map)` and `getDirectionMultiplier(contextKey)` accepting a string-keyed lookup with global fallback — `WeightedAverageCombiner.ts:155-174`). We do **not** add a new `typeDirectionMultipliers` map; we fill the existing `contextDirectionMultipliers` with `marketType` keys.
 
-Currently `applyDirectionMultiplier` reads `this.directionMultiplier` (a single global number set from env var or constructor). Change:
+The combiner's `combine()` already accepts `marketType` and `directionContextKey` (line 182-187). The live path (`SignalEngine.ts:510`) already passes both. The plumbing is in place.
 
-```typescript
-// Before
-private directionMultiplier: number;
-applyDirectionMultiplier(signal: SignalOutput): SignalOutput {
-  return { ...signal, direction: signal.direction * this.directionMultiplier };
-}
+### 5.1 Fill `contextDirectionMultipliers` from `signal_weights`
 
-// After
-private typeDirectionMultipliers: Map<string, number> = new Map();
-private fallbackDirectionMultiplier: number = -1; // kept for unknown market_type only
-applyDirectionMultiplier(signal: SignalOutput, marketType: string | undefined): SignalOutput {
-  const dm = (marketType && this.typeDirectionMultipliers.get(marketType)) ?? this.fallbackDirectionMultiplier;
-  return { ...signal, direction: signal.direction * dm };
-}
-setTypeDirectionMultipliers(map: Map<string, number>): void {
-  this.typeDirectionMultipliers = map;
-}
-```
+Today `contextDirectionMultipliers` is populated by `DirectionMultiplierLearningService` with composite keys (e.g. `event_financial-40to60|seg-7`). After this PR it is populated by `SignalEngine.syncTypeWeights()` with **simple `marketType` keys** read from `signal_weights` rows where `signal_type='direction_multiplier'`.
 
-The fallback `−1` ensures markets with unknown type (e.g. classifier still pending) match historical behaviour. It is **not** zero — zero would silence signals.
+`SignalEngine.syncTypeWeights()`:
+1. Existing query loads per-type generator weights → `combiner.setTypeWeights(map)`.
+2. **New**: same query (or a sibling one) also pulls rows where `signal_type = 'direction_multiplier'`, builds `Record<marketType, number>`, and calls `combiner.setDirectionMultipliers(record)`.
 
-### 5.2 `SignalEngine.syncTypeWeights()`
+The two calls happen inside the same sync cycle. No new schedule.
 
-Existing logic loads per-type generator weights into `combiner.setTypeWeights(map)`. Extend the SQL query to also pull `signal_type='direction_multiplier'` rows and call `combiner.setTypeDirectionMultipliers(map)`.
+### 5.2 `DirectionResolver` fallback to `marketType`-only key
 
-The two updates run sequentially within the existing sync cycle (no new schedule, no new job).
+`DirectionResolver.resolve(...)` returns `{ multiplier, contextKey }`. Today the `contextKey` it returns is something like `event_financial-40to60` (always includes priceBucket) or `event_financial-40to60|seg-7` (with segment match). The combiner then looks up that key in `contextDirectionMultipliers`, which now stores keys like `event_financial`. Mismatch — fallback to global = −1.
+
+Fix: when no `LearningService` segment matches, **the resolver returns `contextKey = marketType`** (no priceBucket suffix, no segment suffix). The combiner finds the per-type row, applies it.
+
+If a future LearningService re-activates (PR-3 might preserve it for sub-segmentation), it can still inject finer keys via `setDirectionMultiplier(multiplier, finerContextKey)` — they sit alongside the per-type keys without collision because the resolver picks one or the other based on priority.
+
+This is the smallest change that makes the per-type bootstrap actually take effect at runtime. Without it, `signal_weights` rows would be written but never consulted.
 
 ### 5.3 `OptimizationScheduler` per-type loop
 
 In `runPerTypeIncremental(marketType)`:
-- After Optuna best params returned, the existing `WEIGHT_PARAM_MAP` writes `combiner.<x>Weight` rows. Extend the map with `'combiner.directionMultiplier' → 'direction_multiplier'`.
-- The write follows the same OOS-gated path: if OOS fails, the row is **not** updated (existing dm value persists). No special-case logic needed.
+- After Optuna best params returned and OOS gate passes, the existing `WEIGHT_PARAM_MAP` writes `combiner.<x>Weight` rows. Extend the map with `'combiner.directionMultiplier' → 'direction_multiplier'`.
+- Same OOS-gated path: if OOS fails, the row is **not** updated. Existing dm value persists.
 
-**Existing FULL-strategy test stays valid.** `OptimizationScheduler.test.ts:70` ("always enforces direction_multiplier to -1.0 after a successful optimization") asserts that `updateStrategy` (the FULL pathway) pins dm to −1.0 regardless of optimizer output. This behaviour stays — the FULL strategy still has no per-type concept, so its dm pin guards against drift on the global path. Our change only adds a separate per-type write path. New tests cover that path; the existing test is untouched.
+**Existing FULL-strategy test stays valid.** `OptimizationScheduler.test.ts:70` ("always enforces direction_multiplier to -1.0 after a successful optimization") asserts that `updateStrategy` (the FULL pathway) pins dm to −1.0 regardless of optimizer output. The FULL pathway has no per-type concept, so its global pin is the right safeguard there. Our per-type write path is separate — new tests cover it; the existing test is untouched.
 
-### 5.4 `mapOptunaParamsToRequest` (per-type request builder)
+### 5.4 `mapOptunaParamsToRequest` — wire dm into the trial backtest
 
-`combinerConfig.directionMultiplier` already accepted by `BacktestRequest`. The per-type request builder must forward Optuna's chosen `combiner.directionMultiplier` for that type's study. Single-line addition.
+`mapOptunaParamsToRequest(params, startDate, endDate)` builds the `BacktestRequest` for each Optuna trial. It currently maps `combiner.<x>Weight` params into `combinerConfig.<x>Weight`. **Add an explicit map entry**:
+
+```typescript
+combinerConfig: {
+  // existing weights...
+  directionMultiplier: params['combiner.directionMultiplier'] as number | undefined,
+}
+```
+
+Without this line, every per-type trial runs with the combiner's hardcoded default `−1`, the optimizer's choice between `−1` and `+1` produces identical fitness, and the per-type optimizer cannot learn dm. **This is the line that closes the optimizer feedback loop.**
+
+### 5.5 `BacktestService.createBacktest` — apply dm to the trial combiner
+
+Two adjustments to `BacktestService.ts`:
+
+(a) Add field to the `combinerConfig` interface (`BacktestService.ts:71-86`):
+
+```typescript
+combinerConfig?: {
+  // existing fields...
+  directionMultiplier?: number;
+};
+```
+
+(b) Apply it when constructing the combiner (`BacktestService.ts:181-188`):
+
+```typescript
+const combiner = new WeightedAverageCombiner(weights, cc ? { ... } : undefined);
+if (cc?.directionMultiplier !== undefined) {
+  combiner.setDirectionMultiplier(cc.directionMultiplier);
+}
+```
+
+This means each per-type trial backtest applies the dm Optuna chose for that trial. Markets in the trial's pool already share one `market_type` (per-type filter from PR #143), so a single global dm in the trial is correct: the trial answers "for this type, what is the best dm?".
+
+`BacktestEngine.combine()` (line 813) does **not** need to change. It already calls `combiner.combine(signals, currentTime)` without `marketType`, and that is fine because the combiner during a per-type trial only ever sees one type — the global `directionMultiplier` set in (b) is the right value for every signal in that trial.
 
 ## 6. Optimizer parameter space
 
@@ -254,17 +284,20 @@ WHERE signal_type = 'direction_multiplier' AND weight NOT IN (-1.0, 1.0);
 ## 11. Files touched
 
 ```
-packages/data-collector/src/database/init/NNN_direction_multiplier_per_type_seed.sql  [new]
-packages/optimizer/src/core/ParameterSpace.ts                                          [add to PER_TYPE_PARAMETER_SPACE]
-packages/optimizer/src/core/ParameterSpace.test.ts                                     [add 2 regression tests]
-packages/signals/src/combiners/WeightedAverageCombiner.ts                              [typeDirectionMultipliers map + applyDirectionMultiplier signature]
-packages/signals/src/combiners/WeightedAverageCombiner.test.ts                         [unit tests for per-type dm path + fallback]
-packages/dashboard/src/services/SignalEngine.ts                                        [extend syncTypeWeights to load dm rows]
-packages/dashboard/src/services/SignalEngine.test.ts                                   [test sync loads dm rows]
-packages/dashboard/src/services/OptimizationScheduler.ts                               [extend WEIGHT_PARAM_MAP to include direction_multiplier]
-packages/dashboard/src/services/OptimizationScheduler.test.ts                          [test write path for direction_multiplier]
-packages/dashboard/src/services/BacktestService.ts                                     [forward combinerConfig.directionMultiplier from request to combiner during trial]
+packages/data-collector/src/database/init/028_direction_multiplier_per_type_seed.sql  [new]
+packages/optimizer/src/core/ParameterSpace.ts                                          [add categorical entry to PER_TYPE_PARAMETER_SPACE]
+packages/optimizer/src/core/ParameterSpace.test.ts                                     [add 2 regression tests for categorical-only domain]
+packages/dashboard/src/services/DirectionResolver.ts                                   [fall back to contextKey = marketType when no segment match]
+packages/dashboard/src/services/DirectionResolver.test.ts                              [test marketType-only fallback]
+packages/dashboard/src/services/SignalEngine.ts                                        [extend syncTypeWeights to load dm rows + call setDirectionMultipliers(record)]
+packages/dashboard/src/services/SignalEngine.test.ts                                   [test sync loads dm rows + applies them via combiner]
+packages/dashboard/src/services/OptimizationScheduler.ts                               [extend WEIGHT_PARAM_MAP for per-type dm; mapOptunaParamsToRequest forwards combiner.directionMultiplier]
+packages/dashboard/src/services/OptimizationScheduler.test.ts                          [test per-type write path + mapping]
+packages/dashboard/src/services/BacktestService.ts                                     [add directionMultiplier? to combinerConfig interface; apply combiner.setDirectionMultiplier() before backtest]
+packages/dashboard/src/services/BacktestService.test.ts (or similar)                   [test trial dm propagates to combiner]
 docs/plans/2026-04-30-direction-multiplier-per-type-design.md                          [this file]
 ```
 
-Estimated scope: 2 files new (migration + design doc) + 7 files modified. Total LOC ~150 (mostly tests).
+Note: `WeightedAverageCombiner.ts` is **not** modified — the API we need (`setDirectionMultipliers`, `getDirectionMultiplier(contextKey)`, `combine(..., marketType, contextKey)`) already exists.
+
+Estimated scope: 2 files new (migration + design doc) + 9 files modified. Total LOC ~180 (mostly tests).
