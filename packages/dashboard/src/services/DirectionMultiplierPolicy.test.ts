@@ -89,3 +89,42 @@ describe('DirectionMultiplierPolicy', () => {
     expect(map['event_financial|60to80|medium|financial-mid']).toBe(-0.75);
   });
 });
+
+describe('sanitizeDirectionMultiplierPolicy — perMarketType', () => {
+  const baseInput = {
+    global: -1,
+    minMultiplier: -1.25,
+    maxMultiplier: 1,
+    segments: [],
+  };
+
+  it('passes through valid perMarketType values', () => {
+    const result = sanitizeDirectionMultiplierPolicy({
+      ...baseInput,
+      perMarketType: { event_financial: 1, crypto_intraday: -1 },
+    });
+    expect(result.perMarketType).toEqual({ event_financial: 1, crypto_intraday: -1 });
+  });
+
+  it('clamps perMarketType values to [minMultiplier, maxMultiplier]', () => {
+    const result = sanitizeDirectionMultiplierPolicy({
+      ...baseInput,
+      perMarketType: { event_financial: 5, crypto_intraday: -10 },
+    });
+    expect(result.perMarketType?.event_financial).toBe(1);
+    expect(result.perMarketType?.crypto_intraday).toBe(-1.25);
+  });
+
+  it('drops NaN and Infinity entries from perMarketType', () => {
+    const result = sanitizeDirectionMultiplierPolicy({
+      ...baseInput,
+      perMarketType: { good: 1, nan: NaN, inf: Infinity, neginf: -Infinity },
+    });
+    expect(result.perMarketType).toEqual({ good: 1 });
+  });
+
+  it('returns perMarketType undefined when input has no perMarketType', () => {
+    const result = sanitizeDirectionMultiplierPolicy({ ...baseInput });
+    expect(result.perMarketType).toBeUndefined();
+  });
+});
