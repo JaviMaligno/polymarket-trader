@@ -25,7 +25,7 @@ If the same trades had been entered with `dm=+1`, estimated WR would be ~81%. Th
 
 Move `directionMultiplier` into the per-type optimizer infrastructure (`signal_weights` table, per-type Optuna study, OOS-gated apply) **as a categorical parameter with choices `[-1.0, +1.0]`**. Categorical-only domain makes drift impossible by construction: Optuna can only flip the sign, never settle on intermediate values. Per-type lets each `market_type` converge to its empirical optimum.
 
-The `DirectionMultiplierLearningService` becomes redundant once dm lives in the per-type optimizer pipeline. PR-1 leaves it running but irrelevant (the combiner reads from `signal_weights`, not from `trading_config.direction_multiplier_policy`); subsequent PRs deprecate and remove it.
+The `DirectionMultiplierLearningService` becomes redundant once dm lives in the per-type optimizer pipeline. PR-1 leaves it running but its outputs are dominated by the new per-type layer (segments still take precedence over per-type if any are ever promoted, which is currently never). Subsequent PRs deprecate and remove it.
 
 ## 3. Architecture
 
@@ -35,15 +35,22 @@ Optuna PER_TYPE study (categorical {-1, +1})
 OptimizationScheduler.runIncrementalOptimization (per-type loop)
     ↓ post-OOS write
 signal_weights row: (signal_type='direction_multiplier', market_type=X) → ±1
-    ↓ next sync cycle
-SignalEngine.syncTypeWeights() calls combiner.setDirectionMultipliers({[marketType]: dm})
-    ↓ at signal emission
-DirectionResolver returns contextKey = marketType
+    ↓ on next signal cycle
+policyProvider() composes DirectionMultiplierPolicy = {
+  global: from trading_config (legacy),
+  perMarketType: from signal_weights (new),
+  segments: from trading_config (legacy, currently empty),
+}
     ↓
-WeightedAverageCombiner.getDirectionMultiplier(contextKey) → looks up contextDirectionMultipliers
+DirectionResolver.resolve(ctx) → resolveDirectionMultiplier(policy, ctx):
+  1. segment match? use it (currently never)
+  2. else perMarketType[ctx.marketType] match? use it (NEW path)
+  3. else policy.global (or ε-greedy exploration on miss)
+    ↓
+SignalEngine.combine() applies the resolved multiplier
 ```
 
-Reuses every component shipped in PR #143/#155/#157. No new tables, no new services, no new schedulers.
+Zero new tables, services, or schedulers. The change is concentrated in two pure functions (`resolveDirectionMultiplier`, `policyProvider`) plus the optimizer feedback loop wiring.
 
 ## 4. Data layer
 
@@ -91,56 +98,100 @@ The plan picks Path A unless the existing startup bootstrap turns out to be one-
 
 ## 5. Runtime changes
 
-The combiner already has the API we need (`setDirectionMultipliers(map)` and `getDirectionMultiplier(contextKey)` accepting a string-keyed lookup with global fallback — `WeightedAverageCombiner.ts:155-174`). We do **not** add a new `typeDirectionMultipliers` map; we fill the existing `contextDirectionMultipliers` with `marketType` keys.
+The change is concentrated in the policy layer. The runtime flow today is:
 
-The combiner's `combine()` already accepts `marketType` and `directionContextKey` (line 182-187). The live path (`SignalEngine.ts:510`) already passes both. The plumbing is in place.
+```
+SignalEngine.computeMarketSignals(market):
+  1. policy = await directionResolver.deps.policyProvider()          // reads trading_config
+  2. resolution = directionResolver.resolve(ctx)                      // segment match → policy.global → exploration
+  3. combiner.setDirectionMultiplier(resolution.multiplier, resolution.contextKey)
+  4. combiner.combine(signals, marketType, resolution.contextKey)
+```
 
-### 5.1 Fill `contextDirectionMultipliers` from `signal_weights`
+We extend the `policy` object with a new `perMarketType` field, slot a new step into `resolveDirectionMultiplier()` between segment match and global fallback, and compose the policy from both `trading_config` (legacy) and `signal_weights` (new). No changes to `SignalEngine`, no changes to `WeightedAverageCombiner`, no changes to `DirectionResolver.resolve()` itself.
 
-Today `contextDirectionMultipliers` is populated by `DirectionMultiplierLearningService` with composite keys (e.g. `event_financial-40to60|seg-7`). After this PR it is populated by `SignalEngine.syncTypeWeights()` with **simple `marketType` keys** read from `signal_weights` rows where `signal_type='direction_multiplier'`.
+### 5.1 Extend `DirectionMultiplierPolicy` interface
 
-`SignalEngine.syncTypeWeights()`:
-1. Existing query loads per-type generator weights → `combiner.setTypeWeights(map)`.
-2. **New**: same query (or a sibling one) also pulls rows where `signal_type = 'direction_multiplier'`, builds `Record<marketType, number>`, and calls `combiner.setDirectionMultipliers(record)`.
+In `packages/dashboard/src/services/DirectionMultiplierPolicy.ts`:
 
-The two calls happen inside the same sync cycle. No new schedule.
+```typescript
+export interface DirectionMultiplierPolicy {
+  global: number;
+  perMarketType?: Record<string, number>;   // NEW — keys are market_type strings
+  segments: DirectionMultiplierSegment[];
+  minMultiplier: number;
+  maxMultiplier: number;
+  // ...existing fields
+}
+```
 
-### 5.2 `DirectionResolver` fallback to `marketType`-only key
+The `sanitizeDirectionMultiplierPolicy()` helper in the same file is extended to clamp `perMarketType` values to `[minMultiplier, maxMultiplier]` and drop NaN/Infinity entries.
 
-`DirectionResolver.resolve(...)` returns `{ multiplier, contextKey }`. Today the `contextKey` it returns is something like `event_financial-40to60` (always includes priceBucket) or `event_financial-40to60|seg-7` (with segment match). The combiner then looks up that key in `contextDirectionMultipliers`, which now stores keys like `event_financial`. Mismatch — fallback to global = −1.
+### 5.2 Extend `resolveDirectionMultiplier()`
 
-Fix: when no `LearningService` segment matches, **the resolver returns `contextKey = marketType`** (no priceBucket suffix, no segment suffix). The combiner finds the per-type row, applies it.
+Same file, in the function that today returns `policy.global` after segment miss:
 
-If a future LearningService re-activates (PR-3 might preserve it for sub-segmentation), it can still inject finer keys via `setDirectionMultiplier(multiplier, finerContextKey)` — they sit alongside the per-type keys without collision because the resolver picks one or the other based on priority.
+```typescript
+if (!bestMatch) {
+  const perType = policy.perMarketType?.[context.marketType];
+  if (perType !== undefined && Number.isFinite(perType)) {
+    return {
+      multiplier: perType,
+      contextKey: buildDirectionContextKey(context),
+      segmentId: null,
+    };
+  }
+  return {
+    multiplier: policy.global,
+    contextKey: buildDirectionContextKey(context),
+    segmentId: null,
+  };
+}
+```
 
-This is the smallest change that makes the per-type bootstrap actually take effect at runtime. Without it, `signal_weights` rows would be written but never consulted.
+Three priorities: segment > perMarketType > global. Exploration ε-greedy continues to wrap this function from `DirectionResolver.resolve()` exactly as today — it activates only on a "true global" miss (no segment, no per-type), preserving the safety net for markets without a classified type.
 
-### 5.3 `OptimizationScheduler` per-type loop
+### 5.3 Compose policy in `policyProvider`
+
+The `policyProvider` (deps of `DirectionResolver`, set up in `SignalEngine` initialisation or `server.ts`) currently calls `tradingConfigRepo.getDirectionMultiplierPolicy()` and returns whatever JSON it stores. Wrap it:
+
+```typescript
+async function loadComposedPolicy(): Promise<DirectionMultiplierPolicy> {
+  const base = await tradingConfigRepo.getDirectionMultiplierPolicy();
+  const perTypeRows = await signalWeightsRepo.getAllPerType('direction_multiplier');
+  const perMarketType: Record<string, number> = {};
+  for (const row of perTypeRows) perMarketType[row.market_type] = row.weight;
+  return sanitizeDirectionMultiplierPolicy({ ...base, perMarketType });
+}
+```
+
+`signalWeightsRepo.getAllPerType(signalType)` already exists from PR #143. `tradingConfigRepo.getDirectionMultiplierPolicy()` already exists (used by `LearningService`). The change is one new function and one wiring point.
+
+If `signal_weights` has no `direction_multiplier` rows for a type, `perMarketType[type]` is undefined → resolver falls through to `policy.global` (today: −1). Backward compatible.
+
+### 5.4 Optimizer write path — `OptimizationScheduler` per-type loop
 
 In `runPerTypeIncremental(marketType)`:
-- After Optuna best params returned and OOS gate passes, the existing `WEIGHT_PARAM_MAP` writes `combiner.<x>Weight` rows. Extend the map with `'combiner.directionMultiplier' → 'direction_multiplier'`.
+
+- After Optuna best params returned and OOS gate passes, the existing `WEIGHT_PARAM_MAP` writes `combiner.<x>Weight` rows. **Extend the map with `'combiner.directionMultiplier' → 'direction_multiplier'`**.
 - Same OOS-gated path: if OOS fails, the row is **not** updated. Existing dm value persists.
 
 **Existing FULL-strategy test stays valid.** `OptimizationScheduler.test.ts:70` ("always enforces direction_multiplier to -1.0 after a successful optimization") asserts that `updateStrategy` (the FULL pathway) pins dm to −1.0 regardless of optimizer output. The FULL pathway has no per-type concept, so its global pin is the right safeguard there. Our per-type write path is separate — new tests cover it; the existing test is untouched.
 
-### 5.4 `mapOptunaParamsToRequest` — wire dm into the trial backtest
+### 5.5 Optimizer feedback loop — `mapOptunaParamsToRequest` + `BacktestService`
 
-`mapOptunaParamsToRequest(params, startDate, endDate)` builds the `BacktestRequest` for each Optuna trial. It currently maps `combiner.<x>Weight` params into `combinerConfig.<x>Weight`. **Add an explicit map entry**:
+Without these two pieces, the per-type trial backtest cannot vary dm and the optimizer cannot learn. Both must ship in PR-1 or the design is non-functional.
+
+**(a) `mapOptunaParamsToRequest`** in `OptimizationScheduler.ts:550`:
 
 ```typescript
 combinerConfig: {
-  // existing weights...
+  // existing weight forwards...
   directionMultiplier: params['combiner.directionMultiplier'] as number | undefined,
 }
 ```
 
-Without this line, every per-type trial runs with the combiner's hardcoded default `−1`, the optimizer's choice between `−1` and `+1` produces identical fitness, and the per-type optimizer cannot learn dm. **This is the line that closes the optimizer feedback loop.**
-
-### 5.5 `BacktestService.createBacktest` — apply dm to the trial combiner
-
-Two adjustments to `BacktestService.ts`:
-
-(a) Add field to the `combinerConfig` interface (`BacktestService.ts:71-86`):
+**(b) `BacktestService.combinerConfig`** interface (`BacktestService.ts:71-86`):
 
 ```typescript
 combinerConfig?: {
@@ -149,7 +200,7 @@ combinerConfig?: {
 };
 ```
 
-(b) Apply it when constructing the combiner (`BacktestService.ts:181-188`):
+**(c) `BacktestService.createBacktest`** combiner construction (`BacktestService.ts:181-188`):
 
 ```typescript
 const combiner = new WeightedAverageCombiner(weights, cc ? { ... } : undefined);
@@ -158,9 +209,7 @@ if (cc?.directionMultiplier !== undefined) {
 }
 ```
 
-This means each per-type trial backtest applies the dm Optuna chose for that trial. Markets in the trial's pool already share one `market_type` (per-type filter from PR #143), so a single global dm in the trial is correct: the trial answers "for this type, what is the best dm?".
-
-`BacktestEngine.combine()` (line 813) does **not** need to change. It already calls `combiner.combine(signals, currentTime)` without `marketType`, and that is fine because the combiner during a per-type trial only ever sees one type — the global `directionMultiplier` set in (b) is the right value for every signal in that trial.
+Each per-type trial backtest applies the dm Optuna chose for that trial. Markets in the trial's pool already share one `market_type` (per-type filter from PR #143), so a single global dm in the trial is correct: the trial answers "for this type, what is the best dm?". `BacktestEngine.combine()` does **not** need to change — the combiner during a per-type trial only ever sees one type.
 
 ## 6. Optimizer parameter space
 
@@ -207,19 +256,21 @@ This spec covers PR-1 only. Subsequent PRs are sketched here for completeness bu
 
 | PR | Scope | When |
 |---|---|---|
-| **PR-1 (this)** | Bootstrap rows + runtime + optimizer changes. LearningService keeps running but is no longer load-bearing — its `direction_multiplier_policy` in trading_config is ignored by the new combiner code path. | Now |
+| **PR-1 (this)** | Bootstrap rows + policy extension + optimizer feedback wiring. LearningService keeps running but its segments stay empty (it never promotes any) so it has no observable effect. | Now |
 | PR-2 | Add env var `ENABLE_DIRECTION_MULTIPLIER_LEARNING_SERVICE` (default `false`). Service stops scheduling. | +1 week, contingent on PR-1 showing event_financial WR recovery |
-| PR-3 | Delete `DirectionMultiplierLearningService.ts`, `DirectionMultiplierPolicy.ts`, related tests, `direction_multiplier_policy` row in trading_config, columns `applied_direction_multiplier_segment` if any in paper_positions. Keep `applied_direction_multiplier` (numeric column) for tracking what dm was used at trade time. | +2-3 weeks |
+| PR-3 | Delete `DirectionMultiplierLearningService.ts`, sub-segment policy fields (segments[], priceBucket logic), `direction_multiplier_policy` legacy structure in trading_config. Keep `DirectionMultiplierPolicy.ts` (now thin: just the per-type lookup function), `applied_direction_multiplier` column (for live tracking), and the new policy composer. | +2-3 weeks |
 
 **PR-1 is the only PR planned in this spec.** PRs 2 and 3 are tracked as follow-ups; their plans are written separately when triggered.
 
 ## 8. Guardrails
 
-- **Categorical-only domain in optimizer.** Optuna physically cannot propose 0 or any intermediate value. Reproducing the Apr 14 / Apr 18 drift events is impossible by construction.
-- **Runtime fallback −1.** Markets with unknown `market_type` (e.g. mid-classification) keep historical behaviour. Never falls to 0.
+- **Categorical-only domain in optimizer.** Optuna physically cannot propose 0 or any intermediate value for the per-type dm. Reproducing the Apr 14 / Apr 18 drift events is impossible by construction.
+- **Runtime fallback −1.** Resolver returns `policy.global` (today: −1) when neither segment nor perMarketType match. Markets without a classified type keep historical behaviour. Never falls to 0.
 - **OOS gate intact.** dm writes go through the same `if (oosPass) write` path as every other per-type weight. A degenerate trial cannot push a bad dm to production unless OOS validates it.
+- **Optional minimum-lift gate.** New env var `OPTIMIZER_DM_FLIP_MIN_LIFT` (default `0`). When `> 0`, the per-type write path requires `OOS_Sharpe(new_dm) > OOS_Sharpe(current_dm) + OPTIMIZER_DM_FLIP_MIN_LIFT` before flipping a market_type from its current dm value. The default of 0 disables the extra gate (any OOS pass writes); operators raise it if a regression is observed (e.g. crypto WR drops). Implementation: read current `direction_multiplier[marketType]` from signal_weights before write; if Optuna best dm equals current → write proceeds (no flip); if differs → check lift; if below threshold → skip the write and log the rejected flip. Other params written normally.
 - **Bootstrap idempotent.** `ON CONFLICT DO NOTHING` means re-running migrations never overwrites optimizer-discovered values.
-- **Per-type test coverage.** Three regression tests in ParameterSpace + integration test in `OptimizationScheduler.test.ts` covering one per-type cycle that exercises the dm write path.
+- **Per-type test coverage.** Three regression tests in ParameterSpace + new integration test in `OptimizationScheduler.test.ts` exercising per-type dm write + min-lift rejection.
+- **Sanity monitoring query.** Daily review SQL (added in §9) verifies `signal_weights.weight` for `signal_type='direction_multiplier'` only ever holds values in `{-1, +1}`. Any other value → drift regression alarm.
 
 ## 9. Verification post-deploy
 
@@ -284,20 +335,23 @@ WHERE signal_type = 'direction_multiplier' AND weight NOT IN (-1.0, 1.0);
 ## 11. Files touched
 
 ```
-packages/data-collector/src/database/init/028_direction_multiplier_per_type_seed.sql  [new]
-packages/optimizer/src/core/ParameterSpace.ts                                          [add categorical entry to PER_TYPE_PARAMETER_SPACE]
-packages/optimizer/src/core/ParameterSpace.test.ts                                     [add 2 regression tests for categorical-only domain]
-packages/dashboard/src/services/DirectionResolver.ts                                   [fall back to contextKey = marketType when no segment match]
-packages/dashboard/src/services/DirectionResolver.test.ts                              [test marketType-only fallback]
-packages/dashboard/src/services/SignalEngine.ts                                        [extend syncTypeWeights to load dm rows + call setDirectionMultipliers(record)]
-packages/dashboard/src/services/SignalEngine.test.ts                                   [test sync loads dm rows + applies them via combiner]
-packages/dashboard/src/services/OptimizationScheduler.ts                               [extend WEIGHT_PARAM_MAP for per-type dm; mapOptunaParamsToRequest forwards combiner.directionMultiplier]
-packages/dashboard/src/services/OptimizationScheduler.test.ts                          [test per-type write path + mapping]
-packages/dashboard/src/services/BacktestService.ts                                     [add directionMultiplier? to combinerConfig interface; apply combiner.setDirectionMultiplier() before backtest]
-packages/dashboard/src/services/BacktestService.test.ts (or similar)                   [test trial dm propagates to combiner]
-docs/plans/2026-04-30-direction-multiplier-per-type-design.md                          [this file]
+packages/data-collector/src/database/init/028_direction_multiplier_per_type_seed.sql       [new]
+packages/optimizer/src/core/ParameterSpace.ts                                               [categorical entry in PER_TYPE_PARAMETER_SPACE]
+packages/optimizer/src/core/ParameterSpace.test.ts                                          [+2 regression tests for categorical-only domain]
+packages/dashboard/src/services/DirectionMultiplierPolicy.ts                                [add perMarketType to interface + sanitize; extend resolveDirectionMultiplier with per-type branch]
+packages/dashboard/src/services/DirectionMultiplierPolicy.test.ts                           [test per-type priority between segment match and global fallback]
+packages/dashboard/src/services/SignalEngine.ts (or wherever policyProvider is wired)       [policy composer reads signal_weights.direction_multiplier rows]
+packages/dashboard/src/services/SignalEngine.test.ts                                        [test composed policy applies perMarketType end-to-end]
+packages/dashboard/src/services/OptimizationScheduler.ts                                    [extend WEIGHT_PARAM_MAP for per-type dm; mapOptunaParamsToRequest forwards combiner.directionMultiplier; min-lift gate]
+packages/dashboard/src/services/OptimizationScheduler.test.ts                               [per-type dm write + min-lift rejection]
+packages/dashboard/src/services/BacktestService.ts                                          [add directionMultiplier? to combinerConfig; apply combiner.setDirectionMultiplier() before backtest]
+packages/dashboard/src/services/BacktestService.test.ts (or similar)                        [trial dm propagates to combiner]
+docs/plans/2026-04-30-direction-multiplier-per-type-design.md                               [this file]
 ```
 
-Note: `WeightedAverageCombiner.ts` is **not** modified — the API we need (`setDirectionMultipliers`, `getDirectionMultiplier(contextKey)`, `combine(..., marketType, contextKey)`) already exists.
+Files **not** modified:
+- `WeightedAverageCombiner.ts` — existing API is sufficient.
+- `DirectionResolver.ts` — wraps the policy resolver; the per-type logic lives inside `resolveDirectionMultiplier()` so the resolver itself does not change.
+- `BacktestEngine.ts` — per-type filter ensures one type per trial, so global combiner dm is correct in-trial.
 
 Estimated scope: 2 files new (migration + design doc) + 9 files modified. Total LOC ~180 (mostly tests).
