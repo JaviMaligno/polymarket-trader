@@ -428,6 +428,21 @@ export class MarketRotator {
        WHERE tracking_status IN ('warming', 'active', 'cooling')
          AND end_date IS NOT NULL AND end_date < NOW()`,
     );
+    // Also evict null-end_date markets with no price data for 24h+ that have been
+    // in their status ≥ 6h. Catches markets that expired without setting end_date
+    // (e.g. question text references a past date but market was never resolved).
+    await query(
+      `UPDATE markets SET tracking_status = 'cold', tracking_status_changed_at = NOW()
+       WHERE tracking_status IN ('warming', 'active', 'cooling')
+         AND end_date IS NULL
+         AND clob_token_id_yes IS NOT NULL
+         AND tracking_status_changed_at < NOW() - INTERVAL '6 hours'
+         AND NOT EXISTS (
+           SELECT 1 FROM price_history ph
+           WHERE ph.token_id = markets.clob_token_id_yes
+             AND ph.time > NOW() - INTERVAL '24 hours'
+         )`,
+    );
     const live = await this.rotate('live');
     const shadow = await this.rotate('shadow');
     return { live, shadow };
