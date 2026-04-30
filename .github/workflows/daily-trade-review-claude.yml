@@ -383,6 +383,36 @@ jobs:
             fi
           done
 
+      - name: Trigger deploy if Claude merged PRs (safety net)
+        # Claude is instructed not to merge PRs (see daily-review-prompt.md), but it has
+        # github.token in its session and can still call `gh pr merge`. When it does,
+        # the resulting push to main does NOT trigger Deploy to GCP because GitHub
+        # blocks workflows triggered by GITHUB_TOKEN-originated pushes. This step
+        # detects that case and dispatches Deploy manually with MERGE_PAT.
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.MERGE_PAT }}
+        run: |
+          set -euo pipefail
+          SINCE=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
+          LAST_MERGE=$(gh pr list --state merged --label daily-review \
+            --search "merged:>$SINCE" \
+            --json mergedAt --jq 'sort_by(.mergedAt) | last | .mergedAt // ""')
+          if [ -z "$LAST_MERGE" ]; then
+            echo "No daily-review PRs merged in last 2h — nothing to verify"
+            exit 0
+          fi
+          LAST_DEPLOY=$(gh run list --workflow="Deploy to GCP" --branch main --limit 1 \
+            --json createdAt --jq '.[0].createdAt // ""')
+          echo "Last daily-review merge: $LAST_MERGE"
+          echo "Last Deploy run:        $LAST_DEPLOY"
+          if [ -z "$LAST_DEPLOY" ] || [[ "$LAST_DEPLOY" < "$LAST_MERGE" ]]; then
+            echo "::warning::Daily-review PR merged but no Deploy fired — dispatching manually"
+            gh workflow run "Deploy to GCP" --ref main
+          else
+            echo "Deploy already fired after the merge — no action needed"
+          fi
+
       - name: Upload Claude logs
         if: always()
         uses: actions/upload-artifact@v4
