@@ -752,5 +752,27 @@ describe('MarketRotator', () => {
       // Second call is shadow (uses IS NULL OR NOT).
       expect(sqlsSeen[1]).toMatch(/AND \(market_type IS NULL OR NOT/);
     });
+
+    it('issues two eviction UPDATEs before rotating: one for end_date, one for null end_date + no price data', async () => {
+      const r = new MarketRotator();
+
+      const updateSqlsSeen: string[] = [];
+      mockedQuery.mockImplementation(async (sql: string) => {
+        if (typeof sql === 'string' && sql.trimStart().startsWith('UPDATE')) {
+          updateSqlsSeen.push(sql.trim());
+        }
+        return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+      });
+
+      await r.rotateAll();
+
+      expect(updateSqlsSeen).toHaveLength(2);
+      // First eviction: expired end_date
+      expect(updateSqlsSeen[0]).toMatch(/end_date IS NOT NULL AND end_date < NOW/);
+      // Second eviction: null end_date with no recent price data
+      expect(updateSqlsSeen[1]).toMatch(/end_date IS NULL/);
+      expect(updateSqlsSeen[1]).toMatch(/price_history/);
+      expect(updateSqlsSeen[1]).toMatch(/INTERVAL '6 hours'/);
+    });
   });
 });
