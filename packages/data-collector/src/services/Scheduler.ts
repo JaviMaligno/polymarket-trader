@@ -9,7 +9,11 @@ import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 import { MarketScorer } from './MarketScorer.js';
 import { MarketRotator } from './MarketRotator.js';
 import { optimizeScorerWeights } from './ScorerWeightOptimizer.js';
-import { updateCategoryPriors, resolveShadowTrades } from './MarketPerformanceTracker.js';
+import {
+  updateCategoryPriors,
+  updateShadowCategoryPerformance,
+  resolveShadowTrades,
+} from './MarketPerformanceTracker.js';
 import { NewsCollector } from '../collectors/NewsCollector.js';
 
 const logger = pino({ name: 'scheduler' });
@@ -503,6 +507,7 @@ export class Scheduler {
    */
   private async computeMarketPriors(): Promise<void> {
     await updateCategoryPriors();
+    await updateShadowCategoryPerformance();
     await resolveShadowTrades();
   }
 
