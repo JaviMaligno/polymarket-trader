@@ -5,14 +5,16 @@ const logger = pino({ name: 'MarketScorer' });
 
 // ─── Constants ─────────────────────────────────────────────────────────
 export const WEIGHTS = {
-  tradeability:       0.21,
-  liquidity:          0.17,
-  volatility:         0.15,
-  ttr:                0.08,
-  dataQuality:        0.10,
-  typeExpectedValue:  0.17,
-  realizedVolatility: 0.12,
+  tradeability:        0.1995,  // 0.21 × 0.95
+  liquidity:           0.1615,  // 0.17 × 0.95
+  volatility:          0.1425,  // 0.15 × 0.95
+  ttr:                 0.0760,  // 0.08 × 0.95
+  dataQuality:         0.0950,  // 0.10 × 0.95
+  typeExpectedValue:   0.1615,  // 0.17 × 0.95
+  realizedVolatility:  0.1140,  // 0.12 × 0.95
+  shadowExpectedValue: 0.0500,  // NEW
 } as const;
+// Total: 1.0000
 
 export const MAX_VOLUME_REF = 30_000_000;
 
@@ -43,6 +45,7 @@ export interface ScorerWeights {
   dataQuality: number;
   typeExpectedValue: number;
   realizedVolatility: number;
+  shadowExpectedValue: number;     // NEW
 }
 
 export interface EnrichUpdate {
@@ -352,17 +355,18 @@ export class MarketScorer {
 
       weights = row
         ? {
-            tradeability:       Number(row.tradeability),
-            liquidity:          Number(row.liquidity),
-            volatility:         Number(row.volatility),
-            ttr:                Number(row.ttr),
-            dataQuality:        Number(row.data_quality),
-            typeExpectedValue:  row.type_expected_value !== null
+            tradeability:        Number(row.tradeability),
+            liquidity:           Number(row.liquidity),
+            volatility:          Number(row.volatility),
+            ttr:                 Number(row.ttr),
+            dataQuality:         Number(row.data_quality),
+            typeExpectedValue:   row.type_expected_value !== null
               ? Number(row.type_expected_value)
               : WEIGHTS.typeExpectedValue,
-            realizedVolatility: row.realized_volatility !== null
+            realizedVolatility:  row.realized_volatility !== null
               ? Number(row.realized_volatility)
               : WEIGHTS.realizedVolatility,
+            shadowExpectedValue: WEIGHTS.shadowExpectedValue,  // NEW — always WEIGHTS default; per-type DB override out of scope
           }
         : { ...WEIGHTS };
 

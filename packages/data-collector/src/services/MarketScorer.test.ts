@@ -505,6 +505,7 @@ describe('MarketScorer', () => {
         dataQuality: 0.0,
         typeExpectedValue: 0.0,
         realizedVolatility: 0.0,
+        shadowExpectedValue: 0.0,
       };
       // Expected: (1.0*0.5 + 0.0*0.0 + 0.0*0.0 + 1.0*0.5 + 0.0*0.0 + 0.0*0.0 + 0.0*0.0) / (0.5+0.0+0.0+0.5+0.0+0.0+0.0) = 1.0 / 1.0 = 1.0
       expect(MarketScorer.compositeScore(dims, customWeights)).toBeCloseTo(1.0);
@@ -529,6 +530,7 @@ describe('MarketScorer', () => {
         dataQuality: 0.5,
         typeExpectedValue: 0.5,
         realizedVolatility: 0.5,
+        shadowExpectedValue: 0.0,
       };
       // volatility, dataQuality, and realizedVolatility are null → excluded. sumW = 2.0+1.0+1.0+0.5 = 4.5
       // score = (1.0*2.0 + 1.0*1.0 + 1.0*1.0 + 0.0*0.5) / 4.5 = 4.0 / 4.5 = 0.888...
@@ -547,7 +549,7 @@ describe('MarketScorer', () => {
       const weights: ScorerWeights = {
         tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
         ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
-        realizedVolatility: 0.12,
+        realizedVolatility: 0.12, shadowExpectedValue: 0.0,
       };
       // All non-null dims at 1: tradeability + liquidity + ttr + typeExpectedValue
       // weighted sum = 0.25+0.20+0.10+0.20 = 0.75, normalized by same = 1.0
@@ -564,7 +566,7 @@ describe('MarketScorer', () => {
       const weights: ScorerWeights = {
         tradeability: 0.25, liquidity: 0.20, volatility: 0.15,
         ttr: 0.10, dataQuality: 0.10, typeExpectedValue: 0.20,
-        realizedVolatility: 0.12,
+        realizedVolatility: 0.12, shadowExpectedValue: 0.0,
       };
       // Non-null weighted sum = 0.25+0.20+0.10+0 = 0.55
       // Normalized by non-null weight-sum (0.25+0.20+0.10+0.20) = 0.75
@@ -859,7 +861,7 @@ describe('MarketScorer', () => {
     it('all weights sum to 1.0', () => {
       const sum = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.volatility +
                   WEIGHTS.ttr + WEIGHTS.dataQuality + WEIGHTS.typeExpectedValue +
-                  WEIGHTS.realizedVolatility;
+                  WEIGHTS.realizedVolatility + WEIGHTS.shadowExpectedValue;
       expect(sum).toBeCloseTo(1.0, 5);
     });
   });
@@ -889,7 +891,7 @@ describe('MarketScorer', () => {
     it('all weights still sum to 1.0', () => {
       const sum = WEIGHTS.tradeability + WEIGHTS.liquidity + WEIGHTS.volatility +
                   WEIGHTS.ttr + WEIGHTS.dataQuality + WEIGHTS.typeExpectedValue +
-                  WEIGHTS.realizedVolatility;
+                  WEIGHTS.realizedVolatility + WEIGHTS.shadowExpectedValue;
       expect(sum).toBeCloseTo(1.0, 5);
     });
   });
@@ -1306,6 +1308,21 @@ describe('MarketScorer', () => {
       const high_K = MarketScorer.shadowExpectedValue(sharpe, n, 1000);
       // Higher K shrinks more aggressively → output closer to 0.5.
       expect(Math.abs(high_K - 0.5)).toBeLessThan(Math.abs(default_K - 0.5));
+    });
+  });
+
+  describe('MarketScorer.WEIGHTS', () => {
+    it('all weight values sum to 1.0 (within float tolerance)', () => {
+      const total = Object.values(WEIGHTS).reduce((sum, w) => sum + w, 0);
+      expect(total).toBeCloseTo(1.0, 6);
+    });
+
+    it('shadowExpectedValue weight is 0.05', () => {
+      expect(WEIGHTS.shadowExpectedValue).toBe(0.05);
+    });
+
+    it('typeExpectedValue weight is 0.1615 (rescaled from 0.17 by 0.95)', () => {
+      expect(WEIGHTS.typeExpectedValue).toBeCloseTo(0.1615, 6);
     });
   });
 });
