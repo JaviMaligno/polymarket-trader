@@ -133,13 +133,15 @@ function runRandomSearch(trades: ClosedTrade[]): { weights: ScorerWeights; bestV
     }
   }
 
-  // Normalize the 5 optimizable dims to sum to (1 - volatility - dataQuality) = 0.75
-  // so that loadWeights() doesn't log a warning on every scoring run
+  // Normalize the 5 optimizable dims so that the saved row sums to 1.0 across
+  // all 8 ScorerWeights fields, so loadWeights() doesn't log a warning.
   const optimizableSum =
     bestWeights.tradeability + bestWeights.liquidity +
     bestWeights.ttr + bestWeights.typeExpectedValue +
     bestWeights.realizedVolatility;
-  const targetSum = 1 - WEIGHTS.volatility - WEIGHTS.dataQuality; // 0.75
+  // Excludes volatility, dataQuality (computed from price_history at enrich time)
+  // and shadowExpectedValue (fixed at WEIGHTS.shadowExpectedValue, not optimized).
+  const targetSum = 1 - WEIGHTS.volatility - WEIGHTS.dataQuality - WEIGHTS.shadowExpectedValue;
   if (optimizableSum > 0) {
     const scale = targetSum / optimizableSum;
     bestWeights = {
