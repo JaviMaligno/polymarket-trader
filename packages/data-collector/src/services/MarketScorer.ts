@@ -385,31 +385,48 @@ export class MarketScorer {
 
   // ─── Static method: load category metrics from DB ─────────────────
   /**
-   * Load current category_performance keyed by market_type.
-   * Used once per scoring run to compute typeExpectedValue per market.
+   * Load both live and shadow category metrics in parallel.
    * Returned numerics are coerced from pg strings.
-   * Falls back to empty Map on any error (table missing, DB down, etc.).
+   * Falls back to empty maps on any error (table missing, DB down, etc.).
+   *
+   * Live source: category_performance (existing).
+   * Shadow source: category_performance_shadow (new in this PR; sharpe_ratio is
+   * already haircut-adjusted by the writer).
    */
-  static async loadCategoryMetrics(): Promise<Map<string, { sharpe: number | null; n: number }>> {
+  static async loadAllCategoryMetrics(): Promise<{
+    live: Map<string, { sharpe: number | null; n: number }>;
+    shadow: Map<string, { sharpe: number | null; n: number }>;
+  }> {
+    const empty = {
+      live: new Map<string, { sharpe: number | null; n: number }>(),
+      shadow: new Map<string, { sharpe: number | null; n: number }>(),
+    };
     try {
-      const result = await query<{
-        market_type: string;
-        sharpe_ratio: number | string | null;
-        n_trades: number | string;
-      }>(
-        `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
-      );
-      const map = new Map<string, { sharpe: number | null; n: number }>();
-      for (const r of result.rows) {
-        map.set(r.market_type, {
+      const [liveResult, shadowResult] = await Promise.all([
+        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
+        ),
+        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance_shadow`,
+        ),
+      ]);
+      const live = new Map<string, { sharpe: number | null; n: number }>();
+      for (const r of liveResult.rows) {
+        live.set(r.market_type, {
           sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
           n: Number(r.n_trades),
         });
       }
-      return map;
+      const shadow = new Map<string, { sharpe: number | null; n: number }>();
+      for (const r of shadowResult.rows) {
+        shadow.set(r.market_type, {
+          sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
+          n: Number(r.n_trades),
+        });
+      }
+      return { live, shadow };
     } catch {
-      // Missing table or DB error → neutral typeEV (0.5) for all types.
-      return new Map();
+      return empty;
     }
   }
 

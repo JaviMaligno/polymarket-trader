@@ -913,55 +913,6 @@ describe('MarketScorer', () => {
     });
   });
 
-  // ─── loadCategoryMetrics ────────────────────────────────────────────────
-  describe('MarketScorer.loadCategoryMetrics', () => {
-    beforeEach(() => {
-      vi.clearAllMocks();
-    });
-
-    it('loads a Map keyed by market_type', async () => {
-      (query as unknown as Mock).mockResolvedValue({
-        rows: [
-          { market_type: 'event_financial', sharpe_ratio: 0.27, n_trades: 159 },
-          { market_type: 'event_long',      sharpe_ratio: 0.17, n_trades: 1317 },
-        ],
-      });
-      const map = await MarketScorer.loadCategoryMetrics();
-      expect(map.get('event_financial')).toEqual({ sharpe: 0.27, n: 159 });
-      expect(map.get('event_long')).toEqual({ sharpe: 0.17, n: 1317 });
-    });
-
-    it('returns empty Map when table is empty', async () => {
-      (query as unknown as Mock).mockResolvedValue({ rows: [] });
-      const map = await MarketScorer.loadCategoryMetrics();
-      expect(map.size).toBe(0);
-    });
-
-    it('coerces string numerics from pg to numbers', async () => {
-      (query as unknown as Mock).mockResolvedValue({
-        rows: [{ market_type: 'event_short', sharpe_ratio: '0.13' as unknown as number, n_trades: '419' as unknown as number }],
-      });
-      const map = await MarketScorer.loadCategoryMetrics();
-      const entry = map.get('event_short');
-      expect(entry?.sharpe).toBe(0.13);
-      expect(entry?.n).toBe(419);
-    });
-
-    it('preserves null sharpe_ratio (insufficient data in category_performance)', async () => {
-      (query as unknown as Mock).mockResolvedValue({
-        rows: [{ market_type: 'crypto_daily', sharpe_ratio: null, n_trades: 4 }],
-      });
-      const map = await MarketScorer.loadCategoryMetrics();
-      expect(map.get('crypto_daily')).toEqual({ sharpe: null, n: 4 });
-    });
-
-    it('returns empty Map on DB error (graceful degrade)', async () => {
-      (query as unknown as Mock).mockRejectedValue(new Error('db down'));
-      const map = await MarketScorer.loadCategoryMetrics();
-      expect(map.size).toBe(0);
-    });
-  });
-
   // ─── MarketScorer.loadWeights per-type ──────────────────────────────
   describe('MarketScorer.loadWeights per-type', () => {
     beforeEach(() => {
@@ -1378,5 +1329,40 @@ describe('MarketScorer', () => {
       });
       expect(score).toBeCloseTo(0.475, 6);
     });
+  });
+});
+
+describe('MarketScorer.loadAllCategoryMetrics', () => {
+  beforeEach(() => {
+    (query as any).mockReset();
+  });
+
+  it('returns parallel maps for live and shadow', async () => {
+    (query as any)
+      .mockResolvedValueOnce({  // live
+        rows: [
+          { market_type: 'event_short', sharpe_ratio: '0.13', n_trades: '419' },
+          { market_type: 'event_long', sharpe_ratio: '0.17', n_trades: '1317' },
+        ],
+      })
+      .mockResolvedValueOnce({  // shadow
+        rows: [
+          { market_type: 'event_short', sharpe_ratio: '0.67', n_trades: '444' },
+        ],
+      });
+
+    const { live, shadow } = await MarketScorer.loadAllCategoryMetrics();
+
+    expect(live.get('event_short')).toEqual({ sharpe: 0.13, n: 419 });
+    expect(live.get('event_long')).toEqual({ sharpe: 0.17, n: 1317 });
+    expect(shadow.get('event_short')).toEqual({ sharpe: 0.67, n: 444 });
+    expect(shadow.size).toBe(1);
+  });
+
+  it('returns empty maps on DB error (graceful degradation)', async () => {
+    (query as any).mockRejectedValueOnce(new Error('DB down'));
+    const { live, shadow } = await MarketScorer.loadAllCategoryMetrics();
+    expect(live.size).toBe(0);
+    expect(shadow.size).toBe(0);
   });
 });
