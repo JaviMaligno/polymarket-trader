@@ -58,6 +58,99 @@ describe('DirectionResolver — segment match', () => {
   });
 });
 
+describe('DirectionResolver — perMarketType match', () => {
+  // perMarketType priority: segment > perMarketType > exploration / global.
+  // Without this branch, perMarketType is silently bypassed because
+  // resolveDirectionMultiplier returns segmentId=null on perMarketType match,
+  // and the resolver previously used segmentId !== null as the only "use base.multiplier" trigger.
+
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns perMarketType[type] with reason=per_type when no segment matches and a per-type entry exists', async () => {
+    const policy: DirectionMultiplierPolicy = {
+      global: -1.0,
+      minMultiplier: -1.25,
+      maxMultiplier: 1.0,
+      segments: [],
+      perMarketType: { event_financial: 1, crypto_intraday: -1 },
+    };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.05,  // would normally trigger exploration; perMarketType must win
+      paperPositionsRepo: stubRepo as any,
+      logger,
+    });
+
+    const result = await resolver.resolve({
+      marketType: 'event_financial',
+      currentPrice: 0.5,
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+
+    expect(result.multiplier).toBe(1);
+    expect(result.reason).toBe('per_type');
+    expect(result.wasExploration).toBe(false);
+    expect(result.segmentId).toBeNull();
+  });
+
+  it('falls through to global when perMarketType has no entry for the type and rng misses epsilon', async () => {
+    const policy: DirectionMultiplierPolicy = {
+      global: -1.0, minMultiplier: -1.25, maxMultiplier: 1.0, segments: [],
+      perMarketType: { event_financial: 1 },
+    };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.5,  // > epsilon, so global path
+      paperPositionsRepo: stubRepo as any,
+      logger,
+    });
+
+    const result = await resolver.resolve({
+      marketType: 'event_long',
+      currentPrice: 0.5,
+      endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    });
+
+    expect(result.multiplier).toBe(-1);
+    expect(result.reason).toBe('global');
+  });
+
+  it('segment match still wins over perMarketType', async () => {
+    const policy: DirectionMultiplierPolicy = {
+      global: -1.0,
+      minMultiplier: -1.25,
+      maxMultiplier: 1.0,
+      segments: [{
+        id: 'event_financial-40to60-medium',
+        multiplier: -1.25,
+        marketTypes: ['event_financial'],
+        priceRange: { min: 0.4, max: 0.6 },
+        durationBands: ['medium'],
+      }],
+      perMarketType: { event_financial: 1 },  // perMarketType says +1 — segment must override
+    };
+    const resolver = new DirectionResolver({
+      policyProvider: async () => policy,
+      explorationConfig: stubConfig,
+      rng: () => 0.5,
+      paperPositionsRepo: stubRepo as any,
+      logger,
+    });
+
+    const result = await resolver.resolve({
+      marketType: 'event_financial',
+      currentPrice: 0.5,
+      endDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000),
+    });
+
+    expect(result.multiplier).toBe(-1.25);
+    expect(result.reason).toBe('segment');
+    expect(result.segmentId).toBe('event_financial-40to60-medium');
+  });
+});
+
 describe('DirectionResolver — exploration sampling', () => {
   const policy: DirectionMultiplierPolicy = {
     global: -1.0, minMultiplier: -1.25, maxMultiplier: 1.0, segments: [],

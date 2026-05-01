@@ -4,7 +4,7 @@ import {
   type DirectionMultiplierPolicy,
 } from './DirectionMultiplierPolicy.js';
 
-export type DirectionResolveReason = 'segment' | 'global' | 'exploration' | 'breaker_tripped';
+export type DirectionResolveReason = 'segment' | 'per_type' | 'global' | 'exploration' | 'breaker_tripped';
 
 export interface DirectionResolution {
   multiplier: number;
@@ -106,7 +106,27 @@ export class DirectionResolver {
       };
     }
 
-    // Segment miss — consider exploration.
+    // Per-market-type match: priority between segment and exploration.
+    // resolveDirectionMultiplier already applied the perMarketType lookup and
+    // returned its value via `base.multiplier` (with segmentId=null). We MUST
+    // honor it here — without this branch, the multiplier is discarded and the
+    // resolver falls through to exploration/global, silently overriding the
+    // per-type policy. Exploration is for "no information" cases; perMarketType
+    // is information.
+    const perTypeMultiplier = context.marketType
+      ? policy.perMarketType?.[context.marketType]
+      : undefined;
+    if (perTypeMultiplier !== undefined && Number.isFinite(perTypeMultiplier)) {
+      return {
+        multiplier: perTypeMultiplier,
+        contextKey: base.contextKey,
+        segmentId: null,
+        wasExploration: false,
+        reason: 'per_type',
+      };
+    }
+
+    // Segment miss AND no per-type match — consider exploration.
     // Kill switch: DIRECTION_EXPLORATION_EPSILON=0 makes `roll < epsilon` always false → global fallthrough.
     if (await this.isBreakerTripped()) {
       return {
