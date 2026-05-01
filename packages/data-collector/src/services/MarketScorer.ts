@@ -59,6 +59,7 @@ export interface EnrichUpdate {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
+  shadowExpectedValue: number;       // NEW
   currentPriceYes: number | null;
   volume24h: number | null;
   marketType: string | null;
@@ -452,8 +453,10 @@ export class MarketScorer {
    * @returns { scored, enriched } counts
    */
   async scoreAllMarkets(): Promise<{ scored: number; enriched: number }> {
-    // Load category metrics (sharpe + n_trades per type) for typeExpectedValue computation.
-    const categoryMetrics = await MarketScorer.loadCategoryMetrics();
+    // Load both live and shadow category metrics in parallel.
+    // Live → typeExpectedValue. Shadow → shadowExpectedValue (haircut already applied by writer).
+    const { live: liveMetrics, shadow: shadowMetrics } =
+      await MarketScorer.loadAllCategoryMetrics();
 
     // Fetch all cold candidates.
     const pass1Candidates = await query<Pass1CandidateRow>(`
@@ -490,10 +493,15 @@ export class MarketScorer {
       if (rows.length === 0) continue;
 
       const weights = await MarketScorer.loadWeights(marketType);
-      const metrics = categoryMetrics.get(marketType);
+      const liveRow = liveMetrics.get(marketType);
+      const shadowRow = shadowMetrics.get(marketType);
       const typeEV = MarketScorer.typeExpectedValue(
-        metrics?.sharpe ?? null,
-        metrics?.n ?? 0,
+        liveRow?.sharpe ?? null,
+        liveRow?.n ?? 0,
+      );
+      const shadowEV = MarketScorer.shadowExpectedValue(
+        shadowRow?.sharpe ?? null,
+        shadowRow?.n ?? 0,
       );
 
       const updates = rows.map((row) => {
@@ -519,6 +527,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
         }, weights);
 
         return {
@@ -532,6 +541,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -547,6 +557,7 @@ export class MarketScorer {
     if (nullRows.length > 0) {
       const weights = await MarketScorer.loadWeights(null);
       const typeEV = 0.5; // neutral for unknown type
+      const shadowEV = MarketScorer.shadowExpectedValue(null, 0); // neutral 0.5
 
       const updates = nullRows.map((row) => {
         const tradeability = MarketScorer.tradeabilityScore(
@@ -571,6 +582,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
         }, weights);
 
         return {
@@ -584,6 +596,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,
@@ -654,10 +667,15 @@ export class MarketScorer {
 
     for (const row of trackedRows) {
       const weights = await MarketScorer.loadWeights(row.market_type ?? null);
-      const metrics = categoryMetrics.get(row.market_type ?? '');
+      const liveRow = row.market_type != null ? liveMetrics.get(row.market_type) : undefined;
+      const shadowRow = row.market_type != null ? shadowMetrics.get(row.market_type) : undefined;
       const typeEV = MarketScorer.typeExpectedValue(
-        metrics?.sharpe ?? null,
-        metrics?.n ?? 0,
+        liveRow?.sharpe ?? null,
+        liveRow?.n ?? 0,
+      );
+      const shadowEV = MarketScorer.shadowExpectedValue(
+        shadowRow?.sharpe ?? null,
+        shadowRow?.n ?? 0,
       );
 
       const tradeability = MarketScorer.tradeabilityScore(
@@ -691,6 +709,7 @@ export class MarketScorer {
         dataQuality,
         typeExpectedValue: typeEV,
         realizedVolatility,
+        shadowExpectedValue: shadowEV,
       }, weights);
 
       enrichUpdates.push({
@@ -704,6 +723,7 @@ export class MarketScorer {
         dataQuality,
         typeExpectedValue: typeEV,
         realizedVolatility,
+        shadowExpectedValue: shadowEV,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,

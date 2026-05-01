@@ -40,13 +40,14 @@ export function computeObjective(weights: ScorerWeights, trades: ClosedTrade[]):
 function randomWeights(): ScorerWeights {
   const r = () => Math.random() * 0.6 + 0.05; // uniform [0.05, 0.65]
   return {
-    tradeability:       r(),
-    liquidity:          r(),
-    volatility:         WEIGHTS.volatility,
-    ttr:                r(),
-    dataQuality:        WEIGHTS.dataQuality,
-    typeExpectedValue:  r(),
-    realizedVolatility: r(), // 5th optimizable dim
+    tradeability:        r(),
+    liquidity:           r(),
+    volatility:          WEIGHTS.volatility,
+    ttr:                 r(),
+    dataQuality:         WEIGHTS.dataQuality,
+    typeExpectedValue:   r(),
+    realizedVolatility:  r(), // 5th optimizable dim
+    shadowExpectedValue: WEIGHTS.shadowExpectedValue, // fixed; not optimized in this pass
   };
 }
 
@@ -73,13 +74,14 @@ async function loadClosedTrades(marketType: string | null): Promise<ClosedTrade[
     const d = r.score_dimensions_at_entry;
     return {
       dims: {
-        tradeability:       d.tradeability       ?? 0,
-        liquidity:          d.liquidity          ?? 0,
-        volatility:         d.volatility         ?? null,
-        ttr:                d.ttr                ?? 0,
-        dataQuality:        d.dataQuality        ?? null,
-        typeExpectedValue:  d.typeExpectedValue   ?? 0.5,
-        realizedVolatility: d.realizedVolatility  ?? null,
+        tradeability:        d.tradeability        ?? 0,
+        liquidity:           d.liquidity           ?? 0,
+        volatility:          d.volatility          ?? null,
+        ttr:                 d.ttr                 ?? 0,
+        dataQuality:         d.dataQuality         ?? null,
+        typeExpectedValue:   d.typeExpectedValue   ?? 0.5,
+        realizedVolatility:  d.realizedVolatility  ?? null,
+        shadowExpectedValue: d.shadowExpectedValue ?? 0.5, // neutral when historical entry pre-dates dim
       },
       pnl: parseFloat(r.realized_pnl),
     };

@@ -724,11 +724,12 @@ describe('MarketScorer', () => {
       //   liquidity    = log(30M) / log(30M) = 1.0, spread ≤ 0.03 → no penalty → 1.0
       //   ttr          = 1.0  (30 days → 7-60 day optimal window)
       //   volatility   = null, dataQuality = null → excluded
-      //   typeEV = 0.5 (neutral — no category_performance data for event_short, neutral for NULL)
-      // non-null weights: 0.25 + 0.20 + 0.10 + 0.20 = 0.75
-      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.5*0.20 = 0.65
-      // composite = 0.65 / 0.75 = 0.8667
-      // No prior multiplier — typeEV is now a composite dimension.
+      //   typeEV       = 0.5 (neutral — no category_performance data for event_short, neutral for NULL)
+      //   shadowEV     = 0.5 (neutral — no category_performance_shadow data either)
+      // non-null weights: 0.25 + 0.20 + 0.10 + 0.20 + 0.05 = 0.80
+      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.5*0.20 + 0.5*0.05 = 0.675
+      // composite = 0.675 / 0.80 = 0.84375
+      // No prior multiplier — typeEV/shadowEV are composite dimensions.
 
       // Find the event_short UPDATE: params[0]=marketType, params[1]=conditionId, params[2]=score
       const eventShortCall = querySpy.mock.calls.find(
@@ -740,7 +741,7 @@ describe('MarketScorer', () => {
       const eventShortParams = eventShortCall?.[1] as Array<string | number>;
       expect(eventShortParams?.[0]).toBe('event_short');
       expect(eventShortParams?.[1]).toBe('cold-1');
-      expect(eventShortParams?.[2] as number).toBeCloseTo(0.8667, 3);
+      expect(eventShortParams?.[2] as number).toBeCloseTo(0.84375, 4);
 
       // Find the NULL-type UPDATE: params[0] = null (the parameterized market_type)
       const nullTypeCall = querySpy.mock.calls.find(
@@ -752,7 +753,7 @@ describe('MarketScorer', () => {
       const nullTypeParams = nullTypeCall?.[1] as Array<string | number | null>;
       expect(nullTypeParams?.[0]).toBeNull();
       expect(nullTypeParams?.[1]).toBe('cold-2');
-      expect(nullTypeParams?.[2] as number).toBeCloseTo(0.8667, 3);
+      expect(nullTypeParams?.[2] as number).toBeCloseTo(0.84375, 4);
 
       vi.restoreAllMocks();
     });
@@ -845,11 +846,13 @@ describe('MarketScorer', () => {
       const firstCall = captured[0] as Array<unknown>;
       expect(firstCall[0]).toBe('event_financial');  // market_type param ($1)
       expect(firstCall[1]).toBe('ef-1');              // condition_id param ($2)
-      // typeEV = (0.27*159/179 + 1) / 1.5 ≈ 0.8264
+      // typeEV   = (0.27*159/179 + 1) / 1.5 ≈ 0.8264
+      // shadowEV = same as typeEV (mock matches both category_performance and category_performance_shadow queries)
       // tradeability=1.0 (price=0.5), liquidity=1.0 (vol=30M=MAX_VOLUME_REF), ttr=1.0 (30d optimal)
-      // weights (non-null): trade=0.25, liq=0.20, ttr=0.10, tev=0.20 → totalW=0.75
-      // score = (1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.8264*0.20) / 0.75 ≈ 0.7153/0.75 ≈ 0.9537
-      expect(firstCall[2] as number).toBeCloseTo(0.9537, 2);
+      // weights (non-null): trade=0.25, liq=0.20, ttr=0.10, tev=0.20, shadowEV=0.05 → totalW=0.80
+      // weightedSum = 1.0*0.25 + 1.0*0.20 + 1.0*0.10 + 0.8264*0.20 + 0.8264*0.05 = 0.75660
+      // score = 0.75660 / 0.80 ≈ 0.9458
+      expect(firstCall[2] as number).toBeCloseTo(0.9458, 2);
     });
   });
 
@@ -1097,11 +1100,11 @@ describe('MarketScorer', () => {
       // The score param is index 2 (after marketType, conditionId).
       const score = updateCall!.params![2] as number;
       // All non-null dims at 1 (tradeability=1, liquidity=1 with 30M vol = MAX_VOLUME_REF, ttr=1,
-      // typeEV=0.5 since categoryMetrics has no event_long row, realizedVol=1).
-      // Non-null weighted sum = 1.0*0.21 + 1.0*0.17 + 1.0*0.08 + 0.5*0.17 + 1.0*0.12 = 0.665
-      // Normalized by (0.21+0.17+0.08+0.17+0.12) = 0.75
-      // Score = 0.665 / 0.75 ≈ 0.8867
-      expect(score).toBeCloseTo(0.8867, 2);
+      // typeEV=0.5 since categoryMetrics has no event_long row, realizedVol=1, shadowEV=0.5 neutral).
+      // Non-null weighted sum = 1.0*0.21 + 1.0*0.17 + 1.0*0.08 + 0.5*0.17 + 1.0*0.12 + 0.5*0.05 = 0.69
+      // Normalized by (0.21+0.17+0.08+0.17+0.12+0.05) = 0.80
+      // Score = 0.69 / 0.80 = 0.8625
+      expect(score).toBeCloseTo(0.8625, 2);
     });
   });
 
