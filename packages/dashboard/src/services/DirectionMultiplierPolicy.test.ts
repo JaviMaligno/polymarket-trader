@@ -128,3 +128,74 @@ describe('sanitizeDirectionMultiplierPolicy — perMarketType', () => {
     expect(result.perMarketType).toBeUndefined();
   });
 });
+
+describe('resolveDirectionMultiplier — perMarketType priority', () => {
+  const ctx = {
+    marketType: 'event_financial',
+    currentPrice: 0.55,
+    endDate: new Date('2026-12-31'),
+    currentTime: new Date('2026-04-30'),
+    question: 'Will X happen by Y?',
+  };
+
+  it('returns perMarketType[marketType] when no segment matches and a per-type entry exists', () => {
+    const result = resolveDirectionMultiplier(
+      {
+        global: -1,
+        perMarketType: { event_financial: 1 },
+        segments: [],
+        minMultiplier: -1.25,
+        maxMultiplier: 1,
+      } as any,
+      ctx
+    );
+    expect(result.multiplier).toBe(1);
+    expect(result.segmentId).toBeNull();
+  });
+
+  it('falls through to policy.global when perMarketType has no entry for the type', () => {
+    const result = resolveDirectionMultiplier(
+      {
+        global: -1,
+        perMarketType: { other_type: 1 },
+        segments: [],
+        minMultiplier: -1.25,
+        maxMultiplier: 1,
+      } as any,
+      ctx
+    );
+    expect(result.multiplier).toBe(-1);
+    expect(result.segmentId).toBeNull();
+  });
+
+  it('falls through to policy.global when perMarketType is undefined', () => {
+    const result = resolveDirectionMultiplier(
+      { global: -1, segments: [], minMultiplier: -1.25, maxMultiplier: 1 } as any,
+      ctx
+    );
+    expect(result.multiplier).toBe(-1);
+  });
+
+  it('segment match still wins over perMarketType', () => {
+    const segment = {
+      id: 'seg-1',
+      multiplier: 0.5,
+      marketTypes: ['event_financial'],
+      priceRange: { min: 0.5, max: 0.6 },
+      durationBands: [],
+      questionPatterns: [],
+    };
+    const result = resolveDirectionMultiplier(
+      {
+        global: -1,
+        perMarketType: { event_financial: 1 },
+        segments: [segment],
+        minMultiplier: -1.25,
+        maxMultiplier: 1,
+      } as any,
+      ctx
+    );
+    expect(result.multiplier).toBe(0.5);
+    expect(result.segmentId).toBe('seg-1');
+  });
+});

@@ -188,6 +188,14 @@ export function resolveDirectionMultiplier(
 
   const bestMatch = matchingSegments[0];
   if (!bestMatch) {
+    const perType = policy.perMarketType?.[context.marketType ?? ''];
+    if (perType !== undefined && Number.isFinite(perType)) {
+      return {
+        multiplier: perType,
+        contextKey: buildDirectionContextKey(context),
+        segmentId: null,
+      };
+    }
     return {
       multiplier: policy.global,
       contextKey: buildDirectionContextKey(context),
