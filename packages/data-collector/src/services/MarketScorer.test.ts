@@ -1275,4 +1275,37 @@ describe('MarketScorer', () => {
       expect(insertCalls[0]).toContain('score_type_expected_value');
     });
   });
+
+  describe('MarketScorer.shadowExpectedValue', () => {
+    it('returns 0.5 (neutral) when sharpe is null', () => {
+      expect(MarketScorer.shadowExpectedValue(null, 100)).toBe(0.5);
+    });
+
+    it('returns 0.5 (neutral) when nTrades < MIN_N (5)', () => {
+      expect(MarketScorer.shadowExpectedValue(0.7, 4)).toBe(0.5);
+      expect(MarketScorer.shadowExpectedValue(0.7, 5)).not.toBe(0.5);
+    });
+
+    it('mirrors typeExpectedValue formula for the same inputs', () => {
+      // Identical shrinkage and mapping: expect identical output.
+      const sharpe = 0.5;
+      const n = 100;
+      expect(MarketScorer.shadowExpectedValue(sharpe, n))
+        .toBeCloseTo(MarketScorer.typeExpectedValue(sharpe, n), 6);
+    });
+
+    it('clamps to [0, 1]', () => {
+      expect(MarketScorer.shadowExpectedValue(10, 100)).toBe(1);
+      expect(MarketScorer.shadowExpectedValue(-10, 100)).toBe(0);
+    });
+
+    it('honors K override', () => {
+      const sharpe = 0.5;
+      const n = 100;
+      const default_K = MarketScorer.shadowExpectedValue(sharpe, n);
+      const high_K = MarketScorer.shadowExpectedValue(sharpe, n, 1000);
+      // Higher K shrinks more aggressively → output closer to 0.5.
+      expect(Math.abs(high_K - 0.5)).toBeLessThan(Math.abs(default_K - 0.5));
+    });
+  });
 });

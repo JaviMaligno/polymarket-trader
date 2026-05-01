@@ -32,6 +32,7 @@ export interface ScoreDimensions {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
+  shadowExpectedValue: number;       // NEW — always present (0.5 neutral default)
 }
 
 export interface ScorerWeights {
@@ -206,6 +207,29 @@ export class MarketScorer {
     if (!Number.isFinite(K)) K = SCORER_SHRINKAGE_K;
     if (sharpe === null || nTrades < MIN_N) return 0.5;
     const shrunk = (sharpe * nTrades) / (nTrades + K);
+    return clamp01((shrunk + 1) / 1.5);
+  }
+
+  /**
+   * Shadow Expected Value dimension.
+   *
+   * Reads the haircut-adjusted shadow Sharpe (effectiveSharpe = raw_shadow_Sharpe × SHADOW_HAIRCUT,
+   * applied by the writer in MarketPerformanceTracker.updateShadowCategoryPerformance).
+   * Returns 0.5 (neutral) when shadow data is insufficient (sharpe null or n_trades below MIN_N).
+   *
+   * Identical formula to typeExpectedValue — the only difference is the data source. Reusing the
+   * same shrinkage and clamp mapping keeps both dimensions on a comparable [0, 1] scale, so the
+   * weighted sum in compositeScore behaves predictably.
+   */
+  static shadowExpectedValue(
+    effectiveSharpe: number | null,
+    nTrades: number,
+    K: number = SCORER_SHRINKAGE_K,
+    MIN_N: number = 5,
+  ): number {
+    if (!Number.isFinite(K)) K = SCORER_SHRINKAGE_K;
+    if (effectiveSharpe === null || nTrades < MIN_N) return 0.5;
+    const shrunk = (effectiveSharpe * nTrades) / (nTrades + K);
     return clamp01((shrunk + 1) / 1.5);
   }
 
