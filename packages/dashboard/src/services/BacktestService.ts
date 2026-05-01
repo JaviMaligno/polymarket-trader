@@ -83,6 +83,11 @@ export interface BacktestRequest {
     /** Consensus discount floor ∈ [0, 1]. Optional — combiner default (0.5)
      *  applies when omitted. Optuna tunes this value via weekly retraining. */
     consensusDiscountFloor?: number;
+    /** Direction multiplier (per-type optimizer signal). Categorical {-1, +1}
+     *  in REFINEMENT_PARAM_SPACE. Wired into the request here so each Optuna
+     *  trial can evaluate dm flips per market_type. Task 8 wires the apply
+     *  side in BacktestService. */
+    directionMultiplier?: number;
   };
 }
 

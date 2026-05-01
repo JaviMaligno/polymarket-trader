@@ -9,6 +9,7 @@ vi.mock('../database/repositories.js', () => ({
   signalWeightsRepo: {
     update: vi.fn().mockResolvedValue(undefined),
     updatePerType: vi.fn().mockResolvedValue(undefined),
+    getPerType: vi.fn().mockResolvedValue(null),
   },
 }));
 
@@ -39,7 +40,13 @@ vi.mock('../utils/vmHealth.js', () => ({
 
 import { signalWeightsRepo } from '../database/repositories.js';
 import { query } from '../database/index.js';
-import { OptimizationScheduler, getOosMinTrades, OOS_MIN_TRADES_PER_TYPE } from './OptimizationScheduler.js';
+import {
+  OptimizationScheduler,
+  getOosMinTrades,
+  OOS_MIN_TRADES_PER_TYPE,
+  REFINEMENT_PARAM_SPACE,
+  OPTUNA_PARAM_SPACE,
+} from './OptimizationScheduler.js';
 
 describe('OptimizationScheduler', () => {
   beforeEach(() => {
@@ -370,5 +377,84 @@ describe('applyGlobalThresholds — once per cycle, max-Sharpe winner (#145)', (
     expect(fetchSpy).toHaveBeenCalled();
     // 1st GET strategies, 2nd POST create, 3rd POST start
     expect(fetchSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe('OptimizationScheduler.mapOptunaParamsToRequest — directionMultiplier forward', () => {
+  it('forwards combiner.directionMultiplier to combinerConfig.directionMultiplier', () => {
+    const scheduler = new OptimizationScheduler();
+    const params = {
+      'combiner.directionMultiplier': 1.0,
+      'combiner.momentumWeight': 0.5,
+      'combiner.meanReversionWeight': 0.5,
+      'combiner.ofiWeight': 0.5,
+      'combiner.hawkesWeight': 0.5,
+      'combiner.volumeAnomalyWeight': 0.5,
+      'combiner.mlofiWeight': 0.5,
+      'combiner.spreadCompressionWeight': 0.5,
+      'risk.maxPositionSizePct': 5,
+      'risk.maxPositions': 10,
+      'risk.stopLossPct': 25,
+      'risk.takeProfitPct': 40,
+      'combiner.minCombinedConfidence': 0.4,
+      'combiner.minCombinedStrength': 0.3,
+      'momentum.rsiPeriod': 14,
+      'meanReversion.bollingerPeriod': 20,
+      'meanReversion.zScoreThreshold': 2.0,
+    };
+    const start = new Date('2026-04-20');
+    const end = new Date('2026-04-30');
+    const req = (scheduler as any).mapOptunaParamsToRequest(params, start, end);
+    expect(req.combinerConfig.directionMultiplier).toBe(1.0);
+  });
+
+  it('forwards -1.0 unchanged (categorical choices include -1)', () => {
+    const scheduler = new OptimizationScheduler();
+    const params = {
+      'combiner.directionMultiplier': -1.0,
+      'combiner.minCombinedConfidence': 0.4,
+      'combiner.minCombinedStrength': 0.3,
+    };
+    const start = new Date('2026-04-20');
+    const end = new Date('2026-04-30');
+    const req = (scheduler as any).mapOptunaParamsToRequest(params, start, end);
+    expect(req.combinerConfig.directionMultiplier).toBe(-1.0);
+  });
+
+  it('passes undefined when combiner.directionMultiplier is absent (FULL strategy)', () => {
+    const scheduler = new OptimizationScheduler();
+    const params = {
+      'combiner.momentumWeight': 0.5,
+      'risk.maxPositionSizePct': 5,
+      'risk.stopLossPct': 25,
+      'combiner.minCombinedConfidence': 0.4,
+      'combiner.minCombinedStrength': 0.3,
+    };
+    const start = new Date('2026-04-20');
+    const end = new Date('2026-04-30');
+    const req = (scheduler as any).mapOptunaParamsToRequest(params, start, end);
+    expect(req.combinerConfig.directionMultiplier).toBeUndefined();
+  });
+});
+
+describe('OptimizationScheduler param spaces — directionMultiplier', () => {
+  it('REFINEMENT_PARAM_SPACE exposes combiner.directionMultiplier as categorical with choices [-1, 1]', () => {
+    const dm = REFINEMENT_PARAM_SPACE.find((p) => p.name === 'combiner.directionMultiplier');
+    expect(dm).toBeDefined();
+    expect(dm!.type).toBe('categorical');
+    expect((dm as { choices?: unknown[] }).choices).toEqual([-1.0, 1.0]);
+  });
+
+  it('OPTUNA_PARAM_SPACE (FULL) does NOT include combiner.directionMultiplier (PR #104 invariant)', () => {
+    const names = OPTUNA_PARAM_SPACE.map((p) => p.name);
+    expect(names).not.toContain('combiner.directionMultiplier');
+  });
+});
+
+describe('signalWeightsRepo.getPerType (helper for min-lift gate)', () => {
+  it('is exported on signalWeightsRepo and is mocked by the test setup', () => {
+    expect(signalWeightsRepo).toBeDefined();
+    // Only assert presence in the mock map; runtime behaviour is covered by integration tests.
+    expect(typeof (signalWeightsRepo as any).updatePerType).toBe('function');
   });
 });

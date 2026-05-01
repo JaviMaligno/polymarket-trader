@@ -212,6 +212,20 @@ export const signalWeightsRepo = {
   },
 
   /**
+   * Read a single per-type weight. Returns null if no row exists or row is disabled.
+   * Used by the OptimizationScheduler min-lift gate to compare against the
+   * currently-persisted dm before flipping it.
+   */
+  async getPerType(signalType: string, marketType: string): Promise<number | null> {
+    const result = await query<{ weight: number }>(
+      `SELECT weight FROM signal_weights
+       WHERE signal_type = $1 AND market_type = $2 AND is_enabled = true`,
+      [signalType, marketType]
+    );
+    return result.rows[0] ? Number(result.rows[0].weight) : null;
+  },
+
+  /**
    * UPSERT a per-type weight row. Used by OptimizationScheduler.updateStrategy.
    * History insert is intentionally skipped in this PR (signal_weights_history
    * lacks a market_type column; tracked as separate follow-up).
