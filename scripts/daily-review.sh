@@ -7,15 +7,20 @@
 
 set -euo pipefail
 
+# If the script exits non-zero (set -e or explicit exit 1), emit a minimal
+# fallback JSON to stdout so the workflow's jq validation always passes and
+# Claude can create a GitHub issue documenting the infra failure.
+trap '_rc=$?; [[ $_rc -ne 0 ]] && printf "{\"gather_failed\":true,\"exit_code\":%d,\"generated_at\":\"%s\"}\n" "$_rc" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"' EXIT
+
 # ── early checks ─────────────────────────────────────────────────────────────
 
 if ! command -v docker &>/dev/null; then
-  echo '{"error":"docker not found"}' >&2
+  echo "docker not found" >&2
   exit 1
 fi
 
 if ! docker exec polymarket-timescaledb pg_isready -U polymarket -d polymarket_trading &>/dev/null; then
-  echo '{"error":"database not reachable"}' >&2
+  echo "database not reachable" >&2
   exit 1
 fi
 
