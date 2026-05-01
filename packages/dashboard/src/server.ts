@@ -33,6 +33,7 @@ import { WalletMonitor, setWalletMonitor } from './services/WalletMonitor.js';
 import { getNotificationService } from './services/NotificationService.js';
 import { getSignalSigmaCache } from './services/SignalSigmaCache.js';
 import { bootstrapDirectionMultiplierRows } from './services/bootstrapDirectionMultiplier.js';
+import { bootstrapShadowCategoryPerformanceTable } from './services/bootstrapShadowCategoryPerformance.js';
 
 const logger = pino({ name: 'server' });
 
@@ -440,6 +441,13 @@ async function main(): Promise<void> {
         console.log('[server] direction_multiplier per-type bootstrap rows ensured');
       } catch (err) {
         console.error('[server] Failed to bootstrap direction_multiplier rows:', err);
+      }
+
+      try {
+        await bootstrapShadowCategoryPerformanceTable();
+        console.log('[server] category_performance_shadow table ensured');
+      } catch (err) {
+        console.error('[server] Failed to bootstrap category_performance_shadow:', err);
       }
 
       // #143 cleanup: drop per-type rows for generators not wired in BacktestService.createSignals.
