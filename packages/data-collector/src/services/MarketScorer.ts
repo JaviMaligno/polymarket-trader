@@ -279,6 +279,10 @@ export class MarketScorer {
     weightedSum += dims.typeExpectedValue * weights.typeExpectedValue;
     totalWeight += weights.typeExpectedValue;
 
+    // shadowExpectedValue is always present (returns 0.5 neutral when shadow data missing)
+    weightedSum += dims.shadowExpectedValue * weights.shadowExpectedValue;
+    totalWeight += weights.shadowExpectedValue;
+
     // Optional dimensions
     if (dims.volatility !== null) {
       weightedSum += dims.volatility * weights.volatility;
