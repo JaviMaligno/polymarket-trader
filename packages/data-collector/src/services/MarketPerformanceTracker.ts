@@ -100,3 +100,63 @@ export async function resolveShadowTrades(): Promise<void> {
 
   logger.info({ resolved: result.rows.length }, 'Shadow trades resolved');
 }
+
+export async function updateShadowCategoryPerformance(): Promise<void> {
+  const haircutRaw = parseFloat(process.env.SHADOW_HAIRCUT ?? '0.33');
+  const minN = parseInt(process.env.CATEGORY_MIN_SHADOW_N ?? '30', 10);
+
+  if (!Number.isFinite(haircutRaw)) {
+    logger.warn({ haircut: process.env.SHADOW_HAIRCUT }, 'Invalid SHADOW_HAIRCUT, falling back to 0.33');
+  }
+  const effectiveHaircut = Number.isFinite(haircutRaw) ? haircutRaw : 0.33;
+
+  const result = await query<{
+    market_type: string;
+    n_trades: string;
+    win_rate: string;
+    avg_pnl: string;
+    raw_sharpe: string;
+  }>(`
+    SELECT market_type,
+           COUNT(*)::text AS n_trades,
+           AVG(CASE WHEN theoretical_pnl > 0 THEN 1.0 ELSE 0.0 END)::text AS win_rate,
+           AVG(theoretical_pnl)::text AS avg_pnl,
+           CASE WHEN STDDEV(theoretical_pnl) > 0
+                THEN (AVG(theoretical_pnl) / STDDEV(theoretical_pnl))::text
+                ELSE '0' END AS raw_sharpe
+    FROM shadow_trades
+    WHERE resolved_at IS NOT NULL
+      AND theoretical_pnl IS NOT NULL
+    GROUP BY market_type
+  `);
+
+  logger.info({ categories: result.rows.length, haircut: effectiveHaircut, minN },
+    'Computing shadow category performance');
+
+  for (const row of result.rows) {
+    const nTrades = parseInt(row.n_trades, 10);
+    if (nTrades < minN) {
+      logger.debug({ market_type: row.market_type, nTrades, minN }, 'Skipping shadow category (below MIN_N)');
+      continue;
+    }
+    const rawSharpe = parseFloat(row.raw_sharpe);
+    const effectiveSharpe = rawSharpe * effectiveHaircut;
+    const prior = computePrior(effectiveSharpe);
+
+    await query(
+      `INSERT INTO category_performance_shadow
+         (market_type, win_rate, avg_pnl, sharpe_ratio, n_trades, prior, haircut_applied, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       ON CONFLICT (market_type) DO UPDATE SET
+         win_rate = $2, avg_pnl = $3, sharpe_ratio = $4, n_trades = $5,
+         prior = $6, haircut_applied = $7, updated_at = NOW()`,
+      [row.market_type, parseFloat(row.win_rate), parseFloat(row.avg_pnl),
+       effectiveSharpe, nTrades, prior, effectiveHaircut],
+    );
+
+    logger.info({ market_type: row.market_type, nTrades,
+                  raw_sharpe: rawSharpe.toFixed(3), effective_sharpe: effectiveSharpe.toFixed(3),
+                  haircut: effectiveHaircut, prior: prior.toFixed(3) },
+      'Updated shadow category performance');
+  }
+}
