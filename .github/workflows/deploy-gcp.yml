@@ -185,11 +185,11 @@ jobs:
           dashboard_ok=false
           collector_ok=false
           for i in $(seq 1 24); do
-            if [ "$dashboard_ok" = false ] && curl -sf http://34.148.24.147:3001/health > /dev/null 2>&1; then
+            if [ "$dashboard_ok" = false ] && curl -sf http://34.26.216.167:3001/health > /dev/null 2>&1; then
               echo "Dashboard API healthy after $((i * 5))s"
               dashboard_ok=true
             fi
-            if [ "$collector_ok" = false ] && curl -sf http://34.148.24.147:10000/health > /dev/null 2>&1; then
+            if [ "$collector_ok" = false ] && curl -sf http://34.26.216.167:10000/health > /dev/null 2>&1; then
               echo "Data collector healthy after $((i * 5))s"
               collector_ok=true
             fi
