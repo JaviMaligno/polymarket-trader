@@ -106,13 +106,30 @@ describe('sanitizeDirectionMultiplierPolicy — perMarketType', () => {
     expect(result.perMarketType).toEqual({ event_financial: 1, crypto_intraday: -1 });
   });
 
-  it('clamps perMarketType values to [minMultiplier, maxMultiplier]', () => {
+  it('clamps perMarketType values to fixed [-1, +1] domain (independent of policy min/max)', () => {
     const result = sanitizeDirectionMultiplierPolicy({
       ...baseInput,
       perMarketType: { event_financial: 5, crypto_intraday: -10 },
     });
+    // Fixed PER_TYPE_DOMAIN clamps to [-1, +1] regardless of baseInput.minMultiplier=-1.25.
     expect(result.perMarketType?.event_financial).toBe(1);
-    expect(result.perMarketType?.crypto_intraday).toBe(-1.25);
+    expect(result.perMarketType?.crypto_intraday).toBe(-1);
+  });
+
+  it('preserves perMarketType=+1 even when policy.maxMultiplier is 0.25 (legacy default)', () => {
+    // Production regression: legacy default (DEFAULT_MAX_MULTIPLIER=0.25) is sized for the
+    // segment-multiplier domain. The +1 bootstrap from PR #163 was being silently
+    // truncated to 0.25 in runtime (observed 2026-05-01 after PR #166 deploy).
+    // perMarketType MUST clamp on its own categorical-{-1,+1} contract, not the policy's.
+    const result = sanitizeDirectionMultiplierPolicy({
+      global: -1,
+      minMultiplier: -1.5,
+      maxMultiplier: 0.25,
+      segments: [],
+      perMarketType: { event_financial: 1, crypto_intraday: -1 },
+    });
+    expect(result.perMarketType?.event_financial).toBe(1);
+    expect(result.perMarketType?.crypto_intraday).toBe(-1);
   });
 
   it('drops NaN and Infinity entries from perMarketType', () => {
