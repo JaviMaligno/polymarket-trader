@@ -29,6 +29,73 @@ try {
   process.exit(1);
 }
 
+// ── gather_failed early-exit path ───────────────────────────────────────────
+// daily-review.sh emits {"gather_failed":true,...} via its EXIT trap when the
+// VM/DB is unreachable. In that case the JSON has none of the expected fields,
+// so build a minimal failure report (email + slack + stdout) and exit 0 so the
+// workflow's notification step still runs and the operator gets paged.
+if (data && data.gather_failed === true) {
+  const fs2 = require('fs');
+  const path2 = require('path');
+  const exitCode = data.exit_code ?? 'unknown';
+  const ts = data.generated_at || new Date().toISOString();
+  const subject = `Polymarket Daily Review FAILED — gather exit ${exitCode} (${ts})`;
+  const summary = `Daily review data collection failed (daily-review.sh exited ${exitCode} at ${ts}). The VM, DB, or SSH connection was unreachable. Check VM status and rerun the workflow.`;
+
+  const reportMd = [
+    `# Daily Trading Review — FAILED`,
+    `> Generated: ${ts}`,
+    ``,
+    `## \u{1F534} Data collection failed`,
+    ``,
+    `\`daily-review.sh\` exited with code **${exitCode}**. No metrics were gathered.`,
+    ``,
+    `Common causes:`,
+    `- VM stopped or unreachable (check \`gcloud compute instances describe polymarket-vm\`)`,
+    `- TimescaleDB container down (\`docker compose ps\`)`,
+    `- SSH auth/network failure on the GitHub runner`,
+    ``,
+    `Once the infrastructure is restored, rerun the workflow manually.`,
+    ``,
+  ].join('\n');
+
+  const emailHtml = [
+    `<!DOCTYPE html><html><body style="font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:600px;margin:0 auto;padding:20px;">`,
+    `<h1 style="color:#d73a49;">\u{1F534} Polymarket Daily Review FAILED</h1>`,
+    `<p><strong>${escapeHtmlMinimal(summary)}</strong></p>`,
+    `<p>Generated: ${escapeHtmlMinimal(ts)}<br>Exit code: ${escapeHtmlMinimal(String(exitCode))}</p>`,
+    `<p>The workflow's <code>daily-review.sh</code> script failed before any metrics could be collected. Common causes: VM stopped, TimescaleDB down, SSH/auth failure on the runner.</p>`,
+    `<p>Restore the infrastructure and rerun the workflow manually from the GitHub Actions UI.</p>`,
+    `</body></html>`,
+  ].join('\n');
+
+  const slackPayload = {
+    text: `Polymarket Alert: ${summary}`,
+    blocks: [
+      { type: 'header', text: { type: 'plain_text', text: '\u{1F534} Polymarket Daily Review FAILED', emoji: true } },
+      { type: 'section', text: { type: 'mrkdwn', text: `*Data collection failed:* daily-review.sh exited ${exitCode} at ${ts}` } },
+      { type: 'section', text: { type: 'mrkdwn', text: 'Likely cause: VM, TimescaleDB, or SSH unreachable. Restore infra and rerun the workflow.' } },
+    ],
+  };
+
+  const outDir2 = process.cwd();
+  fs2.writeFileSync(path2.join(outDir2, 'report.md'), reportMd, 'utf8');
+  fs2.writeFileSync(path2.join(outDir2, 'email.html'), emailHtml, 'utf8');
+  fs2.writeFileSync(path2.join(outDir2, 'slack.json'), JSON.stringify(slackPayload, null, 2), 'utf8');
+
+  console.log(JSON.stringify({
+    has_critical_alerts: true,
+    alert_count: 1,
+    alerts: [`[CRITICAL] Data collection failed (gather_failed, exit ${exitCode})`],
+    gather_failed: true,
+  }));
+  process.exit(0);
+}
+
+function escapeHtmlMinimal(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmt(n, decimals = 2) {
