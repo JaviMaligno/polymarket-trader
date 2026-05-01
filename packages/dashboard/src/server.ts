@@ -11,6 +11,7 @@ import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, q
 import { signalWeightsRepo, tradingConfigRepo, paperPositionsRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializeDirectionMultiplierLearningService } from './services/DirectionMultiplierLearningService.js';
+import { wipeDirectionMultiplierSegments } from './services/wipeDirectionMultiplierSegments.js';
 import { initializeSignalEngine } from './services/SignalEngine.js';
 import { DirectionResolver } from './services/DirectionResolver.js';
 import {
@@ -580,14 +581,28 @@ async function main(): Promise<void> {
         console.warn('Failed to load optimized params, using defaults:', error);
       }
 
-      // Initialize SignalEngine with optimized parameters
-      const directionMultiplierLearning = initializeDirectionMultiplierLearningService({
-        enabled: process.env.ENABLE_DIRECTION_MULTIPLIER_LEARNING !== 'false',
-        evaluationIntervalMs: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10),
-        lookbackDays: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_LOOKBACK_DAYS || '30', 10),
-      });
-      await directionMultiplierLearning.start();
-      console.log('DirectionMultiplierLearningService started');
+      // DirectionMultiplierLearningService is now opt-in (default OFF). The
+      // per-type optimizer (PR #163) supersedes its segment-based learning;
+      // any segments[] persisted by previous runs would otherwise win priority
+      // over the per-type values. When disabled we wipe segments[] so the
+      // resolver falls through to perMarketType (composed from signal_weights).
+      const learningEnabled = process.env.ENABLE_DIRECTION_MULTIPLIER_LEARNING === 'true';
+      if (learningEnabled) {
+        const directionMultiplierLearning = initializeDirectionMultiplierLearningService({
+          enabled: true,
+          evaluationIntervalMs: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_INTERVAL_MS || String(6 * 60 * 60 * 1000), 10),
+          lookbackDays: parseInt(process.env.DIRECTION_MULTIPLIER_LEARNING_LOOKBACK_DAYS || '30', 10),
+        });
+        await directionMultiplierLearning.start();
+        console.log('DirectionMultiplierLearningService started (legacy mode, ENABLE_DIRECTION_MULTIPLIER_LEARNING=true)');
+      } else {
+        try {
+          await wipeDirectionMultiplierSegments();
+          console.log('DirectionMultiplierLearningService disabled — segments[] wiped, per-type policy active');
+        } catch (err) {
+          console.error('Failed to wipe direction_multiplier_policy.segments:', err);
+        }
+      }
 
       // Cached policy provider (60s TTL) — avoids querying trading_config on every signal resolve
       let cachedPolicy: { data: DirectionMultiplierPolicy; fetchedAt: number } | null = null;
