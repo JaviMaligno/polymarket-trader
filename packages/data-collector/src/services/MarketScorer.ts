@@ -5,14 +5,16 @@ const logger = pino({ name: 'MarketScorer' });
 
 // ─── Constants ─────────────────────────────────────────────────────────
 export const WEIGHTS = {
-  tradeability:       0.21,
-  liquidity:          0.17,
-  volatility:         0.15,
-  ttr:                0.08,
-  dataQuality:        0.10,
-  typeExpectedValue:  0.17,
-  realizedVolatility: 0.12,
+  tradeability:        0.1995,  // 0.21 × 0.95
+  liquidity:           0.1615,  // 0.17 × 0.95
+  volatility:          0.1425,  // 0.15 × 0.95
+  ttr:                 0.0760,  // 0.08 × 0.95
+  dataQuality:         0.0950,  // 0.10 × 0.95
+  typeExpectedValue:   0.1615,  // 0.17 × 0.95
+  realizedVolatility:  0.1140,  // 0.12 × 0.95
+  shadowExpectedValue: 0.0500,  // NEW
 } as const;
+// Total: 1.0000
 
 export const MAX_VOLUME_REF = 30_000_000;
 
@@ -32,6 +34,7 @@ export interface ScoreDimensions {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
+  shadowExpectedValue: number;       // NEW — always present (0.5 neutral default)
 }
 
 export interface ScorerWeights {
@@ -42,6 +45,7 @@ export interface ScorerWeights {
   dataQuality: number;
   typeExpectedValue: number;
   realizedVolatility: number;
+  shadowExpectedValue: number;     // NEW
 }
 
 export interface EnrichUpdate {
@@ -55,6 +59,7 @@ export interface EnrichUpdate {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
+  shadowExpectedValue: number;       // NEW
   currentPriceYes: number | null;
   volume24h: number | null;
   marketType: string | null;
@@ -210,6 +215,29 @@ export class MarketScorer {
   }
 
   /**
+   * Shadow Expected Value dimension.
+   *
+   * Reads the haircut-adjusted shadow Sharpe (effectiveSharpe = raw_shadow_Sharpe × SHADOW_HAIRCUT,
+   * applied by the writer in MarketPerformanceTracker.updateShadowCategoryPerformance).
+   * Returns 0.5 (neutral) when shadow data is insufficient (sharpe null or n_trades below MIN_N).
+   *
+   * Identical formula to typeExpectedValue — the only difference is the data source. Reusing the
+   * same shrinkage and clamp mapping keeps both dimensions on a comparable [0, 1] scale, so the
+   * weighted sum in compositeScore behaves predictably.
+   */
+  static shadowExpectedValue(
+    effectiveSharpe: number | null,
+    nTrades: number,
+    K: number = SCORER_SHRINKAGE_K,
+    MIN_N: number = 5,
+  ): number {
+    if (!Number.isFinite(K)) K = SCORER_SHRINKAGE_K;
+    if (effectiveSharpe === null || nTrades < MIN_N) return 0.5;
+    const shrunk = (effectiveSharpe * nTrades) / (nTrades + K);
+    return clamp01((shrunk + 1) / 1.5);
+  }
+
+  /**
    * Map raw realized volatility (stddev of Δp over 24h window) to [0, 1].
    * Returns null when insufficient data (barCount < 5) — consistent with the
    * nullable contract of volatility/dataQuality. Env: REALIZED_VOL_REF
@@ -251,6 +279,10 @@ export class MarketScorer {
 
     weightedSum += dims.typeExpectedValue * weights.typeExpectedValue;
     totalWeight += weights.typeExpectedValue;
+
+    // shadowExpectedValue is always present (returns 0.5 neutral when shadow data missing)
+    weightedSum += dims.shadowExpectedValue * weights.shadowExpectedValue;
+    totalWeight += weights.shadowExpectedValue;
 
     // Optional dimensions
     if (dims.volatility !== null) {
@@ -328,17 +360,18 @@ export class MarketScorer {
 
       weights = row
         ? {
-            tradeability:       Number(row.tradeability),
-            liquidity:          Number(row.liquidity),
-            volatility:         Number(row.volatility),
-            ttr:                Number(row.ttr),
-            dataQuality:        Number(row.data_quality),
-            typeExpectedValue:  row.type_expected_value !== null
+            tradeability:        Number(row.tradeability),
+            liquidity:           Number(row.liquidity),
+            volatility:          Number(row.volatility),
+            ttr:                 Number(row.ttr),
+            dataQuality:         Number(row.data_quality),
+            typeExpectedValue:   row.type_expected_value !== null
               ? Number(row.type_expected_value)
               : WEIGHTS.typeExpectedValue,
-            realizedVolatility: row.realized_volatility !== null
+            realizedVolatility:  row.realized_volatility !== null
               ? Number(row.realized_volatility)
               : WEIGHTS.realizedVolatility,
+            shadowExpectedValue: WEIGHTS.shadowExpectedValue,  // NEW — always WEIGHTS default; per-type DB override out of scope
           }
         : { ...WEIGHTS };
 
@@ -353,31 +386,48 @@ export class MarketScorer {
 
   // ─── Static method: load category metrics from DB ─────────────────
   /**
-   * Load current category_performance keyed by market_type.
-   * Used once per scoring run to compute typeExpectedValue per market.
+   * Load both live and shadow category metrics in parallel.
    * Returned numerics are coerced from pg strings.
-   * Falls back to empty Map on any error (table missing, DB down, etc.).
+   * Falls back to empty maps on any error (table missing, DB down, etc.).
+   *
+   * Live source: category_performance (existing).
+   * Shadow source: category_performance_shadow (new in this PR; sharpe_ratio is
+   * already haircut-adjusted by the writer).
    */
-  static async loadCategoryMetrics(): Promise<Map<string, { sharpe: number | null; n: number }>> {
+  static async loadAllCategoryMetrics(): Promise<{
+    live: Map<string, { sharpe: number | null; n: number }>;
+    shadow: Map<string, { sharpe: number | null; n: number }>;
+  }> {
+    const empty = {
+      live: new Map<string, { sharpe: number | null; n: number }>(),
+      shadow: new Map<string, { sharpe: number | null; n: number }>(),
+    };
     try {
-      const result = await query<{
-        market_type: string;
-        sharpe_ratio: number | string | null;
-        n_trades: number | string;
-      }>(
-        `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
-      );
-      const map = new Map<string, { sharpe: number | null; n: number }>();
-      for (const r of result.rows) {
-        map.set(r.market_type, {
+      const [liveResult, shadowResult] = await Promise.all([
+        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
+        ),
+        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance_shadow`,
+        ),
+      ]);
+      const live = new Map<string, { sharpe: number | null; n: number }>();
+      for (const r of liveResult.rows) {
+        live.set(r.market_type, {
           sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
           n: Number(r.n_trades),
         });
       }
-      return map;
+      const shadow = new Map<string, { sharpe: number | null; n: number }>();
+      for (const r of shadowResult.rows) {
+        shadow.set(r.market_type, {
+          sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
+          n: Number(r.n_trades),
+        });
+      }
+      return { live, shadow };
     } catch {
-      // Missing table or DB error → neutral typeEV (0.5) for all types.
-      return new Map();
+      return empty;
     }
   }
 
@@ -403,8 +453,10 @@ export class MarketScorer {
    * @returns { scored, enriched } counts
    */
   async scoreAllMarkets(): Promise<{ scored: number; enriched: number }> {
-    // Load category metrics (sharpe + n_trades per type) for typeExpectedValue computation.
-    const categoryMetrics = await MarketScorer.loadCategoryMetrics();
+    // Load both live and shadow category metrics in parallel.
+    // Live → typeExpectedValue. Shadow → shadowExpectedValue (haircut already applied by writer).
+    const { live: liveMetrics, shadow: shadowMetrics } =
+      await MarketScorer.loadAllCategoryMetrics();
 
     // Fetch all cold candidates.
     const pass1Candidates = await query<Pass1CandidateRow>(`
@@ -441,10 +493,15 @@ export class MarketScorer {
       if (rows.length === 0) continue;
 
       const weights = await MarketScorer.loadWeights(marketType);
-      const metrics = categoryMetrics.get(marketType);
+      const liveRow = liveMetrics.get(marketType);
+      const shadowRow = shadowMetrics.get(marketType);
       const typeEV = MarketScorer.typeExpectedValue(
-        metrics?.sharpe ?? null,
-        metrics?.n ?? 0,
+        liveRow?.sharpe ?? null,
+        liveRow?.n ?? 0,
+      );
+      const shadowEV = MarketScorer.shadowExpectedValue(
+        shadowRow?.sharpe ?? null,
+        shadowRow?.n ?? 0,
       );
 
       const updates = rows.map((row) => {
@@ -470,6 +527,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
         }, weights);
 
         return {
@@ -483,6 +541,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -498,6 +557,7 @@ export class MarketScorer {
     if (nullRows.length > 0) {
       const weights = await MarketScorer.loadWeights(null);
       const typeEV = 0.5; // neutral for unknown type
+      const shadowEV = MarketScorer.shadowExpectedValue(null, 0); // neutral 0.5
 
       const updates = nullRows.map((row) => {
         const tradeability = MarketScorer.tradeabilityScore(
@@ -522,6 +582,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
         }, weights);
 
         return {
@@ -535,6 +596,7 @@ export class MarketScorer {
           dataQuality: null,
           typeExpectedValue: typeEV,
           realizedVolatility,
+          shadowExpectedValue: shadowEV,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,
@@ -605,10 +667,15 @@ export class MarketScorer {
 
     for (const row of trackedRows) {
       const weights = await MarketScorer.loadWeights(row.market_type ?? null);
-      const metrics = categoryMetrics.get(row.market_type ?? '');
+      const liveRow = row.market_type != null ? liveMetrics.get(row.market_type) : undefined;
+      const shadowRow = row.market_type != null ? shadowMetrics.get(row.market_type) : undefined;
       const typeEV = MarketScorer.typeExpectedValue(
-        metrics?.sharpe ?? null,
-        metrics?.n ?? 0,
+        liveRow?.sharpe ?? null,
+        liveRow?.n ?? 0,
+      );
+      const shadowEV = MarketScorer.shadowExpectedValue(
+        shadowRow?.sharpe ?? null,
+        shadowRow?.n ?? 0,
       );
 
       const tradeability = MarketScorer.tradeabilityScore(
@@ -642,6 +709,7 @@ export class MarketScorer {
         dataQuality,
         typeExpectedValue: typeEV,
         realizedVolatility,
+        shadowExpectedValue: shadowEV,
       }, weights);
 
       enrichUpdates.push({
@@ -655,6 +723,7 @@ export class MarketScorer {
         dataQuality,
         typeExpectedValue: typeEV,
         realizedVolatility,
+        shadowExpectedValue: shadowEV,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,

@@ -663,3 +663,37 @@ Integration tests run against isolated test tables (`test_paper_*`) and are safe
 - **No `Fixes #N` / `Closes #N`** in commits or PR bodies — GitHub auto-closes issues on merge. Use `Related to #N`.
 - **Always rollback VM to main** after each PR verification
 - **Maximum 3 PRs per run** — document remaining fixes in the issue for manual follow-up
+
+## Shadow haircut validation (post-PR scoring change)
+
+A shadow-derived dimension `shadowExpectedValue` (weight 0.05) was added to the
+MarketScorer composite. The shadow Sharpe is haircut-adjusted at write time
+(`SHADOW_HAIRCUT`, default 0.33) by `updateShadowCategoryPerformance`. Verify the
+haircut is well-calibrated.
+
+```sql
+SELECT cp.market_type,
+       cp.sharpe_ratio AS live_sharpe,
+       cp.n_trades AS live_n,
+       cps.sharpe_ratio AS shadow_effective_sharpe,
+       cps.n_trades AS shadow_n,
+       cps.haircut_applied,
+       -- Implied haircut: if live is the realised target, what would the
+       -- haircut have to be for shadow_effective to match?
+       CASE
+         WHEN cp.n_trades >= 30 AND cps.n_trades >= 30 AND cps.sharpe_ratio != 0
+         THEN ROUND(
+           (cp.sharpe_ratio / NULLIF(cps.sharpe_ratio / cps.haircut_applied, 0))::numeric,
+           3
+         )
+         ELSE NULL
+       END AS implied_haircut
+FROM category_performance cp
+LEFT JOIN category_performance_shadow cps ON cps.market_type = cp.market_type
+ORDER BY cp.market_type;
+```
+
+Interpretation rules:
+- **Both sides have ≥ 30 trades**: `implied_haircut` should be in `[0.15, 0.55]` (≈ 0.33 ± 0.20). Outside that band → flag for per-type haircut consideration (out of scope; follow-up PR).
+- **Shadow only**: the only evidence is theoretical. Note in the review.
+- **Sign disagreement** (live positive vs shadow negative or vice versa): flag for human review — likely regime divergence.

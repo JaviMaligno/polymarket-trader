@@ -29,14 +29,14 @@ describe('pearsonCorrelation', () => {
 describe('computeObjective', () => {
   const weights: ScorerWeights = {
     tradeability: 0.30, liquidity: 0.25, volatility: 0.20, ttr: 0.15, dataQuality: 0.10,
-    typeExpectedValue: 0.20, realizedVolatility: 0.05,
+    typeExpectedValue: 0.20, realizedVolatility: 0.05, shadowExpectedValue: 0.05,
   };
 
   it('returns positive correlation when high-score trades have positive pnl', () => {
     const trades = [
-      { dims: { tradeability: 1.0, liquidity: 0.8, ttr: 0.9, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 10 },
-      { dims: { tradeability: 0.1, liquidity: 0.1, ttr: 0.2, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: -5 },
-      { dims: { tradeability: 0.8, liquidity: 0.7, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 7 },
+      { dims: { tradeability: 1.0, liquidity: 0.8, ttr: 0.9, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null, shadowExpectedValue: 0.5 }, pnl: 10 },
+      { dims: { tradeability: 0.1, liquidity: 0.1, ttr: 0.2, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null, shadowExpectedValue: 0.5 }, pnl: -5 },
+      { dims: { tradeability: 0.8, liquidity: 0.7, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null, shadowExpectedValue: 0.5 }, pnl: 7 },
     ];
     const result = computeObjective(weights, trades);
     expect(result).toBeGreaterThan(0);
@@ -45,8 +45,8 @@ describe('computeObjective', () => {
 
   it('returns 0 when all pnl are identical (no variance)', () => {
     const trades = [
-      { dims: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 5 },
-      { dims: { tradeability: 0.8, liquidity: 0.8, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null }, pnl: 5 },
+      { dims: { tradeability: 0.5, liquidity: 0.5, ttr: 0.5, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null, shadowExpectedValue: 0.5 }, pnl: 5 },
+      { dims: { tradeability: 0.8, liquidity: 0.8, ttr: 0.8, volatility: null, dataQuality: null, typeExpectedValue: 0.5, realizedVolatility: null, shadowExpectedValue: 0.5 }, pnl: 5 },
     ];
     expect(computeObjective(weights, trades)).toBe(0);
   });
