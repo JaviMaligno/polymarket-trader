@@ -398,37 +398,38 @@ export class MarketScorer {
     live: Map<string, { sharpe: number | null; n: number }>;
     shadow: Map<string, { sharpe: number | null; n: number }>;
   }> {
-    const empty = {
-      live: new Map<string, { sharpe: number | null; n: number }>(),
-      shadow: new Map<string, { sharpe: number | null; n: number }>(),
-    };
-    try {
-      const [liveResult, shadowResult] = await Promise.all([
-        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
-          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
-        ),
-        query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
-          `SELECT market_type, sharpe_ratio, n_trades FROM category_performance_shadow`,
-        ),
-      ]);
-      const live = new Map<string, { sharpe: number | null; n: number }>();
-      for (const r of liveResult.rows) {
+    // Use Promise.allSettled so a transient failure on one source (e.g. shadow
+    // table not yet created on a fresh deploy) does not discard the other.
+    const [liveSettled, shadowSettled] = await Promise.allSettled([
+      query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+        `SELECT market_type, sharpe_ratio, n_trades FROM category_performance`,
+      ),
+      query<{ market_type: string; sharpe_ratio: number | string | null; n_trades: number | string }>(
+        `SELECT market_type, sharpe_ratio, n_trades FROM category_performance_shadow`,
+      ),
+    ]);
+
+    const live = new Map<string, { sharpe: number | null; n: number }>();
+    if (liveSettled.status === 'fulfilled') {
+      for (const r of liveSettled.value.rows) {
         live.set(r.market_type, {
           sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
           n: Number(r.n_trades),
         });
       }
-      const shadow = new Map<string, { sharpe: number | null; n: number }>();
-      for (const r of shadowResult.rows) {
+    }
+
+    const shadow = new Map<string, { sharpe: number | null; n: number }>();
+    if (shadowSettled.status === 'fulfilled') {
+      for (const r of shadowSettled.value.rows) {
         shadow.set(r.market_type, {
           sharpe: r.sharpe_ratio !== null ? Number(r.sharpe_ratio) : null,
           n: Number(r.n_trades),
         });
       }
-      return { live, shadow };
-    } catch {
-      return empty;
     }
+
+    return { live, shadow };
   }
 
   // ─── Instance method: score all markets from DB ────────────────────

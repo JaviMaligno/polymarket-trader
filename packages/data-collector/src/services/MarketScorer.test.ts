@@ -1362,10 +1362,38 @@ describe('MarketScorer.loadAllCategoryMetrics', () => {
     expect(shadow.size).toBe(1);
   });
 
-  it('returns empty maps on DB error (graceful degradation)', async () => {
-    (query as any).mockRejectedValueOnce(new Error('DB down'));
+  it('returns empty maps when both queries fail (graceful degradation)', async () => {
+    (query as any)
+      .mockRejectedValueOnce(new Error('live DB down'))
+      .mockRejectedValueOnce(new Error('shadow DB down'));
     const { live, shadow } = await MarketScorer.loadAllCategoryMetrics();
     expect(live.size).toBe(0);
     expect(shadow.size).toBe(0);
+  });
+
+  it('preserves live map when shadow query fails (partial-failure tolerance)', async () => {
+    (query as any)
+      .mockResolvedValueOnce({  // live
+        rows: [
+          { market_type: 'event_short', sharpe_ratio: '0.13', n_trades: '419' },
+        ],
+      })
+      .mockRejectedValueOnce(new Error('shadow table missing'));
+    const { live, shadow } = await MarketScorer.loadAllCategoryMetrics();
+    expect(live.get('event_short')).toEqual({ sharpe: 0.13, n: 419 });
+    expect(shadow.size).toBe(0);
+  });
+
+  it('preserves shadow map when live query fails (partial-failure tolerance)', async () => {
+    (query as any)
+      .mockRejectedValueOnce(new Error('live DB down'))
+      .mockResolvedValueOnce({  // shadow
+        rows: [
+          { market_type: 'event_short', sharpe_ratio: '0.67', n_trades: '444' },
+        ],
+      });
+    const { live, shadow } = await MarketScorer.loadAllCategoryMetrics();
+    expect(live.size).toBe(0);
+    expect(shadow.get('event_short')).toEqual({ sharpe: 0.67, n: 444 });
   });
 });
