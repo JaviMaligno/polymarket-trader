@@ -83,6 +83,11 @@ export interface BacktestRequest {
     /** Consensus discount floor ∈ [0, 1]. Optional — combiner default (0.5)
      *  applies when omitted. Optuna tunes this value via weekly retraining. */
     consensusDiscountFloor?: number;
+    /** Direction multiplier (per-type optimizer signal). Categorical {-1, +1}
+     *  in REFINEMENT_PARAM_SPACE. Wired into the request here so each Optuna
+     *  trial can evaluate dm flips per market_type. Task 8 wires the apply
+     *  side in BacktestService. */
+    directionMultiplier?: number;
   };
 }
 
@@ -186,6 +191,14 @@ export class BacktestService extends EventEmitter {
           ? { consensusDiscountFloor: cc.consensusDiscountFloor }
           : {}),
       } : undefined);
+
+      // Apply per-trial direction multiplier (per-type Optuna signal). Each
+      // trial fixes one market_type, so a single global dm on the combiner
+      // is the correct unit. Number.isFinite() guards against NaN/Infinity
+      // sneaking through from upstream (defense-in-depth).
+      if (cc?.directionMultiplier !== undefined && Number.isFinite(cc.directionMultiplier)) {
+        combiner.setDirectionMultiplier(cc.directionMultiplier);
+      }
 
       // Create backtest engine
       this.updateProgress(backtestId, 40, 'Creating backtest engine');

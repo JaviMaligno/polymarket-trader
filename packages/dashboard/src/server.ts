@@ -31,6 +31,7 @@ import { ExecutionRouter, setExecutionRouter } from './services/ExecutionRouter.
 import { WalletMonitor, setWalletMonitor } from './services/WalletMonitor.js';
 import { getNotificationService } from './services/NotificationService.js';
 import { getSignalSigmaCache } from './services/SignalSigmaCache.js';
+import { bootstrapDirectionMultiplierRows } from './services/bootstrapDirectionMultiplier.js';
 
 const logger = pino({ name: 'server' });
 
@@ -430,6 +431,16 @@ async function main(): Promise<void> {
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
+      // direction_multiplier per-(market_type) bootstrap. Mirror init/028_*.sql
+      // for existing VMs whose volume already initialized (so 028 won't re-run).
+      // See docs/plans/2026-04-30-direction-multiplier-per-type-design.md.
+      try {
+        await bootstrapDirectionMultiplierRows();
+        console.log('[server] direction_multiplier per-type bootstrap rows ensured');
+      } catch (err) {
+        console.error('[server] Failed to bootstrap direction_multiplier rows:', err);
+      }
+
       // #143 cleanup: drop per-type rows for generators not wired in BacktestService.createSignals.
       // Idempotent — re-running deletes nothing on a clean DB.
       // See docs/plans/2026-04-29-backtest-signal-coverage-design.md.
@@ -584,8 +595,21 @@ async function main(): Promise<void> {
       const policyProvider = async (): Promise<DirectionMultiplierPolicy> => {
         const now = Date.now();
         if (cachedPolicy && now - cachedPolicy.fetchedAt < POLICY_TTL_MS) return cachedPolicy.data;
+
         const rawPolicy = await tradingConfigRepo.get<DirectionMultiplierPolicy>('direction_multiplier_policy');
-        const data = sanitizeDirectionMultiplierPolicy(rawPolicy ?? DEFAULT_DIRECTION_MULTIPLIER_POLICY);
+        const allPerType = await signalWeightsRepo.getAllPerType();
+        const perMarketType: Record<string, number> = {};
+        for (const [marketType, signals] of Object.entries(allPerType)) {
+          if (signals['direction_multiplier'] !== undefined) {
+            perMarketType[marketType] = signals['direction_multiplier'];
+          }
+        }
+
+        const merged: Partial<DirectionMultiplierPolicy> = {
+          ...(rawPolicy ?? DEFAULT_DIRECTION_MULTIPLIER_POLICY),
+          perMarketType: Object.keys(perMarketType).length > 0 ? perMarketType : undefined,
+        };
+        const data = sanitizeDirectionMultiplierPolicy(merged);
         cachedPolicy = { data, fetchedAt: now };
         return data;
       };

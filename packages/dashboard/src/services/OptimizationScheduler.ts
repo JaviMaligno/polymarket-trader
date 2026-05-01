@@ -36,11 +36,13 @@ const DEFAULT_BEST_PARAMS = {
 // ============================================================
 // Optuna parameter space
 // ============================================================
-const OPTUNA_PARAM_SPACE: ParameterDef[] = [
-  // Direction multiplier is EXCLUDED from optimization — pinned to -1.0 per validated design spec.
+export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
+  // Direction multiplier is EXCLUDED from this FULL parameter space — pinned to -1.0 globally
+  // per validated design spec. Per-type incremental cycles use REFINEMENT_PARAM_SPACE which
+  // DOES expose dm as a categorical {-1, +1} (drift impossible by construction).
   // Empirical validation: 91.5% accuracy at -1.0 vs 3.7% unflipped (188 trades, Apr 2026).
   // History: optimizer drifted to -0.7819 (Apr 15) and +1.0208 (Apr 14), both causing losses.
-  // The value is enforced to -1.0 after each optimization run (see applyOptimizationResult).
+  // The global value is enforced to -1.0 after each optimization run (see applyOptimizationResult).
   // Combiner thresholds
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.25, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.20, high: 0.60 },
@@ -65,11 +67,19 @@ const OPTUNA_PARAM_SPACE: ParameterDef[] = [
 ];
 
 /**
- * Reduced parameter space for incremental refinement
- * 7 wired generators
+ * Reduced parameter space for incremental refinement (per-type cycles).
+ * 7 wired generators + categorical direction_multiplier.
+ *
+ * direction_multiplier is included here as a CATEGORICAL {-1, +1} only — drift
+ * is impossible by construction (Optuna can pick only the two validated
+ * values). The FULL space (OPTUNA_PARAM_SPACE) keeps dm excluded and the
+ * global '__global__' row is hard-pinned to -1.0 per PR #104.
+ *
+ * Per-type writes land on signal_type='direction_multiplier' rows via
+ * WEIGHT_PARAM_MAP + signalWeightsRepo.updatePerType. The runtime
+ * resolveDirectionMultiplier reads these rows.
  */
-const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
-  // direction_multiplier excluded — pinned to -1.0 (see OPTUNA_PARAM_SPACE comment above)
+export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.minCombinedConfidence', type: 'float', low: 0.15, high: 0.65 },
   { name: 'combiner.minCombinedStrength', type: 'float', low: 0.15, high: 0.60 },
   { name: 'combiner.momentumWeight', type: 'float', low: -1.5, high: 1.5 },
@@ -82,6 +92,7 @@ const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+  { name: 'combiner.directionMultiplier', type: 'categorical', choices: [-1.0, 1.0] },
 ];
 
 // ============================================================
@@ -582,6 +593,10 @@ export class OptimizationScheduler {
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
+        // Forward categorical dm from REFINEMENT_PARAM_SPACE per-type cycles.
+        // Undefined for FULL strategy (OPTUNA_PARAM_SPACE excludes dm).
+        // Task 8 wires BacktestService to actually apply this via the combiner.
+        directionMultiplier: params['combiner.directionMultiplier'] as number | undefined,
       },
     };
   }
@@ -875,6 +890,11 @@ export class OptimizationScheduler {
     console.log(`[OptimizationScheduler] OOS validation PASSED: Sharpe=${oosResult.sharpeOOS.toFixed(2)}, Trades=${oosResult.tradesOOS}`);
     console.log(`[OptimizationScheduler] Persisting per-type weights for ${marketType}...`);
 
+    // Capture the previous-best Sharpe BEFORE we overwrite it. The min-lift
+    // gate below uses this to decide whether to flip direction_multiplier for
+    // this market_type.
+    const previousBestSharpe = this.state.bestSharpePerType[marketType];
+
     // Update local state
     this.state.bestParams = result.params;
     this.state.bestSharpePerType[marketType] = result.sharpe;
@@ -912,6 +932,10 @@ export class OptimizationScheduler {
       'combiner.volumeAnomalyWeight': 'volume_anomaly',
       'combiner.mlofiWeight': 'mlofi',
       'combiner.spreadCompressionWeight': 'spread_compression',
+      // Per-type dm (REFINEMENT_PARAM_SPACE only). Categorical {-1, +1} so the
+      // generic clamp below trivially preserves the value. Min-lift gate
+      // (OPTIMIZER_DM_FLIP_MIN_LIFT) gates flips when configured.
+      'combiner.directionMultiplier': 'direction_multiplier',
     };
 
     const MIN_WEIGHT = -1.5;  // Allow negative (contrarian) weights
@@ -921,6 +945,34 @@ export class OptimizationScheduler {
       const rawWeight = result.params[paramKey];
       if (rawWeight !== undefined && rawWeight !== null) {
         const weight = Math.max(MIN_WEIGHT, Math.min(MAX_WEIGHT, Number(rawWeight)));
+
+        // Min-lift gate for direction_multiplier flips. Default 0 = always
+        // proceed (gate disabled). Operators opt in via env var when a
+        // regression is observed. The gate compares this trial's Sharpe
+        // against the previous-best Sharpe for this market_type and skips
+        // the flip when lift < threshold.
+        if (signalType === 'direction_multiplier') {
+          const minLift = parseFloat(process.env.OPTIMIZER_DM_FLIP_MIN_LIFT ?? '0');
+          if (Number.isFinite(minLift) && minLift > 0) {
+            try {
+              const currentDm = await signalWeightsRepo.getPerType('direction_multiplier', marketType);
+              if (currentDm !== null && currentDm !== weight) {
+                const prev = previousBestSharpe;
+                const lift = (result.sharpe ?? 0) - (prev ?? -Infinity);
+                if (Number.isFinite(lift) && lift < minLift) {
+                  console.log(
+                    `[OptimizationScheduler] Skipping direction_multiplier flip for ${marketType}: ` +
+                    `lift=${lift.toFixed(3)} < min_lift=${minLift} (current=${currentDm}, candidate=${weight})`
+                  );
+                  continue;  // skip the updatePerType for THIS signal_type only
+                }
+              }
+            } catch (err) {
+              console.error(`[OptimizationScheduler] Min-lift gate read failed for ${marketType}:`, err);
+              // Fall through and proceed with the flip — gate is best-effort.
+            }
+          }
+        }
 
         try {
           await signalWeightsRepo.updatePerType(

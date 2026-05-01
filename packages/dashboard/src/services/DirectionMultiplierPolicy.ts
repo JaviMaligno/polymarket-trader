@@ -23,6 +23,7 @@ export interface DirectionMultiplierSegment {
 
 export interface DirectionMultiplierPolicy {
   global: number;
+  perMarketType?: Record<string, number>;
   minMultiplier?: number;
   maxMultiplier?: number;
   segments: DirectionMultiplierSegment[];
@@ -116,8 +117,22 @@ export function sanitizeDirectionMultiplierPolicy(
         }))
     : [];
 
+  let perMarketType: Record<string, number> | undefined;
+  if (policy?.perMarketType && typeof policy.perMarketType === 'object') {
+    const filtered: Record<string, number> = {};
+    for (const [marketType, value] of Object.entries(policy.perMarketType)) {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        filtered[marketType] = clampDirectionMultiplier(value, { minMultiplier, maxMultiplier });
+      }
+    }
+    if (Object.keys(filtered).length > 0) {
+      perMarketType = filtered;
+    }
+  }
+
   return {
     global,
+    perMarketType,
     minMultiplier,
     maxMultiplier,
     segments,
@@ -173,6 +188,14 @@ export function resolveDirectionMultiplier(
 
   const bestMatch = matchingSegments[0];
   if (!bestMatch) {
+    const perType = policy.perMarketType?.[context.marketType ?? ''];
+    if (perType !== undefined && Number.isFinite(perType)) {
+      return {
+        multiplier: perType,
+        contextKey: buildDirectionContextKey(context),
+        segmentId: null,
+      };
+    }
     return {
       multiplier: policy.global,
       contextKey: buildDirectionContextKey(context),
