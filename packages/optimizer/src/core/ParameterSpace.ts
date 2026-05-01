@@ -402,6 +402,27 @@ export const MINIMAL_PARAMETER_SPACE: ParameterDefinition[] =
     ].includes(p.name)
   );
 
+/**
+ * Per-(market_type) parameter space.
+ *
+ * Reserved for parameters that are tuned independently per `market_type` by the
+ * per-type optimizer (5 separate Optuna studies, see project_per_type_optimizer.md).
+ * `combiner.directionMultiplier` lives here ONLY: it is intentionally absent from
+ * `FULL_PARAMETER_SPACE` and `MINIMAL_PARAMETER_SPACE` because PR #104 hardened
+ * those spaces against the continuous-drift class that produced -0.78 / +1.02
+ * accidents. Per-type, dm is restricted to the categorical domain {-1, +1}.
+ */
+export const PER_TYPE_PARAMETER_SPACE: ParameterDefinition[] = [
+  {
+    name: 'combiner.directionMultiplier',
+    type: 'categorical',
+    choices: [-1.0, 1.0],
+    category: 'combiner',
+    description:
+      'Sign of signal-to-side mapping. Per-market-type categorical to prevent continuous drift (issue #109).',
+  },
+];
+
 // Type alias for nested parameter values
 export type ParameterValues = Record<string, Record<string, unknown>>;
 
