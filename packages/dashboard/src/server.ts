@@ -595,8 +595,21 @@ async function main(): Promise<void> {
       const policyProvider = async (): Promise<DirectionMultiplierPolicy> => {
         const now = Date.now();
         if (cachedPolicy && now - cachedPolicy.fetchedAt < POLICY_TTL_MS) return cachedPolicy.data;
+
         const rawPolicy = await tradingConfigRepo.get<DirectionMultiplierPolicy>('direction_multiplier_policy');
-        const data = sanitizeDirectionMultiplierPolicy(rawPolicy ?? DEFAULT_DIRECTION_MULTIPLIER_POLICY);
+        const allPerType = await signalWeightsRepo.getAllPerType();
+        const perMarketType: Record<string, number> = {};
+        for (const [marketType, signals] of Object.entries(allPerType)) {
+          if (signals['direction_multiplier'] !== undefined) {
+            perMarketType[marketType] = signals['direction_multiplier'];
+          }
+        }
+
+        const merged: Partial<DirectionMultiplierPolicy> = {
+          ...(rawPolicy ?? DEFAULT_DIRECTION_MULTIPLIER_POLICY),
+          perMarketType: Object.keys(perMarketType).length > 0 ? perMarketType : undefined,
+        };
+        const data = sanitizeDirectionMultiplierPolicy(merged);
         cachedPolicy = { data, fetchedAt: now };
         return data;
       };
