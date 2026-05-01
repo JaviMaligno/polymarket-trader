@@ -192,6 +192,14 @@ export class BacktestService extends EventEmitter {
           : {}),
       } : undefined);
 
+      // Apply per-trial direction multiplier (per-type Optuna signal). Each
+      // trial fixes one market_type, so a single global dm on the combiner
+      // is the correct unit. Number.isFinite() guards against NaN/Infinity
+      // sneaking through from upstream (defense-in-depth).
+      if (cc?.directionMultiplier !== undefined && Number.isFinite(cc.directionMultiplier)) {
+        combiner.setDirectionMultiplier(cc.directionMultiplier);
+      }
+
       // Create backtest engine
       this.updateProgress(backtestId, 40, 'Creating backtest engine');
       const engine = createBacktestEngine({
