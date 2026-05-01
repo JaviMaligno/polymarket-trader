@@ -117,12 +117,20 @@ export function sanitizeDirectionMultiplierPolicy(
         }))
     : [];
 
+  // perMarketType uses a fixed [-1, +1] domain because its contract is categorical {-1, +1}
+  // (enforced upstream by PER_TYPE_PARAMETER_SPACE / REFINEMENT_PARAM_SPACE regression tests).
+  // Clamping to the policy's [minMultiplier, maxMultiplier] would silently truncate the
+  // legitimate +1 bootstrap to 0.25 when policy.maxMultiplier is the legacy default
+  // (DEFAULT_MAX_MULTIPLIER=0.25, sized for the segment-multiplier domain). This was
+  // observed in production after PR #166 deploy: event_financial signals showed
+  // multiplier=0.25 instead of +1.
+  const PER_TYPE_DOMAIN = { minMultiplier: -1.0, maxMultiplier: 1.0 };
   let perMarketType: Record<string, number> | undefined;
   if (policy?.perMarketType && typeof policy.perMarketType === 'object') {
     const filtered: Record<string, number> = {};
     for (const [marketType, value] of Object.entries(policy.perMarketType)) {
       if (typeof value === 'number' && Number.isFinite(value)) {
-        filtered[marketType] = clampDirectionMultiplier(value, { minMultiplier, maxMultiplier });
+        filtered[marketType] = clampDirectionMultiplier(value, PER_TYPE_DOMAIN);
       }
     }
     if (Object.keys(filtered).length > 0) {
