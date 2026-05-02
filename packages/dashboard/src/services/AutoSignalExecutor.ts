@@ -863,7 +863,9 @@ export class AutoSignalExecutor extends EventEmitter {
       const currentEquity = currentCapital + totalExposure;
       const drawdownPct = ((initialCapital - currentEquity) / initialCapital) * 100;
       const CB_THRESHOLD = parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100; // env is decimal (0.15 = 15%)
-      if (drawdownPct > CB_THRESHOLD - 2) {
+      // 1% pre-CB brake (was 2%): 2% caused a deadlock when equity-based drawdown settled at
+      // exactly the guard floor with no open positions to provide unrealised-PnL headroom.
+      if (drawdownPct > CB_THRESHOLD - 1) {
         console.log(`[AutoSignalExecutor] Skipping open — drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%`);
         return { executed: false, reason: `Drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%` };
       }
