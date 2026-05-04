@@ -78,6 +78,33 @@ FROM paper_positions WHERE closed_at >= '<last_reset_date>' AND realized_pnl IS 
 Report: "Real PnL: $X (Y% of reported $Z). Inverted positions: N."
 If inverted > 0 after the price inversion fix (commit 6a2bdb6), the fix didn't work — escalate immediately.
 
+**Shadow vs live gap check** (MANDATORY whenever the email/issue surfaces shadow PnL or the user asks about a market_type's profitability):
+
+Shadow PnL is THEORETICAL — no fees, no slippage, computed at the resolution price. It systematically over-states profitability for SHORT direction in prediction markets, where most markets resolve to NO (so SHORT "wins" automatically at resolution price 0). A 100% win rate in `shadow_trades` for a SHORT direction is **not a signal of a profitable strategy** — it's a structural sampling artifact. Always run both queries side-by-side:
+
+```sql
+-- Live, by type and side
+SELECT m.market_type, p.side, COUNT(*) n, ROUND(SUM(p.realized_pnl)::numeric,2) total_pnl,
+       COUNT(*) FILTER (WHERE p.realized_pnl > 0) wins
+FROM paper_positions p JOIN markets m ON m.id = p.market_id
+WHERE p.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+  AND p.realized_pnl IS NOT NULL
+GROUP BY m.market_type, p.side ORDER BY m.market_type, p.side;
+
+-- Shadow, by type and direction (shadow_trades uses `direction`, not `side`)
+SELECT market_type, direction, COUNT(*) n, ROUND(AVG(theoretical_pnl)::numeric,4) avg_pnl,
+       COUNT(*) FILTER (WHERE theoretical_pnl > 0) wins
+FROM shadow_trades WHERE resolved_at IS NOT NULL AND time >= NOW() - INTERVAL '30 days'
+GROUP BY market_type, direction ORDER BY market_type, direction;
+```
+
+Report: live PnL/WR vs shadow PnL/WR side-by-side, per (type, side). Flag when:
+- Shadow shows positive PnL while live shows negative for the same (type, side) → sampling artifact, not promotion candidate.
+- Shadow win rate > 90% on n ≥ 30 → almost certainly the SHORT-resolves-NO bias; do NOT propose promotion.
+- Live SHORT win rate stays < 20% across multiple types → cross-reference `project_short_asymmetry.md`. PRs #110/#111 are partial guardrails.
+
+The empirical haircut for shadow → live (project_shadow_execution_realism.md) is currently 0.33 for `event_long` (n=16, small sample). Do NOT use shadow Sharpe directly to argue for promotion — apply the haircut and note it.
+
 **Loss-streak forensic** (MANDATORY when consecutive losses ≥ 5 OR daily PnL < −$30 OR day-N win rate < 50% of historical baseline):
 
 Do NOT accept the auto-review's narrative ("warm-up artifact", "post-deploy noise", "low signal confidence on first exposure") at face value. The auto-review is biased toward not creating reactive PRs, which can read as complacency when losses actually fit known dysfunctional patterns. Examine the streak yourself:
