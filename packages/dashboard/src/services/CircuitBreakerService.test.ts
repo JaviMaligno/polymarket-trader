@@ -107,7 +107,7 @@ describe('CircuitBreakerService', () => {
       .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
       .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // SELECT paper_account (start()'s initial check — exits early)
       .mockResolvedValueOnce({  // SELECT paper_account (timer-triggered check)
-        rows: [{ current_capital: '5000', initial_capital: '10000' }],
+        rows: [{ current_capital: '5000', initial_capital: '10000', peak_equity: '10000' }],
         rowCount: 1,
       } as any)
       .mockResolvedValueOnce({  // SELECT total exposure from positions (timer-triggered check)
@@ -127,6 +127,66 @@ describe('CircuitBreakerService', () => {
     expect(service.isTradingHalted()).toBe(false);
   });
 
+  it('drawdown is computed from peak_equity, not initial_capital (avoids deadlock when peak < initial)', async () => {
+    // Account state matching the 2026-04-30 deadlock that produced the trade
+    // drought before commit 44f16d1: equity below initial but well above peak.
+    //   current_capital=8695, peak_equity=8898, total_exposure=0
+    // Pre-fix denominator (initial): (10000-8695)/10000 = 13.05% → would HALT at 13% threshold
+    // Post-fix denominator (peak):   (8898-8695)/8898 = 2.28%  → safely below threshold
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // start()'s initial check (empty rows, exits early)
+      .mockResolvedValueOnce({  // timer-triggered check — note peak_equity < initial
+        rows: [{ current_capital: '8695', initial_capital: '10000', peak_equity: '8897.79' }],
+        rowCount: 1,
+      } as any)
+      .mockResolvedValueOnce({  // exposure
+        rows: [{ total_exposure: '0' }],
+        rowCount: 1,
+      } as any);
+
+    const service = new CircuitBreakerService({
+      checkIntervalMs: 60_000,
+      maxDrawdownPct: 13,  // tight enough that pre-fix would trip
+      initialCapital: 10000,
+    });
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // peak-based drawdown is 2.28%, well below 13% — no halt.
+    expect(service.isTradingHalted()).toBe(false);
+  });
+
+  it('falls back to initialCapital when peak_equity is null/zero (fresh account)', async () => {
+    // Fresh account with no peak yet recorded — denominator falls back to initial.
+    // current_capital=5000, initial=10000, peak_equity=null → drawdown = 50%
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // start()'s initial check (empty)
+      .mockResolvedValueOnce({  // timer-triggered check, peak_equity null
+        rows: [{ current_capital: '5000', initial_capital: '10000', peak_equity: null }],
+        rowCount: 1,
+      } as any)
+      .mockResolvedValueOnce({  // exposure
+        rows: [{ total_exposure: '0' }],
+        rowCount: 1,
+      } as any)
+      // closeAllPositions / haltTrading / etc. — let them succeed but we only
+      // care about the halt decision.
+      .mockResolvedValue({ rows: [], rowCount: 0 } as any);
+
+    const service = new CircuitBreakerService({
+      checkIntervalMs: 60_000,
+      maxDrawdownPct: 30,
+      initialCapital: 10000,
+    });
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    // 50% drawdown > 30% threshold → halt.
+    expect(service.isTradingHalted()).toBe(true);
+  });
+
   it('after checkDrawdown triggers halt, isTradingHalted() returns true even if DB writes fail', async () => {
     // Setup: query mock returns capital=5000 for account check (50% drawdown > 30% threshold)
     // Then all subsequent queries fail (simulating DB failure for halt/close operations)
@@ -139,8 +199,9 @@ describe('CircuitBreakerService', () => {
         return { rows: [], rowCount: 0 } as any;
       }
       if (sqlStr.includes('SELECT current_capital')) {
-        // Return low capital to trigger the circuit breaker
-        return { rows: [{ current_capital: '5000', initial_capital: '10000' }], rowCount: 1 } as any;
+        // Return low capital to trigger the circuit breaker. peak_equity matches
+        // initial here so post-fix denominator behaviour is identical to legacy.
+        return { rows: [{ current_capital: '5000', initial_capital: '10000', peak_equity: '10000' }], rowCount: 1 } as any;
       }
       if (sqlStr.includes('paper_positions')) {
         // No open positions to close

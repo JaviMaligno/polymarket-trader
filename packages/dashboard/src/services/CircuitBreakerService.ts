@@ -221,7 +221,8 @@ export class CircuitBreakerService extends EventEmitter {
       const accountResult = await query<{
         current_capital: string;
         initial_capital: string;
-      }>('SELECT current_capital, initial_capital FROM paper_account WHERE id = 1');
+        peak_equity: string;
+      }>('SELECT current_capital, initial_capital, peak_equity FROM paper_account WHERE id = 1');
 
       if (accountResult.rows.length === 0) {
         return;
@@ -229,6 +230,9 @@ export class CircuitBreakerService extends EventEmitter {
 
       const currentCapital = parseFloat(accountResult.rows[0].current_capital);
       const initialCapital = this.config.initialCapital;
+      // peak_equity tracks the highest equity reached since last reset.
+      // Fall back to initialCapital only if DB value is absent or zero (e.g. fresh account).
+      const peakEquity = parseFloat(accountResult.rows[0].peak_equity ?? '0') || initialCapital;
 
       // Get total exposure from open positions
       const exposureResult = await query<{ total_exposure: string }>(
@@ -238,8 +242,12 @@ export class CircuitBreakerService extends EventEmitter {
       const totalExposure = parseFloat(exposureResult.rows[0]?.total_exposure || '0');
       const currentEquity = currentCapital + totalExposure;
 
-      // Calculate drawdown using equity (capital + positions), not capital alone
-      const drawdownPct = ((initialCapital - currentEquity) / initialCapital) * 100;
+      // Drawdown must be measured from peak_equity (same basis as RiskManager and
+      // AutoSignalExecutor.openPosition's proximity guard, fixed in 44f16d1). Using
+      // initialCapital as denominator silently inflated drawdown whenever cumulative
+      // realised losses exceeded the CB threshold relative to initial — the same
+      // class of bug that produced the 2026-04-30 → 2026-05-03 trade deadlock.
+      const drawdownPct = ((peakEquity - currentEquity) / peakEquity) * 100;
 
       // Check if we need to trigger circuit breaker
       if (drawdownPct >= this.config.maxDrawdownPct) {

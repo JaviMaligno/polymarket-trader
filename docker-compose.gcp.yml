@@ -127,6 +127,12 @@ services:
       MAX_SIGNAL_MARKETS: "35"
       ENABLE_OPTIMIZATION: "true"
       OPTIMIZER_URL: "https://polymarket-optimizer-server.onrender.com"
+      # Min Sharpe lift required to flip direction_multiplier per market_type.
+      # Default 0 (disabled) lets the optimizer flip on any improvement, which
+      # produced the event_long → +1 drift on 2026-05-01. 0.5 means a flip is
+      # only persisted when it improves Sharpe by at least 0.5 vs the previous
+      # best for that market_type — kills marginal flips, lets real ones through.
+      OPTIMIZER_DM_FLIP_MIN_LIFT: "0.5"
       POLYMARKET_API_URL: https://clob.polymarket.com
       INITIAL_CAPITAL: "10000"
       FEE_RATE: "0.001"
