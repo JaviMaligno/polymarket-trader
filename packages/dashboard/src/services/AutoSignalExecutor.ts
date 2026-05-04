@@ -108,12 +108,19 @@ export interface ExecutorConfig {
   // Smart price validation based on ROI and probability
   minPotentialROI: number;      // Minimum potential ROI to accept (0.15 = 15%)
   minImpliedProbability: number; // Minimum market probability (0.10 = 10%)
-  // Asymmetric SHORT gate: block SHORT entries against high-consensus markets
-  // (YES price > shortMaxYesPrice). LONG entries are unaffected.
-  shortMaxYesPrice: number;     // Max YES price to allow SHORT entry (0.6 default)
-  // Asymmetric SHORT sizing: scale SHORT position size by this multiplier.
-  // Empirical: 5-day SHORT win rate is 0% — halve size while collecting data.
-  shortSizeMultiplier: number;  // Multiplier for SHORT position size (0.5 default)
+  // SHORT entry guard. Blocks SHORTs in markets with YES > shortMaxYesPrice.
+  // 2026-05-04: defaults relaxed from 0.6 → 1.0 (effectively no gate). The
+  // 0.6 cap was set by PR #110 in response to "SHORTs 0% WR over 5 days",
+  // but that 0% was caused by the dm=-1 double-inversion (PR #178). The
+  // counter-WR analysis on the same SHORT cohort showed 93.9% — i.e. the
+  // SHORTs would have been profitable in the right direction. Keeping the
+  // gate post-flip just hides post-flip SHORTs from the cohort. Override
+  // via EXECUTOR_SHORT_MAX_YES_PRICE if needed.
+  shortMaxYesPrice: number;     // Max YES price to allow SHORT entry
+  // SHORT position size multiplier. 2026-05-04: relaxed 0.5 → 1.0 for the
+  // same reason as the YES-price gate above. Override via
+  // EXECUTOR_SHORT_SIZE_MULT if asymmetric sizing is wanted again.
+  shortSizeMultiplier: number;  // Multiplier for SHORT position size
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: number;        // Minimum confidence to OPEN a new position
   exitThreshold: number;        // Minimum confidence to CLOSE an existing position (lower)
@@ -135,10 +142,12 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // minImpliedProbability: 0.10 means market must show at least 10% chance → rejects prices < 0.10
   minPotentialROI: parseFloat(process.env.EXECUTOR_MIN_POTENTIAL_ROI || '0.15'),
   minImpliedProbability: parseFloat(process.env.EXECUTOR_MIN_IMPLIED_PROB || '0.10'),
-  // Empirical: 5-day analysis (Apr 13-18, 24 SHORTs) showed 0% win rate when
-  // SHORTs entered against YES > 0.6. Default optimizable via env.
-  shortMaxYesPrice: parseFloat(process.env.EXECUTOR_SHORT_MAX_YES_PRICE || '0.6'),
-  shortSizeMultiplier: parseFloat(process.env.EXECUTOR_SHORT_SIZE_MULT || '0.5'),
+  // 2026-05-04: dm=-1 double-inversion (PR #178) explained the 0% SHORT WR
+  // that originally motivated PRs #110 (YES gate at 0.6) and #111 (size×0.5).
+  // Counter-WR analysis on the same cohort shows 93.9% — the SHORTs were
+  // structurally profitable, not pathological. Defaults relaxed to no-op.
+  shortMaxYesPrice: parseFloat(process.env.EXECUTOR_SHORT_MAX_YES_PRICE || '1.0'),
+  shortSizeMultiplier: parseFloat(process.env.EXECUTOR_SHORT_SIZE_MULT || '1.0'),
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: parseFloat(process.env.EXECUTOR_OPEN_THRESHOLD || '0.43'),
   exitThreshold: parseFloat(process.env.EXECUTOR_EXIT_THRESHOLD || '0.25'),
@@ -829,8 +838,8 @@ export class AutoSignalExecutor extends EventEmitter {
     }
 
     // Calculate position size based on confidence, strength (absolute), and weight.
-    // SHORT positions get scaled by shortSizeMultiplier (default 0.5x) to limit
-    // damage while empirical SHORT win rate remains low.
+    // shortSizeMultiplier is 1.0 by default since 2026-05-04; override via env
+    // if asymmetric sizing is wanted again.
     const baseSizeMultiplier = signal.confidence * Math.abs(signal.strength) * weight;
     const sideMultiplier = signal.direction === 'short' ? this.config.shortSizeMultiplier : 1.0;
     const sizeMultiplier = baseSizeMultiplier * sideMultiplier;
