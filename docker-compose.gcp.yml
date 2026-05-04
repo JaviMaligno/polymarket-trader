@@ -156,6 +156,13 @@ services:
       EXECUTOR_MARKET_COOLDOWN_MS: "1800000"
       EXECUTOR_NEAR_RESOLVED_UPPER: "0.97"
       EXECUTOR_NEAR_RESOLVED_LOWER: "0.03"
+      # SHORT asymmetric guards (PRs #110/#111) relaxed 2026-05-04: the 0%
+      # SHORT WR they were defending against was the dm=-1 double-inversion
+      # (PR #178), not a real SHORT pathology. Counter-WR on the same cohort
+      # was 93.9%. Both set to 1.0 (no-op) to let the post-flip SHORT cohort
+      # materialize. Re-tighten only if post-flip live SHORT WR underperforms.
+      EXECUTOR_SHORT_MAX_YES_PRICE: "1.0"
+      EXECUTOR_SHORT_SIZE_MULT: "1.0"
       # Gate 0e: EventOTMGate — block opens on event_financial markets near expiry
       # with extreme-band prices. See docs/plans/2026-04-21-event-otm-gate-design.md
       EXECUTOR_EVENT_OTM_MARKET_TYPES: "event_financial"

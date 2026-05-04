@@ -419,39 +419,37 @@ describe('AutoSignalExecutor', () => {
   // =========================================================
   // SHORT YES-price gate (asymmetric entry filter)
   //
-  // Rationale: empirical analysis (5 days, 24 SHORTs) showed 0% win rate when
-  // SHORTs entered against high-consensus markets (YES > 0.6). The consensus
-  // does not flip in our 60-min hold window; NO token decays from spread/fees.
-  // Block SHORT entries when YES price > shortMaxYesPrice. LONG unaffected.
-  // For SHORT signals, signal.price is the NO token price → YES = 1 - signal.price.
+  // 2026-05-04: defaults relaxed from 0.6 → 1.0 (effectively no gate). The
+  // 0% SHORT win rate that originally motivated the gate (PR #110) was caused
+  // by the dm=-1 double-inversion (PR #178). Counter-WR analysis on the same
+  // SHORT cohort shows 93.9% — keeping the gate post-flip just hides
+  // post-flip SHORTs from the cohort. The gate remains opt-in via
+  // EXECUTOR_SHORT_MAX_YES_PRICE / explicit config for any future re-tightening.
   // =========================================================
   describe('SHORT YES-price gate', () => {
-    it('should reject SHORT when YES consensus is too strong (YES > 0.6)', async () => {
+    it('default config does not block SHORT against high-consensus markets', async () => {
       mockMarketQuery();
-      // SHORT at NO=0.30 → YES=0.70 (consensus too strong)
+      // SHORT at NO=0.30 → YES=0.70. Pre-2026-05-04 this would have been blocked.
       const result = await executor.processSignal(makeSignal({ direction: 'short', price: 0.30 }));
-      expect(result.executed).toBe(false);
-      expect(result.reason).toMatch(/SHORT blocked.*consensus/i);
+      expect(result.reason || '').not.toMatch(/SHORT blocked.*consensus/i);
     });
 
-    it('should allow SHORT when YES consensus is moderate (YES <= 0.6)', async () => {
+    it('allows SHORT regardless of YES consensus by default', async () => {
       mockMarketQuery();
-      // SHORT at NO=0.45 → YES=0.55 (within threshold)
       const result = await executor.processSignal(makeSignal({ direction: 'short', price: 0.45 }));
       expect(result.reason || '').not.toMatch(/SHORT blocked.*consensus/i);
     });
 
-    it('should NOT gate LONG signals (gate is SHORT-only)', async () => {
+    it('does not gate LONG signals (gate is SHORT-only when configured)', async () => {
       mockMarketQuery();
-      // LONG at YES=0.70 — would be rejected if gate applied to LONG
       const result = await executor.processSignal(makeSignal({ direction: 'long', price: 0.70 }));
       expect(result.reason || '').not.toMatch(/SHORT blocked/i);
     });
 
-    it('should respect custom shortMaxYesPrice threshold via config', async () => {
+    it('respects custom shortMaxYesPrice threshold when set explicitly', async () => {
       const strictExecutor = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, shortMaxYesPrice: 0.5 });
       mockMarketQuery();
-      // SHORT at NO=0.45 → YES=0.55, exceeds custom threshold 0.5
+      // SHORT at NO=0.45 → YES=0.55, exceeds opt-in threshold 0.5
       const result = await strictExecutor.processSignal(makeSignal({ direction: 'short', price: 0.45 }));
       expect(result.executed).toBe(false);
       expect(result.reason).toMatch(/SHORT blocked.*consensus/i);
@@ -461,10 +459,10 @@ describe('AutoSignalExecutor', () => {
   // =========================================================
   // Asymmetric position sizing (LONG vs SHORT)
   //
-  // Rationale: SHORTs lose 0% win rate empirically (24/24 losing in 5 days).
-  // Until Learning Service identifies winning SHORT segments, halve SHORT
-  // position size to limit damage while still collecting data. LONG sizing
-  // unaffected.
+  // 2026-05-04: default shortSizeMultiplier relaxed from 0.5 → 1.0. Same
+  // reasoning as the YES-price gate above — the original 0% SHORT WR was
+  // the dm=-1 inversion bug, not the SHORTs. Override via
+  // EXECUTOR_SHORT_SIZE_MULT or explicit config to restore asymmetric sizing.
   // =========================================================
   describe('Asymmetric SHORT position sizing', () => {
     function fullMockChain() {
@@ -484,7 +482,7 @@ describe('AutoSignalExecutor', () => {
       });
     }
 
-    it('should size SHORT positions smaller than LONG at same price (default 0.5x)', async () => {
+    it('default config sizes SHORT and LONG identically at same price', async () => {
       const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
       const simSpy = vi.spyOn((exec as any).simulator, 'simulateBuy');
 
@@ -499,9 +497,8 @@ describe('AutoSignalExecutor', () => {
 
       expect(longShares).toBeGreaterThan(0);
       expect(shortShares).toBeGreaterThan(0);
-      // SHORT should be ~50% of LONG (default 0.5 multiplier)
-      expect(shortShares).toBeLessThan(longShares * 0.6);
-      expect(shortShares).toBeGreaterThan(longShares * 0.4);
+      // 2026-05-04: default shortSizeMultiplier=1.0, so SHORT and LONG should match
+      expect(shortShares).toBe(longShares);
     });
 
     it('should respect custom shortSizeMultiplier via config', async () => {
