@@ -55,6 +55,10 @@ export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  // Consensus discount floor (Sub-project B.2, see docs/plans/2026-04-25-signal-consensus-design.md).
+  // Combiner-layer confidence multiplier driven by entropy across active generators.
+  // 0.0 = full discount on disagreement; 1.0 = no-op. Live default in signal_weights is 0.5.
+  { name: 'combiner.consensusDiscountFloor', type: 'float', low: 0.0, high: 1.0 },
   // Risk
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.maxPositions', type: 'int', low: 5, high: 15 },
@@ -89,6 +93,7 @@ export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.consensusDiscountFloor', type: 'float', low: 0.0, high: 1.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
@@ -597,6 +602,10 @@ export class OptimizationScheduler {
         // Undefined for FULL strategy (OPTUNA_PARAM_SPACE excludes dm).
         // Task 8 wires BacktestService to actually apply this via the combiner.
         directionMultiplier: params['combiner.directionMultiplier'] as number | undefined,
+        // Sub-project B.2 (issue #129): consensus discount floor sampled per
+        // trial. BacktestService.runBacktest already accepts this on the
+        // combinerConfig field (commit 46dcf41).
+        consensusDiscountFloor: params['combiner.consensusDiscountFloor'] as number | undefined,
       },
     };
   }
@@ -932,6 +941,27 @@ export class OptimizationScheduler {
       console.log('[OptimizationScheduler] direction_multiplier __global__ reset to +1.0 (per-type values preserved)');
     } catch (err) {
       console.error('[OptimizationScheduler] Failed to reset __global__ direction_multiplier to +1.0:', err);
+    }
+
+    // Sub-project B.2 (issue #129): persist the trial's optimal consensus
+    // discount floor to the __global__ row of signal_weights. The combiner
+    // reads consensus_discount_floor only at startup from the __global__
+    // row (server.ts:661), so per-type writes have no runtime effect — the
+    // global write is the contract. Domain [0, 1] is enforced upstream by
+    // OPTUNA_PARAM_SPACE; clamp here is defensive against malformed params.
+    const cdfRaw = result.params['combiner.consensusDiscountFloor'];
+    if (cdfRaw !== undefined && cdfRaw !== null && Number.isFinite(Number(cdfRaw))) {
+      const cdf = Math.max(0, Math.min(1, Number(cdfRaw)));
+      try {
+        await signalWeightsRepo.update(
+          'consensus_discount_floor',
+          cdf,
+          `optimization-${new Date().toISOString().slice(0, 10)}-${marketType}`,
+        );
+        console.log(`[OptimizationScheduler] consensus_discount_floor __global__ updated to ${cdf.toFixed(4)} (winner: ${marketType})`);
+      } catch (err) {
+        console.error('[OptimizationScheduler] Failed to persist consensus_discount_floor:', err);
+      }
     }
 
     // Apply optimized signal weights to database

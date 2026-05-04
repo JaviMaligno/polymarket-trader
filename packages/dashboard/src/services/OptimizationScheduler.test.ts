@@ -105,6 +105,69 @@ describe('OptimizationScheduler', () => {
       expect.stringMatching(/^optimization-\d{4}-\d{2}-\d{2}$/),
     );
   });
+
+  it('includes combiner.consensusDiscountFloor in OPTUNA_PARAM_SPACE and REFINEMENT_PARAM_SPACE with [0,1] domain', () => {
+    // Issue #129: B.2 follow-up. Optimizer must sample consensusDiscountFloor
+    // per trial so trial-time backtests run with the same combiner config the
+    // operator might persist post-cycle.
+    const fullCdf = OPTUNA_PARAM_SPACE.find(p => p.name === 'combiner.consensusDiscountFloor');
+    expect(fullCdf).toBeDefined();
+    expect(fullCdf).toMatchObject({ type: 'float', low: 0.0, high: 1.0 });
+
+    const refinementCdf = REFINEMENT_PARAM_SPACE.find(p => p.name === 'combiner.consensusDiscountFloor');
+    expect(refinementCdf).toBeDefined();
+    expect(refinementCdf).toMatchObject({ type: 'float', low: 0.0, high: 1.0 });
+  });
+
+  it('persists combiner.consensusDiscountFloor to the __global__ row after a winning trial', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = {
+      passed: true,
+      sharpeOOS: 0.5,
+      drawdownOOS: 0.05,
+      tradesOOS: 20,
+      winRateOOS: 0.6,
+      marketsEvaluated: 10,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: {
+        'combiner.consensusDiscountFloor': 0.72,
+      },
+      sharpe: 0.9,
+      totalReturn: 0.08,
+      trades: 25,
+    }, 'event_short');
+
+    // The combiner reads consensus_discount_floor only from the __global__
+    // row, so the write must use the global update path (not updatePerType).
+    expect(signalWeightsRepo.update).toHaveBeenCalledWith(
+      'consensus_discount_floor',
+      0.72,
+      expect.stringMatching(/^optimization-\d{4}-\d{2}-\d{2}-event_short$/),
+    );
+  });
+
+  it('clamps consensusDiscountFloor to [0, 1] before persisting (defensive)', async () => {
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 20, winRateOOS: 0.6, marketsEvaluated: 10,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.consensusDiscountFloor': 1.5 },  // out of nominal range
+      sharpe: 0.9, totalReturn: 0.08, trades: 25,
+    }, 'event_short');
+
+    expect(signalWeightsRepo.update).toHaveBeenCalledWith(
+      'consensus_discount_floor',
+      1.0,  // clamped
+      expect.stringMatching(/^optimization-\d{4}-\d{2}-\d{2}-event_short$/),
+    );
+  });
 });
 
 describe('getOosMinTrades', () => {
