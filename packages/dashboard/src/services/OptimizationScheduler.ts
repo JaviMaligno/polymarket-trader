@@ -912,23 +912,26 @@ export class OptimizationScheduler {
       }
     }
 
-    // Reset the __global__ direction_multiplier row to -1.0 every cycle.
+    // Reset the __global__ direction_multiplier row to +1.0 every cycle.
     //
     // Note: this is NOT a pin — direction_multiplier IS optimized per-type
     // (categorical {-1, +1}) via REFINEMENT_PARAM_SPACE / WEIGHT_PARAM_MAP
     // below, and per-type rows take precedence in DirectionResolver. The
-    // __global__ row is only the fallback when no per-type entry exists,
-    // and -1.0 is the empirically validated default (91.5% accuracy vs 3.7%
-    // unflipped, 188 trades, Apr 2026 — still the best baseline for any
-    // unclassified market_type).
+    // __global__ row is only the fallback when no per-type entry exists.
     //
-    // Per-type drift (e.g. event_long → +1 on 2026-05-01) is mitigated by
-    // the OPTIMIZER_DM_FLIP_MIN_LIFT env-gate (#174), not by this reset.
+    // 2026-05-04: flipped baseline -1 → +1. Empirical analysis on n=386
+    // post-2026-04-07-reset trades showed dm=-1 produced 13.5% WR while the
+    // counter direction would have hit 84.7%. The "91.5% when flipped"
+    // result cited here previously held at the time of measurement, but
+    // signal-generator changes since then made raw outputs correctly
+    // directional, so the -1 became a double-flip in production.
+    //
+    // Per-type drift is gated by OPTIMIZER_DM_FLIP_MIN_LIFT (#174).
     try {
-      await signalWeightsRepo.update('direction_multiplier', -1.0, `optimization-${new Date().toISOString().slice(0, 10)}`);
-      console.log('[OptimizationScheduler] direction_multiplier __global__ reset to -1.0 (per-type values preserved)');
+      await signalWeightsRepo.update('direction_multiplier', 1.0, `optimization-${new Date().toISOString().slice(0, 10)}`);
+      console.log('[OptimizationScheduler] direction_multiplier __global__ reset to +1.0 (per-type values preserved)');
     } catch (err) {
-      console.error('[OptimizationScheduler] Failed to reset __global__ direction_multiplier to -1.0:', err);
+      console.error('[OptimizationScheduler] Failed to reset __global__ direction_multiplier to +1.0:', err);
     }
 
     // Apply optimized signal weights to database

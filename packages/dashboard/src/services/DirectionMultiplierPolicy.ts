@@ -35,8 +35,8 @@ export interface ResolvedDirectionMultiplier {
   segmentId: string | null;
 }
 
-const DEFAULT_MIN_MULTIPLIER = -1.5;
-const DEFAULT_MAX_MULTIPLIER = 0.25;
+const DEFAULT_MIN_MULTIPLIER = -1.0;
+const DEFAULT_MAX_MULTIPLIER = 1.0;
 export const DIRECTION_PRICE_BUCKETS = [
   { label: 'lt20', min: 0, max: 0.2 },
   { label: '20to40', min: 0.2, max: 0.4 },
@@ -45,8 +45,15 @@ export const DIRECTION_PRICE_BUCKETS = [
   { label: 'gte80', min: 0.8, max: 1.01 },
 ] as const;
 
+// 2026-05-04: flipped from -1.0 → +1.0 after empirical analysis showed the
+// system was operating with inverted direction. n=386 trades (post-2026-04-07
+// reset) produced 13.5% WR with dm=-1; the counter-direction would have hit
+// 84.7% WR. The "91.5% accuracy when flipped" cited in CLAUDE.md was true at
+// the time of measurement, but signal-generator changes since then made the
+// raw outputs already correctly directional, so the -1 flip became a
+// double-flip. New baseline: +1 (no flip).
 export const DEFAULT_DIRECTION_MULTIPLIER_POLICY: DirectionMultiplierPolicy = {
-  global: -1.0,
+  global: 1.0,
   minMultiplier: DEFAULT_MIN_MULTIPLIER,
   maxMultiplier: DEFAULT_MAX_MULTIPLIER,
   segments: [],
