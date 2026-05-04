@@ -912,15 +912,23 @@ export class OptimizationScheduler {
       }
     }
 
-    // Enforce direction multiplier = -1.0 after every optimization run.
-    // It is excluded from the parameter space (not optimized), but we reset it here
-    // so any manual or legacy DB changes are corrected automatically.
-    // Validated value: -1.0 gives 91.5% accuracy vs 3.7% unflipped (188 trades, Apr 2026).
+    // Reset the __global__ direction_multiplier row to -1.0 every cycle.
+    //
+    // Note: this is NOT a pin — direction_multiplier IS optimized per-type
+    // (categorical {-1, +1}) via REFINEMENT_PARAM_SPACE / WEIGHT_PARAM_MAP
+    // below, and per-type rows take precedence in DirectionResolver. The
+    // __global__ row is only the fallback when no per-type entry exists,
+    // and -1.0 is the empirically validated default (91.5% accuracy vs 3.7%
+    // unflipped, 188 trades, Apr 2026 — still the best baseline for any
+    // unclassified market_type).
+    //
+    // Per-type drift (e.g. event_long → +1 on 2026-05-01) is mitigated by
+    // the OPTIMIZER_DM_FLIP_MIN_LIFT env-gate (#174), not by this reset.
     try {
       await signalWeightsRepo.update('direction_multiplier', -1.0, `optimization-${new Date().toISOString().slice(0, 10)}`);
-      console.log('[OptimizationScheduler] direction_multiplier enforced to -1.0 (pinned design spec)');
+      console.log('[OptimizationScheduler] direction_multiplier __global__ reset to -1.0 (per-type values preserved)');
     } catch (err) {
-      console.error('[OptimizationScheduler] Failed to enforce direction_multiplier to -1.0:', err);
+      console.error('[OptimizationScheduler] Failed to reset __global__ direction_multiplier to -1.0:', err);
     }
 
     // Apply optimized signal weights to database
