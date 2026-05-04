@@ -58,7 +58,26 @@ describe('wipeDirectionMultiplierSegments', () => {
     expect(tradingConfigRepo.set).toHaveBeenCalledTimes(1);
     const [, value] = (tradingConfigRepo.set as any).mock.calls[0];
     expect(value.segments).toEqual([]);
-    expect(value.global).toBe(-1.0);
+    // 2026-05-04: default global flipped -1 → +1 (see DirectionMultiplierPolicy.ts header).
+    expect(value.global).toBe(1.0);
+  });
+
+  it('parses the JSON string returned by tradingConfigRepo.get (TEXT column)', async () => {
+    // tradingConfigRepo.get returns a string because trading_config.value is TEXT.
+    // Pre-fix this caused the whole policy to be silently overwritten with defaults
+    // on every server restart. Regression test for the 2026-05-04 reset of the +1 flip.
+    (tradingConfigRepo.get as any).mockResolvedValueOnce(
+      '{"global":1,"minMultiplier":-1,"maxMultiplier":1,"segments":[{"id":"x","multiplier":0.5}]}'
+    );
+
+    await wipeDirectionMultiplierSegments();
+
+    expect(tradingConfigRepo.set).toHaveBeenCalledTimes(1);
+    const [, value] = (tradingConfigRepo.set as any).mock.calls[0];
+    expect(value.global).toBe(1);            // preserved from parsed string, not from default
+    expect(value.minMultiplier).toBe(-1);    // preserved
+    expect(value.maxMultiplier).toBe(1);     // preserved
+    expect(value.segments).toEqual([]);      // wiped
   });
 
   it('skips the write when segments is already empty (idempotent no-op)', async () => {

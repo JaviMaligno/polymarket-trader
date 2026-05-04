@@ -74,7 +74,7 @@ describe('OptimizationScheduler', () => {
     expect(names).not.toContain('combiner.directionMultiplier');
   });
 
-  it('always enforces direction_multiplier to -1.0 after a successful optimization', async () => {
+  it('always enforces direction_multiplier to +1.0 after a successful optimization', async () => {
     const scheduler = new OptimizationScheduler();
     (scheduler as any)._lastOOSResult = {
       passed: true,
@@ -101,7 +101,7 @@ describe('OptimizationScheduler', () => {
 
     expect(signalWeightsRepo.update).toHaveBeenCalledWith(
       'direction_multiplier',
-      -1.0,
+      1.0,
       expect.stringMatching(/^optimization-\d{4}-\d{2}-\d{2}$/),
     );
   });

@@ -81,18 +81,20 @@ Analyzes recent trades to identify patterns in losing trades.
 ### Current Configuration
 
 - **Combiner thresholds**: minCombinedConfidence=0.43, minCombinedStrength=0.27
-- **Direction multiplier**: -1.0 (contrarian flip — see design rationale below)
+- **Direction multiplier**: +1.0 (no flip — see history below)
 - **Market filter**: Excludes markets with Yes price <5% or >95%. NO 50/50 filter (removed intentionally).
 - **Max positions**: 50 concurrent open positions
 - **Signal interval**: 60 seconds
 
-### Signal Directions (post-flip)
+### Signal Directions (history of the flip)
 
-The combined signal direction is INVERTED by `directionMultiplier = -1`. This is intentional:
-- Prediction market signals detect information-driven moves as "overextension" and bet against them
-- But information is permanent — the price doesn't revert
-- Flipping converts the signals into trend-followers: "when a significant move is detected, follow it"
-- Empirical validation: 91.5% accuracy when flipped vs 3.7% unflipped (188 trades, Apr 2026)
+The system has gone through two regimes:
+
+1. **dm = -1 (flipped)** — original validated configuration. Empirical: 91.5% accuracy flipped vs 3.7% unflipped (188 trades, Apr 2026). Rationale: prediction-market signals were detecting information-driven moves as "overextension" and betting against them; flipping turned them into trend-followers.
+
+2. **dm = +1 (no flip), since 2026-05-04** — empirical re-analysis on n=386 post-2026-04-07-reset trades showed dm=-1 produced 13.5% WR while the counter direction would have hit 84.7%. Signal-generator changes since the original validation made raw outputs already correctly directional, so the -1 had become a double-flip producing the inverse of the intended behaviour. New baseline: +1.
+
+If a future regression takes WR back below ~30% for several days, the right diagnostic is the counter-WR-vs-actual-WR-by-side query (see the `daily-autoreview-analysis` skill): a counter-WR materially above the actual-WR is the signature of a directional inversion.
 
 ### Market Selection (intentional design)
 
