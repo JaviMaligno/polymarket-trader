@@ -177,6 +177,18 @@ const tradesByType = Array.isArray(data.trades_by_type) ? data.trades_by_type : 
 const shadowSummary = Array.isArray(data.shadow_summary) ? data.shadow_summary : [];
 const generatedAt = data.generated_at || new Date().toISOString();
 
+// ── Trading-state derived signals ───────────────────────────────────────────
+// "Inactive" = the executor is not opening or closing positions right now.
+// Detect with the data we already collect: zero trades in the last 24h AND no
+// open positions. Useful so the email can label "consecutive losses" (which is
+// a cumulative DB counter, not a recent metric) with honest context, and to
+// surface the inactive state explicitly instead of leaving the reader to
+// derive it from a wall of zeroed-out 24h counters.
+const tradesIn24h = tradesSummary && Number.isFinite(Number(tradesSummary.total_trades))
+  ? Number(tradesSummary.total_trades)
+  : 0;
+const tradingInactive = tradesIn24h === 0 && openPositions.length === 0 && recentlyClosed.length === 0;
+
 // ── Detect alerts ───────────────────────────────────────────────────────────
 
 const alerts = []; // { level: 'critical'|'warning', message: string }
@@ -186,9 +198,13 @@ if (account && account.max_drawdown != null && account.max_drawdown > 10) {
   alerts.push({ level: 'critical', message: `Drawdown at ${fmtPctRaw(account.max_drawdown)} (threshold: 10%)` });
 }
 
-// 5+ consecutive losses
+// 5+ consecutive losses. The metric is a cumulative DB counter, so when the
+// executor has been idle (tradingInactive) the "5 in a row" is historical and
+// not actionable — surface that context instead of paging on stale data.
 if (consecutiveLosses && consecutiveLosses.max_consecutive_losses >= 5) {
-  alerts.push({ level: 'critical', message: `${consecutiveLosses.max_consecutive_losses} consecutive losing trades (threshold: 5)` });
+  const suffix = tradingInactive ? ' (historical — no trades in last 24h)' : '';
+  const level = tradingInactive ? 'warning' : 'critical';
+  alerts.push({ level, message: `${consecutiveLosses.max_consecutive_losses} consecutive losing trades (threshold: 5)${suffix}` });
 }
 
 // No prices in last hour
@@ -276,6 +292,13 @@ function buildMarkdown() {
   ln(`> Generated: ${fmtDate(generatedAt)}`);
   ln();
 
+  // Banner: trading-state context (avoids the "0 trades + 14 consecutive losses"
+  // confusion where a stale cumulative counter looks like a fresh alert).
+  if (tradingInactive) {
+    ln(`> **⚠️ TRADING INACTIVE** — 0 trades in the last 24h, 0 open positions, 0 closed in 24h. All "24h" tables below will be empty by definition; cumulative metrics (consecutive losses, drawdown) are historical, not current.`);
+    ln();
+  }
+
   // Alerts
   if (alerts.length > 0) {
     ln(`## Alerts`);
@@ -356,24 +379,30 @@ function buildMarkdown() {
     ln();
   }
 
-  // By Market Type
+  // Performance breakdown — three independent sources, separated so live and
+  // shadow numbers are not visually adjacent (shadow is theoretical-no-fees
+  // and was being mistaken for promotion candidates).
   if (tradesByType.length > 0 || categoryPerformance.length > 0 || shadowSummary.length > 0) {
-    ln(`## By Market Type`);
+    ln(`## Performance Breakdown`);
     ln();
 
+    // Live, last 24h
+    ln(`### Live — last 24h`);
+    ln();
     if (tradesByType.length > 0) {
-      ln(`### Trades 24h`);
-      ln();
       ln(`| Type | Trades | Win % | PnL |`);
       ln(`|------|--------|-------|-----|`);
       for (const t of tradesByType) {
         ln(`| ${t.market_type || 'N/A'} | ${fmt(t.trades_24h, 0)} | ${fmtPctRaw(t.win_pct)} | ${fmtUsd(t.pnl_24h)} |`);
       }
-      ln();
+    } else {
+      ln(`*No trades in the last 24h.*`);
     }
+    ln();
 
+    // Live, since reset (cumulative)
     if (categoryPerformance.length > 0) {
-      ln(`### Cumulative Performance`);
+      ln(`### Live — cumulative since last reset`);
       ln();
       ln(`| Type | Trades | Win Rate | Avg PnL | Sharpe | Prior |`);
       ln(`|------|--------|----------|---------|--------|-------|`);
@@ -383,8 +412,11 @@ function buildMarkdown() {
       ln();
     }
 
+    // Shadow — theoretical, NOT directly comparable to live
     if (shadowSummary.length > 0) {
-      ln(`### Shadow Trades (blocked by gate)`);
+      ln(`### Shadow — last 30d (theoretical, no fees, no slippage)`);
+      ln();
+      ln(`> Computed at the resolution price. Prediction markets resolve mostly to NO, so SHORT direction systematically over-states win rate (sampling artifact, not strategy edge). **Do not promote based on shadow PnL alone — apply the empirical haircut (≈0.33) and validate with live data.**`);
       ln();
       ln(`| Type | Total | Resolved | Avg PnL |`);
       ln(`|------|-------|----------|---------|`);
@@ -603,6 +635,13 @@ function buildEmailHtml() {
   p(`<h1>Polymarket Daily Review</h1>`);
   p(`<p style="font-size:12px;color:#6a737d;">${fmtDate(generatedAt)}</p>`);
 
+  // Banner: trading-state context (avoids stale-counter confusion)
+  if (tradingInactive) {
+    p(`<div style="background:#fff5b1;border:1px solid #d9b400;border-radius:4px;padding:10px 12px;margin:8px 0 16px;font-size:13px;">`);
+    p(`<strong>⚠️ TRADING INACTIVE</strong><br>0 trades in the last 24h, 0 open positions, 0 closed in 24h. All "24h" tables below will be empty by definition; cumulative metrics (consecutive losses, drawdown) are historical, not current.`);
+    p(`</div>`);
+  }
+
   // Alerts
   if (alerts.length > 0) {
     p('<h2>Alerts</h2><ul>');
@@ -654,12 +693,15 @@ function buildEmailHtml() {
     p('<p><em>No trade data.</em></p>');
   }
 
-  // By market type
-  if (tradesByType.length > 0 || shadowSummary.length > 0) {
-    p('<h2>By Market Type</h2>');
+  // Performance breakdown — three independent sources kept visually separate.
+  // Shadow is theoretical (no fees, no slippage) and was previously rendered
+  // adjacent to live with no disclaimer; readers mistook the inflated SHORT
+  // win rates for promotion candidates.
+  if (tradesByType.length > 0 || shadowSummary.length > 0 || categoryPerformance.length > 0) {
+    p('<h2>Performance Breakdown</h2>');
 
+    p('<h3 style="font-size:14px;margin-top:16px;">Live — last 24h</h3>');
     if (tradesByType.length > 0) {
-      p('<p style="margin:4px 0;font-size:13px;color:#586069;">Trades 24h</p>');
       p('<table>');
       p('<tr><th>Type</th><th>Trades</th><th>Win %</th><th>PnL</th></tr>');
       for (const t of tradesByType) {
@@ -668,10 +710,23 @@ function buildEmailHtml() {
         p(`<tr><td>${escapeHtml(t.market_type || 'N/A')}</td><td>${escapeHtml(fmt(t.trades_24h, 0))}</td><td>${escapeHtml(fmtPctRaw(t.win_pct))}</td><td class="${cls}">${escapeHtml(fmtUsd(t.pnl_24h))}</td></tr>`);
       }
       p('</table>');
+    } else {
+      p('<p><em>No trades in the last 24h.</em></p>');
+    }
+
+    if (categoryPerformance.length > 0) {
+      p('<h3 style="font-size:14px;margin-top:16px;">Live — cumulative since last reset</h3>');
+      p('<table>');
+      p('<tr><th>Type</th><th>Trades</th><th>Win Rate</th><th>Avg PnL</th><th>Sharpe</th></tr>');
+      for (const c of categoryPerformance) {
+        p(`<tr><td>${escapeHtml(c.market_type || 'N/A')}</td><td>${escapeHtml(fmt(c.n_trades, 0))}</td><td>${escapeHtml(fmtPct(c.win_rate))}</td><td>${escapeHtml(fmtUsd(c.avg_pnl))}</td><td>${escapeHtml(fmt(c.sharpe_ratio, 3))}</td></tr>`);
+      }
+      p('</table>');
     }
 
     if (shadowSummary.length > 0) {
-      p('<p style="margin:8px 0 4px;font-size:13px;color:#586069;">Shadow trades (blocked by gate)</p>');
+      p('<h3 style="font-size:14px;margin-top:16px;">Shadow — last 30d <span style="font-weight:normal;color:#6a737d;font-size:12px;">(theoretical: no fees, no slippage)</span></h3>');
+      p('<p style="font-size:12px;color:#6a737d;margin:4px 0 8px;">Resolution-price PnL. Prediction markets mostly resolve to NO, so SHORT win rate is structurally inflated — sampling artifact, not strategy edge. Apply the ≈0.33 empirical haircut before any promotion comparison.</p>');
       p('<table>');
       p('<tr><th>Type</th><th>Total</th><th>Resolved</th><th>Avg PnL</th></tr>');
       for (const s of shadowSummary) {
