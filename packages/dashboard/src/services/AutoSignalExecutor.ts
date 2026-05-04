@@ -27,6 +27,7 @@ import { getExecutionRouter } from './ExecutionRouter.js';
 import { OrderBookExecutionSimulator, type SimulationResult } from './OrderBookExecutionSimulator.js';
 import { getSignalSigmaCache } from './SignalSigmaCache.js';
 import { shouldBlockReopen, getKSigma, type PrevCloseSignal } from './concentrationGate.js';
+import { computeEquityDrawdown } from './drawdown.js';
 
 // ---------------------------------------------------------------------------
 // Inline score helpers (mirror MarketScorer statics — no cross-package import)
@@ -846,28 +847,13 @@ export class AutoSignalExecutor extends EventEmitter {
 
     // Check account has enough capital + drawdown proximity to CB threshold
     try {
-      const accountResult = await query<{ available_capital: string; current_capital: string; peak_equity: string }>(
-        'SELECT available_capital, current_capital, peak_equity FROM paper_account LIMIT 1'
-      );
-      const availableCapital = parseFloat(accountResult.rows[0]?.available_capital ?? '0');
-      const currentCapital = parseFloat(accountResult.rows[0]?.current_capital ?? '0');
       const initialCapital = parseFloat(process.env.INITIAL_CAPITAL || '10000');
-      // peak_equity tracks the highest equity reached since last reset.
-      // Fall back to initialCapital only if DB value is absent or zero (e.g. fresh account).
-      const peakEquity = parseFloat(accountResult.rows[0]?.peak_equity ?? '0') || initialCapital;
+      const dd = await computeEquityDrawdown(initialCapital);
+      if (!dd) return { executed: false, reason: 'paper_account row missing' };
+      const { availableCapital, drawdownPct } = dd;
 
       // Don't open if near CB threshold — prevents open->CB->close->reopen cycle.
-      // Drawdown must be measured from peak_equity (same basis as RiskManager) so that
-      // normal cumulative losses do not lock the guard below the real circuit-breaker
-      // threshold. Using initial_capital as denominator caused a permanent deadlock
-      // whenever cumulative losses exceeded (CB - 2%) of initial capital.
-      const exposureResult = await query<{ total_exposure: string }>(
-        `SELECT COALESCE(SUM(size * current_price), 0) as total_exposure
-         FROM paper_positions WHERE closed_at IS NULL`
-      );
-      const totalExposure = parseFloat(exposureResult.rows[0]?.total_exposure || '0');
-      const currentEquity = currentCapital + totalExposure;
-      const drawdownPct = ((peakEquity - currentEquity) / peakEquity) * 100;
+      // Peak-based denominator (see drawdown.ts header for the deadlock history).
       const CB_THRESHOLD = parseFloat(process.env.MAX_DRAWDOWN || '0.15') * 100; // env is decimal (0.15 = 15%)
       if (drawdownPct > CB_THRESHOLD - 2) {
         console.log(`[AutoSignalExecutor] Skipping open — drawdown ${drawdownPct.toFixed(1)}% too close to CB threshold ${CB_THRESHOLD}%`);

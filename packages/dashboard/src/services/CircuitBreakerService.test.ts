@@ -198,10 +198,10 @@ describe('CircuitBreakerService', () => {
         // The start() CREATE TABLE call — succeed
         return { rows: [], rowCount: 0 } as any;
       }
-      if (sqlStr.includes('SELECT current_capital')) {
+      if (sqlStr.includes('FROM paper_account')) {
         // Return low capital to trigger the circuit breaker. peak_equity matches
         // initial here so post-fix denominator behaviour is identical to legacy.
-        return { rows: [{ current_capital: '5000', initial_capital: '10000', peak_equity: '10000' }], rowCount: 1 } as any;
+        return { rows: [{ available_capital: '5000', current_capital: '5000', initial_capital: '10000', peak_equity: '10000' }], rowCount: 1 } as any;
       }
       if (sqlStr.includes('paper_positions')) {
         // No open positions to close
