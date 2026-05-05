@@ -124,6 +124,12 @@ export interface ExecutorConfig {
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: number;        // Minimum confidence to OPEN a new position
   exitThreshold: number;        // Minimum confidence to CLOSE an existing position (lower)
+  // Optional regime epoch: when set, the retroactive loss-based gates (per-market
+  // consecutive-loss block, long-term persistent-loser ban) only count trades closed
+  // AFTER this timestamp. Lets the system invalidate stale regime data after a flip
+  // (e.g. directionMultiplier inversion on 2026-05-04) without disabling the gates.
+  // Null = no epoch filter (default; gates use rolling windows only).
+  lossGateEpoch: Date | null;
 }
 
 const DEFAULT_CONFIG: ExecutorConfig = {
@@ -151,7 +157,21 @@ const DEFAULT_CONFIG: ExecutorConfig = {
   // Hysteresis thresholds: higher to open, lower to exit
   openThreshold: parseFloat(process.env.EXECUTOR_OPEN_THRESHOLD || '0.43'),
   exitThreshold: parseFloat(process.env.EXECUTOR_EXIT_THRESHOLD || '0.25'),
+  lossGateEpoch: parseLossGateEpoch(process.env.EXECUTOR_LOSS_GATE_EPOCH),
 };
+
+// Parses an ISO-8601 timestamp string to Date; returns null on empty/invalid input.
+// A typo'd env var should not silently disable the loss gates' regime filter, but
+// it should also not crash startup — so warn and fall back to no-filter behaviour.
+function parseLossGateEpoch(raw: string | undefined): Date | null {
+  if (!raw || !raw.trim()) return null;
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    console.warn(`[AutoExecutor] Invalid EXECUTOR_LOSS_GATE_EPOCH=${raw}; ignoring (gates will use rolling windows only)`);
+    return null;
+  }
+  return d;
+}
 
 const STOP_LOSS_COOLDOWN_MS = 4 * 60 * 60 * 1000; // 4 hours
 // Any position close with realized loss >= this threshold triggers the same 4h cooldown,
@@ -642,9 +662,10 @@ export class AutoSignalExecutor extends EventEmitter {
            WHERE market_id = $1
              AND closed_at IS NOT NULL
              AND closed_at >= NOW() - $2::interval
+             AND ($3::timestamptz IS NULL OR closed_at >= $3::timestamptz)
            ORDER BY closed_at DESC
-           LIMIT $3`,
-          [signal.marketId, `${PER_MARKET_LOSS_BLOCK_WINDOW_MS} milliseconds`, PER_MARKET_CONSECUTIVE_LOSS_BLOCK]
+           LIMIT $4`,
+          [signal.marketId, `${PER_MARKET_LOSS_BLOCK_WINDOW_MS} milliseconds`, this.config.lossGateEpoch, PER_MARKET_CONSECUTIVE_LOSS_BLOCK]
         );
         if (lossResult.rows.length >= PER_MARKET_CONSECUTIVE_LOSS_BLOCK) {
           const allLosing = lossResult.rows.every(r => parseFloat(r.realized_pnl) < 0);
@@ -671,8 +692,9 @@ export class AutoSignalExecutor extends EventEmitter {
            FROM paper_positions
            WHERE market_id = $1
              AND closed_at IS NOT NULL
-             AND closed_at >= NOW() - $2::interval`,
-          [signal.marketId, `${LONG_TERM_LOSS_WINDOW_MS} milliseconds`]
+             AND closed_at >= NOW() - $2::interval
+             AND ($3::timestamptz IS NULL OR closed_at >= $3::timestamptz)`,
+          [signal.marketId, `${LONG_TERM_LOSS_WINDOW_MS} milliseconds`, this.config.lossGateEpoch]
         );
         if (longTermResult.rows.length > 0) {
           const losses = parseInt(longTermResult.rows[0].losses, 10);
