@@ -139,7 +139,7 @@ import { SlippageModel } from './simulation/SlippageModel.js';
 import { PortfolioManager } from './portfolio/PortfolioManager.js';
 import { RiskManager } from './risk/RiskManager.js';
 import type { BacktestConfig, MarketData, SlippageConfig, RiskConfig } from './types/index.js';
-import type { ISignal, ISignalCombiner } from '@polymarket-trader/signals';
+import type { ISignal, ISignalCombiner, PriceRangeWeightModifier } from '@polymarket-trader/signals';
 
 /**
  * Configuration for creating a backtest engine
@@ -152,6 +152,8 @@ export interface CreateBacktestOptions {
   slippageConfig?: SlippageConfig;
   riskConfig?: RiskConfig;
   snapshotIntervalMinutes?: number;
+  /** Optional price-range modifier — see BacktestEngineOptions.priceRangeModifier */
+  priceRangeModifier?: PriceRangeWeightModifier;
 }
 
 /**
@@ -185,6 +187,7 @@ export function createBacktestEngine(options: CreateBacktestOptions): BacktestEn
     marketData: options.marketData,
     signals: options.signals,
     combiner: options.combiner,
+    priceRangeModifier: options.priceRangeModifier,
   });
 
   // Inject components

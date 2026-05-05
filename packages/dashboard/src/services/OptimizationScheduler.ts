@@ -12,7 +12,7 @@
  */
 
 import { query, isDatabaseConfigured } from '../database/index.js';
-import { signalWeightsRepo } from '../database/repositories.js';
+import { signalWeightsRepo, priceRangeMatrixRepo } from '../database/repositories.js';
 import { getBacktestService, BacktestService, type BacktestRequest } from './BacktestService.js';
 import type { MarketData } from '@polymarket-trader/backtest';
 import { getValidationService, type ValidationService } from './ValidationService.js';
@@ -68,6 +68,21 @@ export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
   { name: 'meanReversion.bollingerPeriod', type: 'int', low: 15, high: 30 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+  // PriceRangeWeightModifier per-band multipliers (8 params).
+  // Hardcoded defaults zeroed out momentum/mean_reversion in the uncertain
+  // band (0.45–0.55) and dampened them in the transitional band (0.40–0.45,
+  // 0.55–0.60). With a downward-drifting price universe this dampening
+  // contributed to the 6.6:1 LONG:SHORT skew observed 2026-05-05. Optuna now
+  // samples the matrix so post-flip data can override the hand-tuned values.
+  // See docs / project_optimizer_epoch_reset.md for context.
+  { name: 'priceRange.momentumTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.momentumUncertain', type: 'float', low: 0.0, high: 1.0 },
+  { name: 'priceRange.meanReversionTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.meanReversionUncertain', type: 'float', low: 0.0, high: 1.0 },
+  { name: 'priceRange.crossMarketCorrTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.crossMarketCorrUncertain', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.spreadCompressionUncertain', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.newsSentimentUncertain', type: 'float', low: 0.0, high: 1.5 },
 ];
 
 /**
@@ -98,6 +113,17 @@ export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
   { name: 'combiner.directionMultiplier', type: 'categorical', choices: [-1.0, 1.0] },
+  // PriceRangeWeightModifier multipliers — same 8 params as full space.
+  // Refinement re-tunes them per-type each cycle (every 6h) so they track
+  // régime changes without waiting for the weekly full run.
+  { name: 'priceRange.momentumTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.momentumUncertain', type: 'float', low: 0.0, high: 1.0 },
+  { name: 'priceRange.meanReversionTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.meanReversionUncertain', type: 'float', low: 0.0, high: 1.0 },
+  { name: 'priceRange.crossMarketCorrTransitional', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.crossMarketCorrUncertain', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.spreadCompressionUncertain', type: 'float', low: 0.0, high: 1.5 },
+  { name: 'priceRange.newsSentimentUncertain', type: 'float', low: 0.0, high: 1.5 },
 ];
 
 // ============================================================
@@ -711,7 +737,41 @@ export class OptimizationScheduler {
         // combinerConfig field (commit 46dcf41).
         consensusDiscountFloor: params['combiner.consensusDiscountFloor'] as number | undefined,
       },
+      priceRangeConfig: this.buildPriceRangeConfigFromParams(params),
     };
+  }
+
+  /**
+   * Map flat priceRange.* params into the structured priceRangeConfig that
+   * BacktestService consumes. Only emits a key when at least one band
+   * multiplier was actually sampled (so absent params keep the default matrix
+   * untouched, not silently zeroed).
+   */
+  private buildPriceRangeConfigFromParams(
+    params: Record<string, any>,
+  ): BacktestRequest['priceRangeConfig'] {
+    const cfg: BacktestRequest['priceRangeConfig'] = {};
+    const setBand = (
+      genKey: keyof NonNullable<BacktestRequest['priceRangeConfig']>,
+      band: 'transitional' | 'uncertain',
+      paramName: string,
+    ) => {
+      const value = params[paramName];
+      if (typeof value !== 'number' || !Number.isFinite(value)) return;
+      const existing = cfg[genKey] ?? {};
+      cfg[genKey] = { ...existing, [band]: value };
+    };
+
+    setBand('momentum', 'transitional', 'priceRange.momentumTransitional');
+    setBand('momentum', 'uncertain', 'priceRange.momentumUncertain');
+    setBand('meanReversion', 'transitional', 'priceRange.meanReversionTransitional');
+    setBand('meanReversion', 'uncertain', 'priceRange.meanReversionUncertain');
+    setBand('crossMarketCorr', 'transitional', 'priceRange.crossMarketCorrTransitional');
+    setBand('crossMarketCorr', 'uncertain', 'priceRange.crossMarketCorrUncertain');
+    setBand('spreadCompression', 'uncertain', 'priceRange.spreadCompressionUncertain');
+    setBand('newsSentiment', 'uncertain', 'priceRange.newsSentimentUncertain');
+
+    return Object.keys(cfg).length > 0 ? cfg : undefined;
   }
 
   // ============================================================
@@ -1147,7 +1207,63 @@ export class OptimizationScheduler {
       }
     }
 
+    // Persist priceRange.* multipliers to price_range_matrix and live-update
+    // the SignalEngine modifier so production picks them up without a restart.
+    // Matrix is global (not per-type) — the per-type loop runs N times per
+    // cycle and the last-in winner determines the persisted matrix. That's
+    // intentional for a first cut; per-type matrices would multiply storage
+    // and Optuna trials with marginal ROI until empirics demand it.
+    await this.persistPriceRangeMultipliers(result.params);
+
     return { wasApplied: true };
+  }
+
+  private static readonly PRICE_RANGE_PARAM_MAP: Array<{ param: string; signalId: string; band: 'transitional' | 'uncertain' }> = [
+    { param: 'priceRange.momentumTransitional', signalId: 'momentum', band: 'transitional' },
+    { param: 'priceRange.momentumUncertain', signalId: 'momentum', band: 'uncertain' },
+    { param: 'priceRange.meanReversionTransitional', signalId: 'mean_reversion', band: 'transitional' },
+    { param: 'priceRange.meanReversionUncertain', signalId: 'mean_reversion', band: 'uncertain' },
+    { param: 'priceRange.crossMarketCorrTransitional', signalId: 'cross_market_corr', band: 'transitional' },
+    { param: 'priceRange.crossMarketCorrUncertain', signalId: 'cross_market_corr', band: 'uncertain' },
+    { param: 'priceRange.spreadCompressionUncertain', signalId: 'spread_compression', band: 'uncertain' },
+    { param: 'priceRange.newsSentimentUncertain', signalId: 'news_sentiment', band: 'uncertain' },
+  ];
+
+  private async persistPriceRangeMultipliers(params: Record<string, any>): Promise<void> {
+    if (!isDatabaseConfigured()) return;
+    const liveUpdates: Record<string, Partial<Record<'transitional' | 'uncertain', number>>> = {};
+    for (const { param, signalId, band } of OptimizationScheduler.PRICE_RANGE_PARAM_MAP) {
+      const raw = params[param];
+      if (typeof raw !== 'number' || !Number.isFinite(raw)) continue;
+      const clamped = Math.max(0, Math.min(2.0, raw));
+      try {
+        await priceRangeMatrixRepo.setBand(signalId, band, clamped);
+        liveUpdates[signalId] = { ...(liveUpdates[signalId] ?? {}), [band]: clamped };
+        console.log(`[OptimizationScheduler] price_range_matrix[${signalId}/${band}] = ${clamped.toFixed(4)}`);
+      } catch (err) {
+        console.error(`[OptimizationScheduler] Failed to persist priceRange ${signalId}/${band}:`, err);
+      }
+    }
+
+    if (Object.keys(liveUpdates).length === 0) return;
+    try {
+      const { getSignalEngine } = await import('./SignalEngine.js');
+      const engine = getSignalEngine();
+      const baseline = engine.getPriceRangeMatrix();
+      const matrixUpdates: Record<string, { normal: number; transitional: number; uncertain: number }> = {};
+      for (const [signalId, bandUpdates] of Object.entries(liveUpdates)) {
+        const current = baseline[signalId] ?? { normal: 1.0, transitional: 1.0, uncertain: 1.0 };
+        matrixUpdates[signalId] = {
+          normal: current.normal,
+          transitional: bandUpdates.transitional ?? current.transitional,
+          uncertain: bandUpdates.uncertain ?? current.uncertain,
+        };
+      }
+      engine.updatePriceRangeMatrix(matrixUpdates);
+      console.log(`[OptimizationScheduler] Live-updated SignalEngine priceRange matrix for ${Object.keys(matrixUpdates).length} generators`);
+    } catch (err) {
+      console.error('[OptimizationScheduler] Failed to live-update SignalEngine priceRange matrix:', err);
+    }
   }
 
   // ============================================================

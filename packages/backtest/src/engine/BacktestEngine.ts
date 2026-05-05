@@ -19,12 +19,21 @@ import type {
 } from '../types/index.js';
 
 import type { ISignal, ISignalCombiner, SignalContext, SignalOutput, Trade } from '@polymarket-trader/signals';
+import type { PriceRangeWeightModifier } from '@polymarket-trader/signals';
 
 interface BacktestEngineOptions {
   config: BacktestConfig;
   marketData: MarketData[];
   signals: ISignal[];
   combiner: ISignalCombiner;
+  /**
+   * Optional PriceRangeWeightModifier — when supplied the engine modulates
+   * combiner weights by current price band before each combine call (and
+   * restores them after). Mirrors SignalEngine.combineSignalsForMarket so
+   * Optuna can learn matrix values that match production behaviour.
+   * Pass undefined to keep the legacy "raw weights" path.
+   */
+  priceRangeModifier?: PriceRangeWeightModifier;
 }
 
 export interface OrderBookEvent extends BacktestEvent {
@@ -78,6 +87,7 @@ export class BacktestEngine {
   private marketData: Map<string, MarketData> = new Map();
   private signals: ISignal[];
   private combiner: ISignalCombiner;
+  private priceRangeModifier?: PriceRangeWeightModifier;
   private eventBus: EventBus;
   private logger: pino.Logger;
 
@@ -98,6 +108,7 @@ export class BacktestEngine {
     this.config = options.config;
     this.signals = options.signals;
     this.combiner = options.combiner;
+    this.priceRangeModifier = options.priceRangeModifier;
     this.currentTime = new Date(options.config.startDate);
     this.eventBus = new EventBus();
     this.logger = pino({ name: 'BacktestEngine' });
@@ -810,7 +821,29 @@ export class BacktestEngine {
           timestamp: this.currentTime,
         }));
 
-        const combined = this.combiner.combine(updatedSignals, this.currentTime);
+        // Apply price-range weight modulation when a modifier was supplied.
+        // Mirrors SignalEngine.combineSignalsForMarket: stash original weights,
+        // overwrite with modulated ones, combine, restore. Without this branch
+        // Optuna would optimize against a "raw weights" universe that does not
+        // match production behaviour.
+        let originalWeights: Record<string, number> | null = null;
+        if (this.priceRangeModifier) {
+          const currentPrice = this.priceCache.get(marketId)?.currentBar.close;
+          if (typeof currentPrice === 'number' && Number.isFinite(currentPrice)) {
+            originalWeights = this.combiner.getWeights();
+            const modulated = this.priceRangeModifier.modifyWeights(originalWeights, currentPrice);
+            this.combiner.setWeights(modulated);
+          }
+        }
+
+        let combined;
+        try {
+          combined = this.combiner.combine(updatedSignals, this.currentTime);
+        } finally {
+          if (originalWeights !== null) {
+            this.combiner.setWeights(originalWeights);
+          }
+        }
 
         if (!combined) {
           this.combiningStats.combinerReturnedNull++;

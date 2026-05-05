@@ -694,3 +694,53 @@ export const tradingConfigRepo = {
     return config;
   },
 };
+
+// ============================================
+// Price Range Matrix Repository
+// ============================================
+// Stores per-(signal_id, band) multipliers used by PriceRangeWeightModifier
+// at runtime. Optuna writes new values after each successful optimization
+// that passes the OOS gate; SignalEngine reads on boot. Table is created at
+// startup in server.ts (see CREATE TABLE IF NOT EXISTS price_range_matrix).
+// ============================================
+
+const PRICE_RANGE_BANDS = ['normal', 'transitional', 'uncertain'] as const;
+type PriceRangeBandLiteral = typeof PRICE_RANGE_BANDS[number];
+
+function isBand(value: string): value is PriceRangeBandLiteral {
+  return (PRICE_RANGE_BANDS as readonly string[]).includes(value);
+}
+
+export const priceRangeMatrixRepo = {
+  /**
+   * Read all rows and shape into the SignalId → { normal, transitional,
+   * uncertain } structure SignalEngine consumes. Missing bands are returned
+   * as null so callers can decide whether to fall back to the in-code default.
+   */
+  async getMatrix(): Promise<Record<string, Partial<Record<PriceRangeBandLiteral, number>>>> {
+    const result = await query<{ signal_id: string; band: string; multiplier: string }>(
+      'SELECT signal_id, band, multiplier FROM price_range_matrix'
+    );
+    const matrix: Record<string, Partial<Record<PriceRangeBandLiteral, number>>> = {};
+    for (const row of result.rows) {
+      if (!isBand(row.band)) continue;
+      if (!matrix[row.signal_id]) matrix[row.signal_id] = {};
+      matrix[row.signal_id][row.band] = Number(row.multiplier);
+    }
+    return matrix;
+  },
+
+  async setBand(signalId: string, band: PriceRangeBandLiteral, multiplier: number): Promise<void> {
+    if (!Number.isFinite(multiplier)) {
+      throw new Error(`Invalid multiplier for ${signalId}/${band}: ${multiplier}`);
+    }
+    await query(
+      `INSERT INTO price_range_matrix (signal_id, band, multiplier, updated_at)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (signal_id, band) DO UPDATE SET
+         multiplier = EXCLUDED.multiplier,
+         updated_at = NOW()`,
+      [signalId, band, multiplier]
+    );
+  },
+};
