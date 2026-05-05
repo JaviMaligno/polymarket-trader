@@ -550,6 +550,37 @@ shadow_summary=$(query_json "
   ) t;
 ")
 
+# shadow_summary_by_direction — exposes the SHORT-resolves-NO sampling artifact
+# (shadow SHORT win rates run very high in prediction markets because most
+# markets resolve NO; not a strategy edge). Promotion logic uses this to
+# decide whether a high overall win_rate is genuine or SHORT-bias-inflated.
+shadow_summary_by_direction=$(query_json "
+  SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (
+    SELECT market_type,
+           direction,
+           COUNT(*) AS total,
+           COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
+           ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_pnl,
+           ROUND(
+             (COUNT(*) FILTER (WHERE resolved_at IS NOT NULL AND theoretical_pnl > 0)::numeric
+               / NULLIF(COUNT(*) FILTER (WHERE resolved_at IS NOT NULL), 0))::numeric,
+             3
+           ) AS win_rate,
+           ROUND(STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS pnl_stddev,
+           ROUND(
+             CASE WHEN STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL) > 0
+               THEN AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+                    / STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+               ELSE 0 END::numeric,
+             3
+           ) AS sharpe
+    FROM shadow_trades
+    WHERE time >= NOW() - INTERVAL '30 days'
+    GROUP BY market_type, direction
+    ORDER BY market_type, direction
+  ) t;
+")
+
 # ── save review history ──────────────────────────────────────────────────────
 
 HISTORY_ENTRY=$(cat <<HISTEOF
@@ -610,6 +641,7 @@ jq -n \
   --argjson category_performance "$category_performance" \
   --argjson trades_by_type "$trades_by_type" \
   --argjson shadow_summary "$shadow_summary" \
+  --argjson shadow_summary_by_direction "$shadow_summary_by_direction" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -641,5 +673,6 @@ jq -n \
     category_performance: $category_performance,
     trades_by_type: $trades_by_type,
     shadow_summary: $shadow_summary,
+    shadow_summary_by_direction: $shadow_summary_by_direction,
     review_history: $review_history
   }'
