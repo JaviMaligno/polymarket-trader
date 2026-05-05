@@ -433,6 +433,17 @@ async function main(): Promise<void> {
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
+      // resolution_prior bootstrap row (PR after #190). Optuna writes the
+      // optimal weight after each successful OOS-passing cycle. Default 0.0
+      // so the generator is wired but inactive until Optuna provides
+      // empirical evidence of value.
+      await query(`
+        INSERT INTO signal_weights (signal_type, weight, market_type, is_enabled, min_confidence, updated_at)
+        VALUES ('resolution_prior', 0.0, '__global__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type) DO NOTHING;
+      `);
+      console.log('[server] signal_weights.resolution_prior row ensured');
+
       // direction_multiplier per-(market_type) bootstrap. Mirror init/028_*.sql
       // for existing VMs whose volume already initialized (so 028 won't re-run).
       // See docs/plans/2026-04-30-direction-multiplier-per-type-design.md.

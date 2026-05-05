@@ -789,3 +789,29 @@ describe('mean_reversion.referenceMode wiring', () => {
     expect(tradingConfigRepo.set).not.toHaveBeenCalled();
   });
 });
+
+describe('resolution_prior wiring', () => {
+  it('OPTUNA_PARAM_SPACE includes combiner.resolutionPriorWeight in [0, 2]', () => {
+    const param = OPTUNA_PARAM_SPACE.find((p) => p.name === 'combiner.resolutionPriorWeight');
+    expect(param).toBeDefined();
+    expect(param?.type).toBe('float');
+    expect((param as any).low).toBe(0.0);
+    expect((param as any).high).toBe(2.0);
+  });
+
+  it('REFINEMENT_PARAM_SPACE includes combiner.resolutionPriorWeight (per-type cycles)', () => {
+    const param = REFINEMENT_PARAM_SPACE.find((p) => p.name === 'combiner.resolutionPriorWeight');
+    expect(param).toBeDefined();
+    expect(param?.type).toBe('float');
+  });
+
+  it('mapOptunaParamsToRequest forwards resolutionPriorWeight to combinerConfig', () => {
+    const scheduler = new OptimizationScheduler();
+    const request = (scheduler as any).mapOptunaParamsToRequest(
+      { 'combiner.resolutionPriorWeight': 0.7 },
+      new Date('2026-05-01'),
+      new Date('2026-05-10'),
+    );
+    expect(request.combinerConfig.resolutionPriorWeight).toBe(0.7);
+  });
+});
