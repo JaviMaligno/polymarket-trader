@@ -37,10 +37,20 @@ describe('NewsSentimentGenerator', () => {
     expect(generator.signalId).toBe('news_sentiment');
   });
 
-  it('returns null when |sentiment| < minSentimentMagnitude (0.3)', async () => {
-    const ctx = makeContext(0.2, 3);
+  it('returns null when |sentiment| < minSentimentMagnitude (0.2)', async () => {
+    const ctx = makeContext(0.15, 3);
     const result = await generator.compute(ctx);
     expect(result).toBeNull();
+  });
+
+  it('fires when |sentiment| just clears the 0.2 threshold (with enough articles)', async () => {
+    // 2026-05-05 calibration: aggregated weighted-average sentiment lands in
+    // 0.2-0.3 on real multi-article markets. The threshold was lowered
+    // specifically so this case fires.
+    const ctx = makeContext(0.25, 3);
+    const result = await generator.compute(ctx);
+    expect(result).not.toBeNull();
+    expect(result!.direction).toBe('LONG');
   });
 
   it('returns null when articleCount < minArticleCount (2)', async () => {
