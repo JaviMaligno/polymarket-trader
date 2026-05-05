@@ -734,21 +734,34 @@ export class SignalEngine extends EventEmitter {
         // non-fatal
       }
 
-      // Fetch news sentiment data for NewsSentimentGenerator
+      // Fetch news sentiment data for NewsSentimentGenerator.
+      //
+      // NewsCollector writes one external_signals row per (market, headline)
+      // with metadata.articleCount hardcoded to 1. The previous LIMIT 1
+      // read silenced NewsSentimentGenerator entirely (its threshold is
+      // articleCount >= 2). Aggregating over the 4h window gives the true
+      // per-market article count and a confidence-weighted average sentiment.
       let newsSentiment = 0;
       let newsArticleCount = 0;
       try {
-        const sentimentData = await query(
-          `SELECT value, metadata FROM external_signals
-           WHERE market_id = $1 AND signal_type = 'sentiment'
-           AND fetched_at > NOW() - INTERVAL '4 hours'
-           ORDER BY fetched_at DESC LIMIT 1`,
+        const sentimentData = await query<{ article_count: string; sentiment: string | null }>(
+          `SELECT
+             COUNT(*)::int AS article_count,
+             COALESCE(
+               SUM(value * confidence) / NULLIF(SUM(confidence), 0),
+               AVG(value)
+             )::float AS sentiment
+           FROM external_signals
+           WHERE market_id = $1
+             AND signal_type = 'sentiment'
+             AND fetched_at > NOW() - INTERVAL '4 hours'`,
           [market.id]
         );
         if (sentimentData.rows[0]) {
-          newsSentiment = sentimentData.rows[0].value;
-          const meta = sentimentData.rows[0].metadata;
-          newsArticleCount = (typeof meta === 'object' ? meta?.articleCount : JSON.parse(meta)?.articleCount) ?? 0;
+          newsArticleCount = Number(sentimentData.rows[0].article_count) || 0;
+          newsSentiment = sentimentData.rows[0].sentiment === null
+            ? 0
+            : Number(sentimentData.rows[0].sentiment) || 0;
         }
       } catch {
         // non-fatal

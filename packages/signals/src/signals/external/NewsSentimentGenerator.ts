@@ -19,8 +19,15 @@ export class NewsSentimentGenerator extends BaseSignal<NewsSentimentParams> {
   readonly name = 'News Headline Sentiment';
   readonly description = 'Infers market direction from recent news headline sentiment';
 
+  // Default threshold lowered 2026-05-05 from 0.3 → 0.2 to match observed
+  // weighted-average sentiment values produced by SignalEngine's aggregation
+  // over the 4h window. The LLM (Haiku) estimates per-article impact as
+  // ~0.2-0.4; weighted averages over 2-5 articles dilute toward 0.15-0.30.
+  // 0.3 silenced every market on live data; 0.2 lets coherent multi-article
+  // sentiment fire while still filtering out noise (single weak articles
+  // also fail because minArticleCount=2 still applies).
   protected parameters: NewsSentimentParams = {
-    minSentimentMagnitude: 0.3,
+    minSentimentMagnitude: 0.2,
     minArticleCount: 2,
   };
 
