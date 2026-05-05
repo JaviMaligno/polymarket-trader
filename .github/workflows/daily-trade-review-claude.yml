@@ -389,26 +389,49 @@ jobs:
         # the resulting push to main does NOT trigger Deploy to GCP because GitHub
         # blocks workflows triggered by GITHUB_TOKEN-originated pushes. This step
         # detects that case and dispatches Deploy manually with MERGE_PAT.
+        #
+        # Token scopes:
+        # - Read-only checks (pr list, run list) use github.token, which always has
+        #   the right scopes for the current repo. Earlier MERGE_PAT-only runs hit
+        #   401 Unauthorized on these endpoints because the PAT lacked actions:read.
+        # - The dispatch (workflow run) uses MERGE_PAT, since GitHub blocks workflow
+        #   dispatches from GITHUB_TOKEN-originated requests for security.
+        # The step is best-effort: any failure logs a warning but does not fail the
+        # workflow. The auto-merge step above already uses MERGE_PAT to push, which
+        # normally triggers Deploy on its own; this step is a backstop.
         if: always()
         env:
-          GH_TOKEN: ${{ secrets.MERGE_PAT }}
+          GH_TOKEN: ${{ github.token }}
+          MERGE_PAT: ${{ secrets.MERGE_PAT }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          warn() { echo "::warning::safety-net: $1"; }
+
           SINCE=$(date -u -d '2 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-          LAST_MERGE=$(gh pr list --state merged --label daily-review \
-            --search "merged:>$SINCE" \
-            --json mergedAt --jq 'sort_by(.mergedAt) | last | .mergedAt // ""')
+          if ! LAST_MERGE=$(gh pr list --state merged --label daily-review \
+                --search "merged:>$SINCE" \
+                --json mergedAt --jq 'sort_by(.mergedAt) | last | .mergedAt // ""'); then
+            warn "gh pr list failed — skipping deploy verification"
+            exit 0
+          fi
           if [ -z "$LAST_MERGE" ]; then
             echo "No daily-review PRs merged in last 2h — nothing to verify"
             exit 0
           fi
-          LAST_DEPLOY=$(gh run list --workflow="Deploy to GCP" --branch main --limit 1 \
-            --json createdAt --jq '.[0].createdAt // ""')
+
+          if ! LAST_DEPLOY=$(gh run list --workflow="Deploy to GCP" --branch main --limit 1 \
+                --json createdAt --jq '.[0].createdAt // ""'); then
+            warn "gh run list failed — skipping deploy verification (merge happened, manual check recommended)"
+            exit 0
+          fi
           echo "Last daily-review merge: $LAST_MERGE"
           echo "Last Deploy run:        $LAST_DEPLOY"
+
           if [ -z "$LAST_DEPLOY" ] || [[ "$LAST_DEPLOY" < "$LAST_MERGE" ]]; then
             echo "::warning::Daily-review PR merged but no Deploy fired — dispatching manually"
-            gh workflow run "Deploy to GCP" --ref main
+            if ! GH_TOKEN="$MERGE_PAT" gh workflow run "Deploy to GCP" --ref main; then
+              warn "workflow dispatch failed — Deploy must be triggered manually"
+            fi
           else
             echo "Deploy already fired after the merge — no action needed"
           fi
