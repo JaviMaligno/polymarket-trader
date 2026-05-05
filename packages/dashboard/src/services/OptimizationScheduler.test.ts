@@ -15,6 +15,10 @@ vi.mock('../database/repositories.js', () => ({
     setBand: vi.fn().mockResolvedValue(undefined),
     getMatrix: vi.fn().mockResolvedValue({}),
   },
+  tradingConfigRepo: {
+    set: vi.fn().mockResolvedValue(undefined),
+    get: vi.fn().mockResolvedValue(null),
+  },
 }));
 
 vi.mock('./BacktestService.js', () => ({
@@ -42,7 +46,7 @@ vi.mock('../utils/vmHealth.js', () => ({
   logHealthStatus: vi.fn(),
 }));
 
-import { signalWeightsRepo, priceRangeMatrixRepo } from '../database/repositories.js';
+import { signalWeightsRepo, priceRangeMatrixRepo, tradingConfigRepo } from '../database/repositories.js';
 import { query } from '../database/index.js';
 import {
   OptimizationScheduler,
@@ -717,5 +721,71 @@ describe('PriceRange Optuna params + persistence', () => {
       'priceRange.meanReversionTransitional': Number.POSITIVE_INFINITY,
     });
     expect(priceRangeMatrixRepo.setBand).not.toHaveBeenCalled();
+  });
+});
+
+describe('mean_reversion.referenceMode wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('OPTUNA_PARAM_SPACE includes meanReversion.referenceMode as categorical {sma, fixed_50}', () => {
+    const param = OPTUNA_PARAM_SPACE.find((p) => p.name === 'meanReversion.referenceMode');
+    expect(param).toBeDefined();
+    expect(param?.type).toBe('categorical');
+    expect((param as any).choices).toEqual(['sma', 'fixed_50']);
+  });
+
+  it('REFINEMENT_PARAM_SPACE includes meanReversion.referenceMode (per-type cycles re-tune)', () => {
+    const param = REFINEMENT_PARAM_SPACE.find((p) => p.name === 'meanReversion.referenceMode');
+    expect(param).toBeDefined();
+    expect(param?.type).toBe('categorical');
+    expect((param as any).choices).toEqual(['sma', 'fixed_50']);
+  });
+
+  it('mapOptunaParamsToRequest forwards referenceMode to meanReversionConfig', () => {
+    const scheduler = new OptimizationScheduler();
+    const request = (scheduler as any).mapOptunaParamsToRequest(
+      { 'meanReversion.referenceMode': 'fixed_50' },
+      new Date('2026-05-01'),
+      new Date('2026-05-10'),
+    );
+    expect(request.meanReversionConfig.referenceMode).toBe('fixed_50');
+  });
+
+  it('mapOptunaParamsToRequest leaves referenceMode undefined when not sampled', () => {
+    const scheduler = new OptimizationScheduler();
+    const request = (scheduler as any).mapOptunaParamsToRequest(
+      {},
+      new Date('2026-05-01'),
+      new Date('2026-05-10'),
+    );
+    expect(request.meanReversionConfig.referenceMode).toBeUndefined();
+  });
+
+  it('persistMeanReversionReferenceMode writes valid mode to trading_config', async () => {
+    const scheduler = new OptimizationScheduler();
+    await (scheduler as any).persistMeanReversionReferenceMode({
+      'meanReversion.referenceMode': 'fixed_50',
+    });
+    expect(tradingConfigRepo.set).toHaveBeenCalledWith(
+      'mean_reversion.reference_mode',
+      'fixed_50',
+      expect.any(String),
+    );
+  });
+
+  it('persistMeanReversionReferenceMode ignores invalid values', async () => {
+    const scheduler = new OptimizationScheduler();
+    await (scheduler as any).persistMeanReversionReferenceMode({
+      'meanReversion.referenceMode': 'invalid_mode',
+    });
+    expect(tradingConfigRepo.set).not.toHaveBeenCalled();
+  });
+
+  it('persistMeanReversionReferenceMode no-ops when param absent', async () => {
+    const scheduler = new OptimizationScheduler();
+    await (scheduler as any).persistMeanReversionReferenceMode({});
+    expect(tradingConfigRepo.set).not.toHaveBeenCalled();
   });
 });

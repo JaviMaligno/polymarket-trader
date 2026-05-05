@@ -5,6 +5,27 @@ import type {
 } from '../../core/types/signal.types.js';
 
 /**
+ * Reference anchor for the mean-reversion signal.
+ *
+ *   'sma'      — classic moving-average anchor (default; original behaviour).
+ *   'fixed_50' — anchor to 0.5, the prediction-market terminal-prior midpoint.
+ *
+ * In prediction markets that drift toward 0 or 1, an SMA anchor itself drifts,
+ * so the generator never expects regression to a stable point. Anchoring to
+ * 0.5 instead asks "is this market overbought/oversold relative to the prior
+ * coin-flip"? In a portfolio dominated by markets with avg price 0.36–0.47
+ * this can flip the directional bias of the generator. Optuna chooses per
+ * cycle which anchor produces better OOS Sharpe.
+ *
+ * Std-dev (volatility proxy) is always computed from the SMA — only the
+ * mean centre changes. This keeps band widths and z-score variance coherent
+ * regardless of mode.
+ */
+export type MeanReversionReferenceMode = 'sma' | 'fixed_50';
+
+export const FIXED_REFERENCE_PRICE = 0.5;
+
+/**
  * Configuration parameters for Mean Reversion Signal
  */
 export interface MeanReversionSignalConfig extends Record<string, unknown> {
@@ -26,6 +47,8 @@ export interface MeanReversionSignalConfig extends Record<string, unknown> {
   zScoreWeight?: number;
   /** Weight for historical mean reversion - default: 0.25 */
   historicalWeight?: number;
+  /** Reference anchor — 'sma' (default) or 'fixed_50' */
+  referenceMode?: MeanReversionReferenceMode;
 }
 
 interface MeanReversionParams extends Record<string, unknown> {
@@ -47,6 +70,8 @@ interface MeanReversionParams extends Record<string, unknown> {
   zScoreWeight: number;
   /** Weight for historical mean reversion */
   historicalWeight: number;
+  /** Reference anchor — 'sma' or 'fixed_50' */
+  referenceMode: MeanReversionReferenceMode;
 }
 
 /** Default parameters for Mean Reversion Signal */
@@ -60,6 +85,7 @@ export const DEFAULT_MEAN_REVERSION_PARAMS: MeanReversionParams = {
   bbWeight: 0.4,
   zScoreWeight: 0.35,
   historicalWeight: 0.25,
+  referenceMode: 'sma',
 };
 
 /**
@@ -95,6 +121,31 @@ export class MeanReversionSignal extends BaseSignal {
 
   getRequiredLookback(): number {
     return Math.max(this.parameters.bbPeriod, this.parameters.maPeriod) + 10;
+  }
+
+  /**
+   * Replace the reference-anchor mode at runtime. Used by SignalEngine to
+   * apply Optuna decisions without restarting the dashboard. Other params
+   * are not exposed via setter — they are constructor-time only.
+   */
+  setReferenceMode(mode: MeanReversionReferenceMode): void {
+    this.parameters.referenceMode = mode;
+  }
+
+  getReferenceMode(): MeanReversionReferenceMode {
+    return this.parameters.referenceMode;
+  }
+
+  /**
+   * Resolve the reference centre for a given window. SMA-anchored mode uses
+   * the rolling mean (original behaviour); fixed_50 returns 0.5 regardless
+   * of recent prices, anchoring the generator to the prediction-market
+   * coin-flip prior.
+   */
+  private resolveReference(closes: number[], period: number): number {
+    return this.parameters.referenceMode === 'fixed_50'
+      ? FIXED_REFERENCE_PRICE
+      : this.sma(closes, period);
   }
 
   async compute(context: SignalContext): Promise<SignalOutput | null> {
@@ -172,16 +223,29 @@ export class MeanReversionSignal extends BaseSignal {
 
   /**
    * Calculate Bollinger Bands signal
+   *
+   * In 'fixed_50' mode the band centre is forced to 0.5 (the prediction-market
+   * coin-flip prior) while the band width still reflects realized volatility
+   * around the SMA. percentB is recomputed against the chosen centre so a
+   * market trading at 0.20 with σ=0.05 reads "very oversold relative to 0.5"
+   * even when its SMA is 0.18 (which 'sma' mode would call "in-band").
    */
   private calculateBollingerSignal(
     closes: number[],
     params: MeanReversionParams
   ): { strength: number; percentB: number; bandwidth: number } {
-    const { upper, middle, lower, percentB } = this.bollingerBands(
+    const { upper: smaUpper, middle: smaMiddle, lower: smaLower } = this.bollingerBands(
       closes,
       params.bbPeriod,
       params.bbStdDev
     );
+    const halfWidth = (smaUpper - smaLower) / 2;
+    const middle = params.referenceMode === 'fixed_50' ? FIXED_REFERENCE_PRICE : smaMiddle;
+    const upper = middle + halfWidth;
+    const lower = middle - halfWidth;
+    const currentPrice = closes[closes.length - 1];
+    const range = upper - lower;
+    const percentB = range > 0 ? (currentPrice - lower) / range : 0.5;
 
     // Calculate bandwidth as volatility indicator
     const bandwidth = middle > 0 ? (upper - lower) / middle : 0;
@@ -213,12 +277,17 @@ export class MeanReversionSignal extends BaseSignal {
 
   /**
    * Calculate Z-score signal
+   *
+   * Std-dev (volatility proxy) is always SMA-derived. Only the centre swaps
+   * — see resolveReference. This keeps the z-score scale comparable across
+   * modes; only the direction of "deviation" relative to the chosen centre
+   * differs.
    */
   private calculateZScoreSignal(
     closes: number[],
     params: MeanReversionParams
   ): { strength: number; zScore: number } {
-    const mean = this.sma(closes, params.maPeriod);
+    const mean = this.resolveReference(closes, params.maPeriod);
     const std = this.stdDev(closes, params.maPeriod);
 
     if (std === 0) {
@@ -249,6 +318,11 @@ export class MeanReversionSignal extends BaseSignal {
 
   /**
    * Calculate historical mean reversion tendency
+   *
+   * In 'fixed_50' mode each rolling window measures reversion toward 0.5
+   * rather than toward its own SMA. The empirical reversion rate is then
+   * directly comparable across markets that drift to NO (price→0) vs YES
+   * (price→1) — both look like "anti-reverting" relative to 0.5.
    */
   private calculateHistoricalReversion(
     closes: number[],
@@ -258,13 +332,16 @@ export class MeanReversionSignal extends BaseSignal {
       return { strength: 0, avgReversion: 0 };
     }
 
-    // Look at past deviations and how quickly they reverted
-    const mean = this.sma(closes.slice(-params.maPeriod * 2), params.maPeriod);
+    // Reference centre for the current bar.
+    const mean = this.resolveReference(closes.slice(-params.maPeriod * 2), params.maPeriod);
     const reversionRates: number[] = [];
 
-    // Analyze reversion in rolling windows
+    // Analyze reversion in rolling windows.
     for (let i = params.maPeriod; i < closes.length - 5; i++) {
-      const windowMean = this.sma(closes.slice(i - params.maPeriod, i), params.maPeriod);
+      const windowSlice = closes.slice(i - params.maPeriod, i);
+      const windowMean = params.referenceMode === 'fixed_50'
+        ? FIXED_REFERENCE_PRICE
+        : this.sma(windowSlice, params.maPeriod);
       const deviation = closes[i] - windowMean;
       const futurePrice = closes[Math.min(i + 5, closes.length - 1)];
       const futureDeviation = futurePrice - windowMean;
@@ -280,9 +357,9 @@ export class MeanReversionSignal extends BaseSignal {
       ? reversionRates.reduce((a, b) => a + b, 0) / reversionRates.length
       : 0;
 
-    // Current deviation
+    // Current deviation. Avoid divide-by-zero when the centre lands at 0.
     const currentPrice = closes[closes.length - 1];
-    const currentDeviation = (currentPrice - mean) / mean;
+    const currentDeviation = mean !== 0 ? (currentPrice - mean) / mean : (currentPrice - mean);
 
     // If historical reversion is strong and we're deviated, signal reversion
     const strength = avgReversion > 0.3 && Math.abs(currentDeviation) > params.minDeviationPct / 100

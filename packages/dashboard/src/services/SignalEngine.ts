@@ -1212,6 +1212,32 @@ export class SignalEngine extends EventEmitter {
   }
 
   /**
+   * Swap the mean_reversion reference anchor at runtime. 'sma' (default,
+   * legacy) or 'fixed_50' (anchor to coin-flip prior — better for
+   * prediction markets that drift toward terminal resolution). Called at
+   * boot from trading_config and after each successful Optuna cycle that
+   * passes the OOS gate.
+   */
+  setMeanReversionReferenceMode(mode: 'sma' | 'fixed_50'): void {
+    const generator = this.signals.get('mean_reversion') as unknown as
+      { setReferenceMode?: (m: 'sma' | 'fixed_50') => void } | undefined;
+    if (!generator || typeof generator.setReferenceMode !== 'function') {
+      console.warn('[SignalEngine] mean_reversion generator missing setReferenceMode — skipping');
+      return;
+    }
+    generator.setReferenceMode(mode);
+  }
+
+  getMeanReversionReferenceMode(): 'sma' | 'fixed_50' | null {
+    const generator = this.signals.get('mean_reversion') as unknown as
+      { getReferenceMode?: () => 'sma' | 'fixed_50' } | undefined;
+    if (!generator || typeof generator.getReferenceMode !== 'function') {
+      return null;
+    }
+    return generator.getReferenceMode();
+  }
+
+  /**
    * Update configuration
    */
   updateConfig(updates: Partial<SignalEngineConfig>): void {
