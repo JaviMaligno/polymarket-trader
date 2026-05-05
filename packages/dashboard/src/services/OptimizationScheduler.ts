@@ -12,7 +12,7 @@
  */
 
 import { query, isDatabaseConfigured } from '../database/index.js';
-import { signalWeightsRepo, priceRangeMatrixRepo } from '../database/repositories.js';
+import { signalWeightsRepo, priceRangeMatrixRepo, tradingConfigRepo } from '../database/repositories.js';
 import { getBacktestService, BacktestService, type BacktestRequest } from './BacktestService.js';
 import type { MarketData } from '@polymarket-trader/backtest';
 import { getValidationService, type ValidationService } from './ValidationService.js';
@@ -68,6 +68,13 @@ export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'momentum.rsiPeriod', type: 'int', low: 10, high: 21 },
   { name: 'meanReversion.bollingerPeriod', type: 'int', low: 15, high: 30 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+  // mean-reversion reference anchor. 'sma' (legacy) vs 'fixed_50' (anchor to
+  // the coin-flip prior). In a portfolio dominated by markets that drift to
+  // a terminal NO/YES resolution, the SMA itself drifts and the generator
+  // never expects regression to a stable point. 'fixed_50' tests the
+  // alternative hypothesis. Categorical so drift is impossible by
+  // construction; persisted via trading_config.
+  { name: 'meanReversion.referenceMode', type: 'categorical', choices: ['sma', 'fixed_50'] },
   // PriceRangeWeightModifier per-band multipliers (8 params).
   // Hardcoded defaults zeroed out momentum/mean_reversion in the uncertain
   // band (0.45–0.55) and dampened them in the transitional band (0.40–0.45,
@@ -112,6 +119,7 @@ export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
   { name: 'meanReversion.zScoreThreshold', type: 'float', low: 1.5, high: 2.5 },
+  { name: 'meanReversion.referenceMode', type: 'categorical', choices: ['sma', 'fixed_50'] },
   { name: 'combiner.directionMultiplier', type: 'categorical', choices: [-1.0, 1.0] },
   // PriceRangeWeightModifier multipliers — same 8 params as full space.
   // Refinement re-tunes them per-type each cycle (every 6h) so they track
@@ -716,6 +724,7 @@ export class OptimizationScheduler {
       meanReversionConfig: {
         bbPeriod: params['meanReversion.bollingerPeriod'],
         zScoreThreshold: params['meanReversion.zScoreThreshold'],
+        referenceMode: params['meanReversion.referenceMode'] as 'sma' | 'fixed_50' | undefined,
       },
       combinerConfig: {
         momentumWeight: params['combiner.momentumWeight'],
@@ -1215,7 +1224,34 @@ export class OptimizationScheduler {
     // and Optuna trials with marginal ROI until empirics demand it.
     await this.persistPriceRangeMultipliers(result.params);
 
+    // Persist mean_reversion.referenceMode + live-update SignalEngine.
+    await this.persistMeanReversionReferenceMode(result.params);
+
     return { wasApplied: true };
+  }
+
+  private async persistMeanReversionReferenceMode(params: Record<string, any>): Promise<void> {
+    if (!isDatabaseConfigured()) return;
+    const raw = params['meanReversion.referenceMode'];
+    if (raw !== 'sma' && raw !== 'fixed_50') return;
+    try {
+      await tradingConfigRepo.set(
+        'mean_reversion.reference_mode',
+        raw,
+        'Optuna-tuned mean_reversion reference anchor (sma | fixed_50)',
+      );
+      console.log(`[OptimizationScheduler] mean_reversion.reference_mode = ${raw}`);
+    } catch (err) {
+      console.error('[OptimizationScheduler] Failed to persist mean_reversion.reference_mode:', err);
+      return;
+    }
+    try {
+      const { getSignalEngine } = await import('./SignalEngine.js');
+      getSignalEngine().setMeanReversionReferenceMode(raw);
+      console.log('[OptimizationScheduler] Live-updated SignalEngine mean_reversion.referenceMode');
+    } catch (err) {
+      console.error('[OptimizationScheduler] Failed to live-update mean_reversion.referenceMode:', err);
+    }
   }
 
   private static readonly PRICE_RANGE_PARAM_MAP: Array<{ param: string; signalId: string; band: 'transitional' | 'uncertain' }> = [

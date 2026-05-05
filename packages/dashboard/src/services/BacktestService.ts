@@ -68,6 +68,10 @@ export interface BacktestRequest {
     bbPeriod?: number;
     bbStdDev?: number;
     zScoreThreshold?: number;
+    /** Reference anchor: 'sma' (default, classic SMA) or 'fixed_50'
+     *  (anchor to coin-flip prior — better for prediction markets that drift
+     *  toward a terminal resolution). */
+    referenceMode?: 'sma' | 'fixed_50';
   };
   /** Combiner config for Optuna optimization */
   combinerConfig?: {
@@ -650,6 +654,7 @@ export class BacktestService extends EventEmitter {
             bbPeriod: meanReversionConfig.bbPeriod,
             bbStdDev: meanReversionConfig.bbStdDev,
             zScoreThreshold: meanReversionConfig.zScoreThreshold,
+            referenceMode: meanReversionConfig.referenceMode,
           } : undefined));
           break;
         case 'wallet_tracking':

@@ -698,6 +698,22 @@ async function main(): Promise<void> {
         directionResolver,
       });
 
+      // Hydrate mean_reversion.referenceMode from trading_config so a
+      // previously persisted Optuna decision survives restart. Missing key
+      // → keeps the constructor default ('sma'). Invalid stored value (not
+      // 'sma'|'fixed_50') is logged and ignored.
+      try {
+        const persistedMode = await tradingConfigRepo.get<string>('mean_reversion.reference_mode');
+        if (persistedMode === 'sma' || persistedMode === 'fixed_50') {
+          signalEngine.setMeanReversionReferenceMode(persistedMode);
+          console.log(`[server] mean_reversion.referenceMode hydrated from DB: ${persistedMode}`);
+        } else if (persistedMode != null) {
+          console.warn(`[server] Ignoring invalid persisted mean_reversion.reference_mode: ${persistedMode}`);
+        }
+      } catch (err) {
+        console.warn('[server] Failed to hydrate mean_reversion.referenceMode:', err);
+      }
+
       // Hydrate PriceRangeWeightModifier matrix from DB so Optuna-tuned
       // multipliers persist across restarts. Empty table → keeps in-code
       // defaults from PriceRangeWeightModifier.DEFAULT_MATRIX.
