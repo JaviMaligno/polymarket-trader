@@ -46,6 +46,9 @@ import {
   OOS_MIN_TRADES_PER_TYPE,
   REFINEMENT_PARAM_SPACE,
   OPTUNA_PARAM_SPACE,
+  parseOptimizerEpochStart,
+  buildTrainingWindow,
+  buildOOSWindow,
 } from './OptimizationScheduler.js';
 
 describe('OptimizationScheduler', () => {
@@ -218,6 +221,108 @@ describe('getOosMinTrades', () => {
     expect(getOosMinTrades('event_long')).toBe(5);
     process.env.OPTIMIZER_MIN_TRADES_EVENT_LONG = '-3';
     expect(getOosMinTrades('event_long')).toBe(5);
+  });
+});
+
+describe('OPTIMIZER_EPOCH_START regime filter', () => {
+  const ENV_KEY = 'OPTIMIZER_EPOCH_START';
+
+  beforeEach(() => {
+    delete process.env[ENV_KEY];
+  });
+
+  describe('parseOptimizerEpochStart', () => {
+    it('returns null when env var is unset', () => {
+      expect(parseOptimizerEpochStart()).toBeNull();
+    });
+
+    it('returns null on empty/whitespace value', () => {
+      process.env[ENV_KEY] = '';
+      expect(parseOptimizerEpochStart()).toBeNull();
+      process.env[ENV_KEY] = '   ';
+      expect(parseOptimizerEpochStart()).toBeNull();
+    });
+
+    it('returns parsed Date for ISO 8601 input', () => {
+      process.env[ENV_KEY] = '2026-05-04T09:55:00Z';
+      const result = parseOptimizerEpochStart();
+      expect(result).toBeInstanceOf(Date);
+      expect(result!.toISOString()).toBe('2026-05-04T09:55:00.000Z');
+    });
+
+    it('returns null on garbage input (no silent fallback)', () => {
+      process.env[ENV_KEY] = 'not-a-date';
+      expect(parseOptimizerEpochStart()).toBeNull();
+    });
+  });
+
+  describe('buildTrainingWindow', () => {
+    const now = new Date('2026-05-15T00:00:00Z');
+    const TRAINING = 10;
+    const OOS = 4;
+
+    it('returns the unchanged 10-day training window when epoch is null', () => {
+      const w = buildTrainingWindow(now, TRAINING, OOS, null);
+      expect(w.valid).toBe(true);
+      // endDate = now - 4d, startDate = endDate - 10d
+      expect(w.endDate.toISOString()).toBe('2026-05-11T00:00:00.000Z');
+      expect(w.startDate.toISOString()).toBe('2026-05-01T00:00:00.000Z');
+    });
+
+    it('floors startDate to epoch when epoch is inside the training window', () => {
+      const epoch = new Date('2026-05-04T09:55:00Z');
+      const w = buildTrainingWindow(now, TRAINING, OOS, epoch);
+      expect(w.valid).toBe(true);
+      expect(w.startDate.toISOString()).toBe(epoch.toISOString());
+      expect(w.endDate.toISOString()).toBe('2026-05-11T00:00:00.000Z');
+    });
+
+    it('leaves startDate unchanged when epoch precedes the natural window', () => {
+      const epoch = new Date('2026-04-01T00:00:00Z');
+      const w = buildTrainingWindow(now, TRAINING, OOS, epoch);
+      expect(w.valid).toBe(true);
+      expect(w.startDate.toISOString()).toBe('2026-05-01T00:00:00.000Z');
+    });
+
+    it('marks invalid when epoch leaves <1d of training window', () => {
+      // epoch 12h before endDate → window is 0.5d
+      const epoch = new Date('2026-05-10T12:00:00Z');
+      const w = buildTrainingWindow(now, TRAINING, OOS, epoch);
+      expect(w.valid).toBe(false);
+      expect(w.reason).toMatch(/Training window after epoch only/);
+    });
+
+    it('marks invalid when epoch is at/after the training endDate', () => {
+      const epoch = new Date('2026-05-12T00:00:00Z'); // after endDate (2026-05-11)
+      const w = buildTrainingWindow(now, TRAINING, OOS, epoch);
+      expect(w.valid).toBe(false);
+      expect(w.reason).toMatch(/no post-epoch training data yet/);
+    });
+  });
+
+  describe('buildOOSWindow', () => {
+    const now = new Date('2026-05-15T00:00:00Z');
+    const OOS = 4;
+
+    it('returns full 4-day OOS window when epoch is null', () => {
+      const w = buildOOSWindow(now, OOS, null);
+      expect(w.valid).toBe(true);
+      expect(w.endDate.toISOString()).toBe(now.toISOString());
+      expect(w.startDate.toISOString()).toBe('2026-05-11T00:00:00.000Z');
+    });
+
+    it('floors startDate to epoch when epoch is inside the OOS window', () => {
+      const epoch = new Date('2026-05-13T00:00:00Z');
+      const w = buildOOSWindow(now, OOS, epoch);
+      expect(w.valid).toBe(true);
+      expect(w.startDate.toISOString()).toBe(epoch.toISOString());
+    });
+
+    it('marks invalid when epoch >= now', () => {
+      const epoch = new Date('2026-05-15T00:00:00Z');
+      const w = buildOOSWindow(now, OOS, epoch);
+      expect(w.valid).toBe(false);
+    });
   });
 });
 
