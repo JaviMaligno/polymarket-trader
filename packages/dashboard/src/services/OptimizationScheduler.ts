@@ -155,6 +155,99 @@ export function getOosMinTrades(marketType: string): number {
   return OOS_MIN_TRADES_PER_TYPE[marketType] ?? OOS_SAFETY_FLOOR.minTrades;
 }
 
+// ============================================================
+// Regime-epoch filter (training/OOS window)
+//
+// 2026-05-04: directionMultiplier flipped from -1 → +1 (PR #178). Signal
+// behaviour reverses across the boundary — pre-flip backtest data trains
+// Optuna toward the wrong sign for every per-type weight. Setting
+// OPTIMIZER_EPOCH_START floors training and OOS windows to the boundary so
+// the optimizer only ingests post-flip trades. Unset (or invalid) → no floor,
+// behaviour identical to before.
+//
+// Remove the env var once the rolling 14d window has aged past the epoch
+// organically (target ~2026-05-18).
+// ============================================================
+export interface OptimizerWindow {
+  startDate: Date;
+  endDate: Date;
+  valid: boolean;
+  reason?: string;
+}
+
+export function parseOptimizerEpochStart(): Date | null {
+  const raw = process.env.OPTIMIZER_EPOCH_START;
+  if (!raw || raw.trim() === '') return null;
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    console.warn(`[OptimizationScheduler] Invalid OPTIMIZER_EPOCH_START: ${raw}`);
+    return null;
+  }
+  return parsed;
+}
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+export function buildTrainingWindow(
+  now: Date,
+  trainingPeriodDays: number,
+  oosPeriodDays: number,
+  epochStart: Date | null,
+): OptimizerWindow {
+  const endDate = new Date(now.getTime() - oosPeriodDays * MS_PER_DAY);
+  let startDate = new Date(endDate.getTime() - trainingPeriodDays * MS_PER_DAY);
+
+  if (epochStart) {
+    if (epochStart.getTime() >= endDate.getTime()) {
+      return {
+        startDate,
+        endDate,
+        valid: false,
+        reason: `Epoch ${epochStart.toISOString()} >= training endDate ${endDate.toISOString()} — no post-epoch training data yet`,
+      };
+    }
+    if (epochStart.getTime() > startDate.getTime()) {
+      startDate = epochStart;
+      const windowDays = (endDate.getTime() - startDate.getTime()) / MS_PER_DAY;
+      if (windowDays < 1) {
+        return {
+          startDate,
+          endDate,
+          valid: false,
+          reason: `Training window after epoch only ${windowDays.toFixed(1)}d (need ≥1d)`,
+        };
+      }
+    }
+  }
+
+  return { startDate, endDate, valid: true };
+}
+
+export function buildOOSWindow(
+  now: Date,
+  oosPeriodDays: number,
+  epochStart: Date | null,
+): OptimizerWindow {
+  const endDate = now;
+  let startDate = new Date(now.getTime() - oosPeriodDays * MS_PER_DAY);
+
+  if (epochStart) {
+    if (epochStart.getTime() >= endDate.getTime()) {
+      return {
+        startDate,
+        endDate,
+        valid: false,
+        reason: `Epoch ${epochStart.toISOString()} >= OOS endDate ${endDate.toISOString()}`,
+      };
+    }
+    if (epochStart.getTime() > startDate.getTime()) {
+      startDate = epochStart;
+    }
+  }
+
+  return { startDate, endDate, valid: true };
+}
+
 const MARKET_TYPES = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short', 'event_long'] as const;
 type MarketType = typeof MARKET_TYPES[number];
 
@@ -469,12 +562,23 @@ export class OptimizationScheduler {
     console.log(`[OptimizationScheduler] Created Optuna optimizer ${optimizerId}, running ${iterations} trials...`);
     console.log(`[OptimizationScheduler] Using ${effectiveParamSpace.length} parameters, ${nStartupTrials} startup trials`);
 
-    // Use training period only (exclude OOS period for honest validation)
-    const now = new Date();
-    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
-    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period for honest validation).
+    // Apply epoch floor so post-flip runs ignore pre-flip data (PR #178).
+    const window = buildTrainingWindow(
+      new Date(),
+      WALKFORWARD_CONFIG.trainingPeriodDays,
+      WALKFORWARD_CONFIG.oosPeriodDays,
+      parseOptimizerEpochStart(),
+    );
+    if (!window.valid) {
+      console.log(`[OptimizationScheduler] Skipping ${marketType} run: ${window.reason}`);
+      await client.deleteOptimizer(optimizerId);
+      return [];
+    }
+    const { startDate, endDate } = window;
+    const trainingDays = (endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000);
 
-    console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${WALKFORWARD_CONFIG.trainingPeriodDays} days)`);
+    console.log(`[OptimizationScheduler] Training period: ${startDate.toISOString().slice(0,10)} to ${endDate.toISOString().slice(0,10)} (${trainingDays.toFixed(1)} days)`);
 
     // Preload backtest data once for all trials (same training period)
     console.log('[OptimizationScheduler] Preloading backtest data...');
@@ -616,10 +720,18 @@ export class OptimizationScheduler {
   private async runGridOptimization(iterations: number, type: 'incremental' | 'full', marketType: string): Promise<OptimizationResult[]> {
     const runStartedAt = new Date();
     const results: OptimizationResult[] = [];
-    // Use training period only (exclude OOS period)
-    const now = new Date();
-    const endDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
-    const startDate = new Date(endDate.getTime() - WALKFORWARD_CONFIG.trainingPeriodDays * 24 * 60 * 60 * 1000);
+    // Use training period only (exclude OOS period). Apply epoch floor.
+    const window = buildTrainingWindow(
+      new Date(),
+      WALKFORWARD_CONFIG.trainingPeriodDays,
+      WALKFORWARD_CONFIG.oosPeriodDays,
+      parseOptimizerEpochStart(),
+    );
+    if (!window.valid) {
+      console.log(`[OptimizationScheduler] Skipping ${marketType} grid run: ${window.reason}`);
+      return [];
+    }
+    const { startDate, endDate } = window;
 
     const paramCombos = type === 'incremental'
       ? this.generateIncrementalParams()
@@ -730,9 +842,15 @@ export class OptimizationScheduler {
       return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: 'IS Sharpe <= 0, nothing to validate' };
     }
 
-    const now = new Date();
-    const oosEndDate = now;
-    const oosStartDate = new Date(now.getTime() - WALKFORWARD_CONFIG.oosPeriodDays * 24 * 60 * 60 * 1000);
+    const oosWindow = buildOOSWindow(
+      new Date(),
+      WALKFORWARD_CONFIG.oosPeriodDays,
+      parseOptimizerEpochStart(),
+    );
+    if (!oosWindow.valid) {
+      return { passed: false, sharpeOOS: 0, drawdownOOS: 0, tradesOOS: 0, winRateOOS: 0, marketsEvaluated: 0, reason: oosWindow.reason };
+    }
+    const { startDate: oosStartDate, endDate: oosEndDate } = oosWindow;
 
     console.log(`[OptimizationScheduler] Running OOS validation from ${oosStartDate.toISOString().slice(0, 10)} to ${oosEndDate.toISOString().slice(0, 10)} (IS Sharpe: ${isScore.toFixed(3)})`);
 
