@@ -133,3 +133,74 @@ describe('BacktestService — combinerConfig.directionMultiplier propagates to c
     }
   });
 });
+
+describe('BacktestService — buildPriceRangeModifier', () => {
+  const preloaded: MarketData[] = [
+    {
+      marketId: 'mkt-1',
+      tokenId: 'tok-1',
+      bars: [],
+      currentPriceYes: 0.5,
+      marketQuestion: 'q',
+      resolved: false,
+    } as unknown as MarketData,
+  ];
+
+  it('returns undefined when no priceRangeConfig is supplied (legacy path)', () => {
+    const service = new BacktestService();
+    const result = (service as any).buildPriceRangeModifier(undefined);
+    expect(result).toBeUndefined();
+  });
+
+  it('returns undefined when priceRangeConfig has no recognised keys', () => {
+    const service = new BacktestService();
+    const result = (service as any).buildPriceRangeModifier({});
+    expect(result).toBeUndefined();
+  });
+
+  it('builds a modifier and overrides only the bands provided', async () => {
+    const service = new BacktestService();
+    const result = (service as any).buildPriceRangeModifier({
+      momentum: { uncertain: 0.7 },
+      meanReversion: { transitional: 0.9 },
+    });
+    expect(result).toBeDefined();
+    const matrix = result.getMatrix();
+    // momentum.uncertain overridden, transitional/normal keep defaults (0.6 / 1.0)
+    expect(matrix.momentum).toEqual({ normal: 1.0, transitional: 0.6, uncertain: 0.7 });
+    // mean_reversion.transitional overridden, others keep defaults (0 / 1.0)
+    expect(matrix.mean_reversion).toEqual({ normal: 1.0, transitional: 0.9, uncertain: 0 });
+  });
+
+  it('forwards the modifier to createBacktestEngine', async () => {
+    const { createBacktestEngine } = await import('@polymarket-trader/backtest');
+    const service = new BacktestService();
+    const req: BacktestRequest = {
+      startDate: '2026-01-01',
+      endDate: '2026-01-02',
+      initialCapital: 10_000,
+      signalTypes: ['momentum'],
+      priceRangeConfig: { momentum: { uncertain: 0.8 } },
+    };
+    await service.runBacktest(req, preloaded);
+    const calls = (createBacktestEngine as unknown as { mock: { calls: any[] } }).mock.calls;
+    const lastCall = calls[calls.length - 1][0];
+    expect(lastCall.priceRangeModifier).toBeDefined();
+    expect(lastCall.priceRangeModifier.getMatrix().momentum.uncertain).toBe(0.8);
+  });
+
+  it('passes undefined when priceRangeConfig absent so the engine uses raw weights', async () => {
+    const { createBacktestEngine } = await import('@polymarket-trader/backtest');
+    (createBacktestEngine as unknown as { mock: { calls: any[] } }).mock.calls.length = 0;
+    const service = new BacktestService();
+    const req: BacktestRequest = {
+      startDate: '2026-01-01',
+      endDate: '2026-01-02',
+      initialCapital: 10_000,
+      signalTypes: ['momentum'],
+    };
+    await service.runBacktest(req, preloaded);
+    const calls = (createBacktestEngine as unknown as { mock: { calls: any[] } }).mock.calls;
+    expect(calls[calls.length - 1][0].priceRangeModifier).toBeUndefined();
+  });
+});

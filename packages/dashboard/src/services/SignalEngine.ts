@@ -36,6 +36,7 @@ import {
   DurationWeightModifier,
   PriceRangeWeightModifier,
   type DurationBand,
+  type PriceBandMultipliers,
   type ISignal,
   type SignalContext,
   type SignalOutput,
@@ -1193,6 +1194,21 @@ export class SignalEngine extends EventEmitter {
   setWeights(weights: Record<string, number>): void {
     this.combiner.setWeights(weights);
     this.emit('weights:updated', weights);
+  }
+
+  /**
+   * Replace the price-range modifier matrix at runtime. Called at startup
+   * after loading persisted Optuna-tuned multipliers from
+   * price_range_matrix, and after each successful optimization run that
+   * passes the OOS gate.
+   */
+  updatePriceRangeMatrix(updates: Partial<Record<string, PriceBandMultipliers>>): void {
+    this.priceRangeModifier.updateMatrix(updates);
+  }
+
+  /** Returns the current price-range matrix (defensive copy). */
+  getPriceRangeMatrix(): Record<string, PriceBandMultipliers> {
+    return this.priceRangeModifier.getMatrix();
   }
 
   /**

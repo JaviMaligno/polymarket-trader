@@ -11,6 +11,10 @@ vi.mock('../database/repositories.js', () => ({
     updatePerType: vi.fn().mockResolvedValue(undefined),
     getPerType: vi.fn().mockResolvedValue(null),
   },
+  priceRangeMatrixRepo: {
+    setBand: vi.fn().mockResolvedValue(undefined),
+    getMatrix: vi.fn().mockResolvedValue({}),
+  },
 }));
 
 vi.mock('./BacktestService.js', () => ({
@@ -38,7 +42,7 @@ vi.mock('../utils/vmHealth.js', () => ({
   logHealthStatus: vi.fn(),
 }));
 
-import { signalWeightsRepo } from '../database/repositories.js';
+import { signalWeightsRepo, priceRangeMatrixRepo } from '../database/repositories.js';
 import { query } from '../database/index.js';
 import {
   OptimizationScheduler,
@@ -624,5 +628,94 @@ describe('signalWeightsRepo.getPerType (helper for min-lift gate)', () => {
     expect(signalWeightsRepo).toBeDefined();
     // Only assert presence in the mock map; runtime behaviour is covered by integration tests.
     expect(typeof (signalWeightsRepo as any).updatePerType).toBe('function');
+  });
+});
+
+describe('PriceRange Optuna params + persistence', () => {
+  const FULL_PRICE_RANGE_PARAMS = [
+    'priceRange.momentumTransitional',
+    'priceRange.momentumUncertain',
+    'priceRange.meanReversionTransitional',
+    'priceRange.meanReversionUncertain',
+    'priceRange.crossMarketCorrTransitional',
+    'priceRange.crossMarketCorrUncertain',
+    'priceRange.spreadCompressionUncertain',
+    'priceRange.newsSentimentUncertain',
+  ];
+
+  it('OPTUNA_PARAM_SPACE includes all 8 priceRange multiplier params', () => {
+    const names = OPTUNA_PARAM_SPACE.map((p) => p.name);
+    for (const expected of FULL_PRICE_RANGE_PARAMS) {
+      expect(names).toContain(expected);
+    }
+  });
+
+  it('REFINEMENT_PARAM_SPACE includes the same 8 priceRange params (per-type cycles re-tune)', () => {
+    const names = REFINEMENT_PARAM_SPACE.map((p) => p.name);
+    for (const expected of FULL_PRICE_RANGE_PARAMS) {
+      expect(names).toContain(expected);
+    }
+  });
+
+  it('priceRange domains are sane: bounds within [0, 1.5] and float', () => {
+    const all = [...OPTUNA_PARAM_SPACE, ...REFINEMENT_PARAM_SPACE];
+    const priceRangeParams = all.filter((p) => p.name.startsWith('priceRange.'));
+    for (const param of priceRangeParams) {
+      expect(param.type).toBe('float');
+      expect((param as any).low).toBeGreaterThanOrEqual(0.0);
+      expect((param as any).high).toBeLessThanOrEqual(1.5);
+    }
+  });
+
+  it('mapOptunaParamsToRequest emits priceRangeConfig only for sampled bands', () => {
+    const scheduler = new OptimizationScheduler();
+    const params = {
+      'priceRange.momentumUncertain': 0.4,
+      'priceRange.meanReversionTransitional': 0.7,
+    };
+    const request = (scheduler as any).mapOptunaParamsToRequest(
+      params,
+      new Date('2026-05-01'),
+      new Date('2026-05-10'),
+    );
+    expect(request.priceRangeConfig).toBeDefined();
+    expect(request.priceRangeConfig.momentum).toEqual({ uncertain: 0.4 });
+    expect(request.priceRangeConfig.meanReversion).toEqual({ transitional: 0.7 });
+    // Generators with no sampled value must NOT appear (would otherwise zero-out their defaults)
+    expect(request.priceRangeConfig.crossMarketCorr).toBeUndefined();
+  });
+
+  it('mapOptunaParamsToRequest leaves priceRangeConfig undefined when no priceRange params sampled', () => {
+    const scheduler = new OptimizationScheduler();
+    const request = (scheduler as any).mapOptunaParamsToRequest(
+      { 'combiner.momentumWeight': 0.5 },
+      new Date('2026-05-01'),
+      new Date('2026-05-10'),
+    );
+    expect(request.priceRangeConfig).toBeUndefined();
+  });
+
+  it('persistPriceRangeMultipliers writes to price_range_matrix and clamps to [0, 2]', async () => {
+    const scheduler = new OptimizationScheduler();
+    vi.mocked(priceRangeMatrixRepo.setBand).mockClear();
+    await (scheduler as any).persistPriceRangeMultipliers({
+      'priceRange.momentumUncertain': 0.5,
+      'priceRange.meanReversionTransitional': 3.5, // out-of-range, must be clamped to 2.0
+      'priceRange.crossMarketCorrUncertain': -1, // out-of-range, must be clamped to 0
+    });
+
+    expect(priceRangeMatrixRepo.setBand).toHaveBeenCalledWith('momentum', 'uncertain', 0.5);
+    expect(priceRangeMatrixRepo.setBand).toHaveBeenCalledWith('mean_reversion', 'transitional', 2.0);
+    expect(priceRangeMatrixRepo.setBand).toHaveBeenCalledWith('cross_market_corr', 'uncertain', 0);
+  });
+
+  it('persistPriceRangeMultipliers ignores non-finite values (NaN / Infinity)', async () => {
+    const scheduler = new OptimizationScheduler();
+    vi.mocked(priceRangeMatrixRepo.setBand).mockClear();
+    await (scheduler as any).persistPriceRangeMultipliers({
+      'priceRange.momentumUncertain': Number.NaN,
+      'priceRange.meanReversionTransitional': Number.POSITIVE_INFINITY,
+    });
+    expect(priceRangeMatrixRepo.setBand).not.toHaveBeenCalled();
   });
 });

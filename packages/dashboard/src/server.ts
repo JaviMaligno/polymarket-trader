@@ -8,7 +8,7 @@
 import pino from 'pino';
 import { createDashboardServer } from './api/server.js';
 import { initializeDatabase, closeDatabase, healthCheck, isDatabaseConfigured, query } from './database/index.js';
-import { signalWeightsRepo, tradingConfigRepo, paperPositionsRepo } from './database/repositories.js';
+import { signalWeightsRepo, tradingConfigRepo, paperPositionsRepo, priceRangeMatrixRepo } from './database/repositories.js';
 import { initializeOptimizationScheduler } from './services/OptimizationScheduler.js';
 import { initializeDirectionMultiplierLearningService } from './services/DirectionMultiplierLearningService.js';
 import { wipeDirectionMultiplierSegments } from './services/wipeDirectionMultiplierSegments.js';
@@ -471,6 +471,26 @@ async function main(): Promise<void> {
         console.error('[server] backtest-signal-coverage cleanup failed:', err);
       }
 
+      // PriceRangeWeightModifier matrix persistence (PR after #188). Stores
+      // per-(signal_id, band) multipliers Optuna has tuned; SignalEngine reads
+      // these on boot and after each successful optimization that passes OOS.
+      // CREATE IF NOT EXISTS only — no init SQL migration so existing VMs
+      // pick this up on the next deploy.
+      try {
+        await query(`
+          CREATE TABLE IF NOT EXISTS price_range_matrix (
+            signal_id  VARCHAR(50) NOT NULL,
+            band       VARCHAR(20) NOT NULL,
+            multiplier NUMERIC(5,4) NOT NULL DEFAULT 1.0,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (signal_id, band)
+          );
+        `);
+        console.log('[server] price_range_matrix table ensured');
+      } catch (err) {
+        console.error('[server] price_range_matrix migration failed:', err);
+      }
+
       // Issue #144: persist per-type bestSharpe ratchet across restarts.
       // Without this column, loadState rebuilds bestSharpePerType as
       // { __legacy__: <last_overall_score> } and every real market_type
@@ -677,6 +697,31 @@ async function main(): Promise<void> {
         consensusDiscountFloor,
         directionResolver,
       });
+
+      // Hydrate PriceRangeWeightModifier matrix from DB so Optuna-tuned
+      // multipliers persist across restarts. Empty table → keeps in-code
+      // defaults from PriceRangeWeightModifier.DEFAULT_MATRIX.
+      try {
+        const persisted = await priceRangeMatrixRepo.getMatrix();
+        const updates: Partial<Record<string, { normal: number; transitional: number; uncertain: number }>> = {};
+        const baseline = signalEngine.getPriceRangeMatrix();
+        for (const [signalId, bands] of Object.entries(persisted)) {
+          const fallback = baseline[signalId] ?? { normal: 1.0, transitional: 1.0, uncertain: 1.0 };
+          updates[signalId] = {
+            normal: bands.normal ?? fallback.normal,
+            transitional: bands.transitional ?? fallback.transitional,
+            uncertain: bands.uncertain ?? fallback.uncertain,
+          };
+        }
+        if (Object.keys(updates).length > 0) {
+          signalEngine.updatePriceRangeMatrix(updates);
+          console.log(`[server] Loaded ${Object.keys(updates).length} price-range matrix overrides from DB`);
+        } else {
+          console.log('[server] price_range_matrix empty — using PriceRangeWeightModifier defaults');
+        }
+      } catch (err) {
+        console.warn('[server] Failed to hydrate price-range matrix from DB:', err);
+      }
 
       // Start market classifier (classifies new markets via Haiku every 30min)
       const { MarketClassifier } = await import('./services/MarketClassifier.js');

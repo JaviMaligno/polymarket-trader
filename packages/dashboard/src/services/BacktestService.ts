@@ -29,8 +29,10 @@ import {
   VolumeAnomalyGenerator,
   MultiLevelOFISignal,
   SpreadCompressionGenerator,
+  PriceRangeWeightModifier,
   type ISignal,
   type OrderBookSnapshot,
+  type PriceBandMultipliers,
 } from '@polymarket-trader/signals';
 import { isDatabaseConfigured, query, transaction, type PoolClient } from '../database/index.js';
 
@@ -88,6 +90,22 @@ export interface BacktestRequest {
      *  trial can evaluate dm flips per market_type. Task 8 wires the apply
      *  side in BacktestService. */
     directionMultiplier?: number;
+  };
+  /**
+   * Price-range weight modifier overrides. When supplied, BacktestService
+   * builds a PriceRangeWeightModifier with the given multipliers and feeds it
+   * to the engine. Optuna samples these per trial to learn the matrix that
+   * matches production behaviour (the modifier is applied live in
+   * SignalEngine.combineSignalsForMarket but used to be invisible to the
+   * engine, leaving Optuna optimizing against a "raw weights" universe that
+   * did not match production).
+   */
+  priceRangeConfig?: {
+    momentum?: Partial<PriceBandMultipliers>;
+    meanReversion?: Partial<PriceBandMultipliers>;
+    crossMarketCorr?: Partial<PriceBandMultipliers>;
+    spreadCompression?: Partial<PriceBandMultipliers>;
+    newsSentiment?: Partial<PriceBandMultipliers>;
   };
 }
 
@@ -202,12 +220,14 @@ export class BacktestService extends EventEmitter {
 
       // Create backtest engine
       this.updateProgress(backtestId, 40, 'Creating backtest engine');
+      const priceRangeModifier = this.buildPriceRangeModifier(request.priceRangeConfig);
       const engine = createBacktestEngine({
         config: storedBacktest.config,
         marketData,
         signals,
         combiner,
         riskConfig: storedBacktest.config.risk,
+        priceRangeModifier,
       });
 
       // Run backtest
@@ -519,6 +539,44 @@ export class BacktestService extends EventEmitter {
       console.error('[BacktestService] Failed to fetch historical data:', error);
       return this.generateMockData(startDate, endDate);
     }
+  }
+
+  /**
+   * Build a PriceRangeWeightModifier from optional config overrides. Returns
+   * undefined when no overrides are supplied so the engine keeps its legacy
+   * "raw weights" path (zero regression risk for callers that don't care).
+   *
+   * Optuna samples per-band multipliers (transitional/uncertain) for the 5
+   * direction-sensitive generators. Flow signals (ofi/mlofi/hawkes/...) keep
+   * their hardcoded defaults — they're flat 1.0 across bands by design and
+   * adding them to the param space would explode dimensionality with no ROI.
+   */
+  private buildPriceRangeModifier(
+    config: BacktestRequest['priceRangeConfig'],
+  ): PriceRangeWeightModifier | undefined {
+    if (!config) return undefined;
+    const customMatrix: Partial<Record<string, PriceBandMultipliers>> = {};
+    const map: Array<[keyof NonNullable<BacktestRequest['priceRangeConfig']>, string]> = [
+      ['momentum', 'momentum'],
+      ['meanReversion', 'mean_reversion'],
+      ['crossMarketCorr', 'cross_market_corr'],
+      ['spreadCompression', 'spread_compression'],
+      ['newsSentiment', 'news_sentiment'],
+    ];
+    const defaults = new PriceRangeWeightModifier().getMatrix();
+    let touched = false;
+    for (const [requestKey, signalId] of map) {
+      const overrides = config[requestKey];
+      if (!overrides) continue;
+      touched = true;
+      customMatrix[signalId] = {
+        normal: overrides.normal ?? defaults[signalId]?.normal ?? 1.0,
+        transitional: overrides.transitional ?? defaults[signalId]?.transitional ?? 1.0,
+        uncertain: overrides.uncertain ?? defaults[signalId]?.uncertain ?? 0.0,
+      };
+    }
+    if (!touched) return undefined;
+    return new PriceRangeWeightModifier(customMatrix);
   }
 
   /**
