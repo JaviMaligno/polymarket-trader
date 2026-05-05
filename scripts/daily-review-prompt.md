@@ -120,32 +120,35 @@ The executor restricts live trades to `ALLOWED_MARKET_TYPES`. Other market types
 **JSON sections to use:**
 - `trades_by_type`: realized trades in last 24h, broken down by market_type (post-gate, opens should be crypto-only; closes can be any type)
 - `category_performance`: cumulative win_rate / Sharpe / prior per market_type
-- `shadow_summary`: blocked signals recorded as shadow trades
+- `shadow_summary`: blocked signals recorded as shadow trades, aggregated per market_type
+- `shadow_summary_by_direction`: same fields as shadow_summary, additionally split by `direction` ('long'|'short'). Use this to detect SHORT-bias inflation before recommending promotion.
 
 ### Shadow → Live promotion recommendation
 
-`shadow_summary` is per-`market_type` over a 30-day window with fields: `total`, `resolved`, `avg_pnl`, `win_rate`, `pnl_stddev`, `sharpe`.
+`shadow_summary` is per-`market_type` over a 30-day window with fields: `total`, `resolved`, `avg_pnl`, `win_rate`, `pnl_stddev`, `sharpe`. `shadow_summary_by_direction` is the same query grouped additionally by `direction` ('long' or 'short').
 
 **Shadow PnL is theoretical.** It's computed at the resolution price with no fees, no slippage, no early signal-driven exits. Empirical work in `project_shadow_execution_realism.md` measured a `live/shadow ≈ 0.33` Sharpe ratio on time-matched event_long data. Two structural biases inflate shadow further:
 - **SHORT-resolves-NO bias**: prediction markets resolve mostly to NO, so a SHORT entered at any price > 0 looks like a winner at resolution price 0. Today's empirical shadow shows 100% win rate on event_financial SHORT (60/60) and 94% on event_short SHORT (843/894) — neither is a strategy edge, both are sampling artifacts.
 - **Hold-to-resolution bias**: shadow "trades" never stop out, never take profit, never close on a counter-signal. Live exits earlier and more often at a loss.
 
-For each `market_type` row, evaluate against ALL of:
+For each `market_type` row in `shadow_summary`, evaluate against ALL of:
 
 - `resolved >= 50` (sufficient sample size)
 - `sharpe × 0.33 >= 0.20`, i.e. raw `shadow_sharpe >= 0.60` (haircut-adjusted sharpe ≥ live's promotion bar)
-- `win_rate >= 0.65` if shadow is SHORT-direction-skewed; `>= 0.55` otherwise. Default to 0.65 unless the shadow_summary has been broken out by direction and shows a non-SHORT-driven majority.
+- **Direction integrity** (uses `shadow_summary_by_direction`): the LONG-only row for this market_type must independently meet `resolved >= 30` and `sharpe >= 0.40`. The aggregated number must not be carried by a SHORT majority with > 90% win rate at resolution — that's the bias artifact. Reject when:
+  - SHORT direction shows `resolved >= 30` AND `win_rate > 0.90`, AND
+  - LONG direction shows `sharpe < 0.40` OR `resolved < 30`.
 - The market_type is NOT already in the live `ALLOWED_MARKET_TYPES` list (`crypto_intraday,crypto_daily,event_financial,event_short`)
 
 If all four hold, include a recommendation in the issue body:
 
-> **Promotion candidate:** `<market_type>`. Over 30 days of shadow data: N=<resolved>, raw_shadow_sharpe=<sharpe>, **haircut_sharpe=<sharpe×0.33>**, win_rate=<win_rate>, avg_pnl=<avg_pnl>. Consider adding to `ALLOWED_MARKET_TYPES` on the next deploy. Note: the haircut_sharpe is the upper-bound estimate of live performance — actual live Sharpe will be lower than this figure.
+> **Promotion candidate:** `<market_type>`. Over 30 days of shadow data: N=<resolved>, raw_shadow_sharpe=<sharpe>, **haircut_sharpe=<sharpe×0.33>**, LONG_only_sharpe=<long_sharpe>, LONG_only_n=<long_resolved>, avg_pnl=<avg_pnl>. Consider adding to `ALLOWED_MARKET_TYPES` on the next deploy. Note: the haircut_sharpe is the upper-bound estimate of live performance — actual live Sharpe will be lower than this figure.
 
 Do NOT auto-create a PR for the env change — promotion is a manual decision tied to a deploy.
 
 **Conversely**, for any `market_type` that IS currently in `ALLOWED_MARKET_TYPES` and where live performance over the same 30 days deviates materially from `shadow_sharpe × 0.33` (live Sharpe more than 0.5 below the haircut prediction), flag under "Possible regression — review allowlist for `<market_type>`". The haircut model says live should land near `shadow × 0.33`; large negative deviations are evidence the haircut is too generous for that type, not a reason to remove the type.
 
-The thresholds (50 resolved, raw_sharpe ≥ 0.60, win_rate ≥ 0.65) are calibrated to the empirical 0.33 haircut. If post-deploy live Sharpe consistently lands materially below `shadow × 0.33`, raise the raw_sharpe gate. Tune the win_rate floor when shadow_summary is broken out by direction (currently it isn't).
+The thresholds (50 resolved, raw_sharpe ≥ 0.60, LONG-only sharpe ≥ 0.40 with N ≥ 30) are calibrated to the empirical 0.33 haircut and the SHORT-resolves-NO bias. If post-deploy live Sharpe consistently lands materially below `shadow × 0.33`, raise the raw_sharpe gate.
 
 ## Step 0: Check Existing Work
 
