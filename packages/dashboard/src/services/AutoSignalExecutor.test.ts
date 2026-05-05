@@ -417,6 +417,97 @@ describe('AutoSignalExecutor', () => {
   });
 
   // =========================================================
+  // Loss-gate regime epoch
+  //
+  // 2026-05-05: gates 4b (per-market consecutive losses, 24h) and 4c
+  // (long-term persistent loser, 7-day rate) compute lookbacks against
+  // realized_pnl history. When a regime change inverts the system's signal
+  // direction (e.g. dm flip on 2026-05-04), the pre-flip losses are no
+  // longer predictive of post-flip performance — they're literally the
+  // inverse signal. Without an epoch filter, post-flip cohorts get blocked
+  // for weeks by their own pre-flip losses.
+  //
+  // EXECUTOR_LOSS_GATE_EPOCH (or ExecutorConfig.lossGateEpoch) sets the
+  // earliest closed_at considered. Trades closed before the epoch are
+  // ignored by these gates.
+  // =========================================================
+  describe('Loss-gate regime epoch', () => {
+    const findLossQueryCall = (sqlMatch: RegExp) => {
+      const calls = (query as any).mock.calls as unknown as Array<[string, unknown[]]>;
+      return calls.find(([sql]) => typeof sql === 'string' && sqlMatch.test(sql));
+    };
+
+    it('passes null as epoch parameter when not configured (gate 4b)', async () => {
+      // Default executor (no lossGateEpoch override). Stub: market metadata, then 24h
+      // loss check returns empty (no block), then 7-day check returns 0/0 (no block).
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      await executor.processSignal(makeSignal());
+
+      const call24h = findLossQueryCall(/closed_at >= NOW\(\) - \$2::interval/i);
+      expect(call24h, 'gate 4b query should have been called').toBeDefined();
+      // Params: [marketId, intervalString, lossGateEpoch, limit]
+      expect(call24h![1][2]).toBeNull();
+    });
+
+    it('passes the configured epoch through to gate 4b query', async () => {
+      const epoch = new Date('2026-05-04T09:55:00Z');
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, lossGateEpoch: epoch });
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      await exec.processSignal(makeSignal());
+
+      const call24h = findLossQueryCall(/closed_at >= NOW\(\) - \$2::interval/i);
+      expect(call24h).toBeDefined();
+      expect(call24h![1][2]).toBe(epoch);
+    });
+
+    it('passes the configured epoch through to gate 4c query', async () => {
+      const epoch = new Date('2026-05-04T09:55:00Z');
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, lossGateEpoch: epoch });
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [] })
+        .mockResolvedValueOnce({ rows: [{ losses: '0', wins: '0' }] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      await exec.processSignal(makeSignal());
+
+      const call7d = findLossQueryCall(/COUNT\(\*\) FILTER \(WHERE realized_pnl < 0\) AS losses/);
+      expect(call7d).toBeDefined();
+      // Params: [marketId, intervalString, lossGateEpoch]
+      expect(call7d![1][2]).toBe(epoch);
+    });
+
+    it('still blocks when epoch is set but post-epoch losses still satisfy the gate', async () => {
+      // Even with epoch active, a market with 3 fresh post-epoch losses must still block.
+      // The epoch only filters out pre-epoch rows — it does not disable the gate logic.
+      const epoch = new Date('2026-05-04T09:55:00Z');
+      const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0, lossGateEpoch: epoch });
+      (query as any)
+        .mockResolvedValueOnce({ rows: [{ is_active: true, is_resolved: false, end_date: null }] })
+        .mockResolvedValueOnce({ rows: [
+          { realized_pnl: '-5.00' },
+          { realized_pnl: '-3.50' },
+          { realized_pnl: '-8.00' },
+        ] });
+      (paperPositionsRepo.getAll as any).mockResolvedValue([]);
+
+      const result = await exec.processSignal(makeSignal());
+      expect(result.executed).toBe(false);
+      expect(result.reason).toMatch(/last 3 closed positions all lost/i);
+    });
+  });
+
+  // =========================================================
   // SHORT YES-price gate (asymmetric entry filter)
   //
   // 2026-05-04: defaults relaxed from 0.6 → 1.0 (effectively no gate). The
