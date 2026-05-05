@@ -32,6 +32,7 @@ import {
   PriceDivergenceGenerator,
   AttentionSpikeGenerator,
   NewsSentimentGenerator,
+  ResolutionPriorGenerator,
   WeightedAverageCombiner,
   DurationWeightModifier,
   PriceRangeWeightModifier,
@@ -199,6 +200,7 @@ export class SignalEngine extends EventEmitter {
     this.signals.set('volume_anomaly', new VolumeAnomalyGenerator());
     this.signals.set('spread_compression', new SpreadCompressionGenerator());
     this.signals.set('cross_market_corr', new CrossMarketCorrelationGenerator());
+    this.signals.set('resolution_prior', new ResolutionPriorGenerator());
 
     // External data signals
     this.signals.set('price_divergence', new PriceDivergenceGenerator());

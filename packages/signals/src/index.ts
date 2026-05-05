@@ -82,6 +82,11 @@ export {
 export { VolumeAnomalyGenerator } from './signals/market-structure/VolumeAnomalyGenerator.js';
 export { SpreadCompressionGenerator } from './signals/market-structure/SpreadCompressionGenerator.js';
 export { CrossMarketCorrelationGenerator } from './signals/market-structure/CrossMarketCorrelationGenerator.js';
+export {
+  ResolutionPriorGenerator,
+  DEFAULT_RESOLUTION_PRIOR_PARAMS,
+  type ResolutionPriorParams,
+} from './signals/market-structure/ResolutionPriorGenerator.js';
 
 // External Data Signals
 export { PriceDivergenceGenerator } from './signals/external/PriceDivergenceGenerator.js';
@@ -261,6 +266,7 @@ import { HawkesSignal } from './signals/microstructure/HawkesSignal.js';
 import { SentimentSignal } from './signals/sentiment/SentimentSignal.js';
 import { EventDrivenSignal } from './signals/event/EventDrivenSignal.js';
 import { RLSignal } from './signals/rl/RLSignal.js';
+import { ResolutionPriorGenerator } from './signals/market-structure/ResolutionPriorGenerator.js';
 import type { ISignal, SignalConfig } from './core/types/signal.types.js';
 
 const signalRegistry: Record<string, () => ISignal> = {
@@ -274,6 +280,7 @@ const signalRegistry: Record<string, () => ISignal> = {
   sentiment: () => new SentimentSignal(),
   event_driven: () => new EventDrivenSignal(),
   rl: () => new RLSignal(),
+  resolution_prior: () => new ResolutionPriorGenerator(),
 };
 
 /**

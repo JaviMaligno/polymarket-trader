@@ -55,6 +55,11 @@ export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  // Resolution prior — directional voice from time-to-end + price (no SMA
+  // anchor). Closes the LONG-bias path that mean_reversion+momentum miss in
+  // markets drifting toward NO/YES. Allow full [0, 2] range; OOS gate
+  // protects against bad applies.
+  { name: 'combiner.resolutionPriorWeight', type: 'float', low: 0.0, high: 2.0 },
   // Consensus discount floor (Sub-project B.2, see docs/plans/2026-04-25-signal-consensus-design.md).
   // Combiner-layer confidence multiplier driven by entropy across active generators.
   // 0.0 = full discount on disagreement; 1.0 = no-op. Live default in signal_weights is 0.5.
@@ -115,6 +120,7 @@ export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.volumeAnomalyWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.mlofiWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.resolutionPriorWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.consensusDiscountFloor', type: 'float', low: 0.0, high: 1.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
@@ -734,6 +740,7 @@ export class OptimizationScheduler {
         volumeAnomalyWeight: params['combiner.volumeAnomalyWeight'],
         mlofiWeight: params['combiner.mlofiWeight'],
         spreadCompressionWeight: params['combiner.spreadCompressionWeight'],
+        resolutionPriorWeight: params['combiner.resolutionPriorWeight'],
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
@@ -1160,6 +1167,7 @@ export class OptimizationScheduler {
       'combiner.volumeAnomalyWeight': 'volume_anomaly',
       'combiner.mlofiWeight': 'mlofi',
       'combiner.spreadCompressionWeight': 'spread_compression',
+      'combiner.resolutionPriorWeight': 'resolution_prior',
       // Per-type dm (REFINEMENT_PARAM_SPACE only). Categorical {-1, +1} so the
       // generic clamp below trivially preserves the value. Min-lift gate
       // (OPTIMIZER_DM_FLIP_MIN_LIFT) gates flips when configured.

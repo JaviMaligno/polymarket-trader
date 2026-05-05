@@ -29,6 +29,7 @@ import {
   VolumeAnomalyGenerator,
   MultiLevelOFISignal,
   SpreadCompressionGenerator,
+  ResolutionPriorGenerator,
   PriceRangeWeightModifier,
   type ISignal,
   type OrderBookSnapshot,
@@ -82,6 +83,7 @@ export interface BacktestRequest {
     volumeAnomalyWeight?: number;
     mlofiWeight?: number;
     spreadCompressionWeight?: number;
+    resolutionPriorWeight?: number;
     minCombinedConfidence?: number;
     minCombinedStrength?: number;
     onlyDirection?: string | null;
@@ -203,6 +205,7 @@ export class BacktestService extends EventEmitter {
         volume_anomaly: cc?.volumeAnomalyWeight ?? 0,
         mlofi: cc?.mlofiWeight ?? 0,
         spread_compression: cc?.spreadCompressionWeight ?? 0,
+        resolution_prior: cc?.resolutionPriorWeight ?? 0,
         wallet_tracking: 0.3,
       };
       const combiner = new WeightedAverageCombiner(weights, cc ? {
@@ -674,6 +677,9 @@ export class BacktestService extends EventEmitter {
           break;
         case 'spread_compression':
           signals.push(new SpreadCompressionGenerator());
+          break;
+        case 'resolution_prior':
+          signals.push(new ResolutionPriorGenerator());
           break;
         default:
           console.warn(`[BacktestService] Unknown signal type: ${type}`);
