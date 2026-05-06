@@ -170,12 +170,21 @@ services:
       # losses, which were structurally inverse signals (counter-WR=93.9%).
       # Remove once the rolling 7-day window has cleared (after 2026-05-11).
       EXECUTOR_LOSS_GATE_EPOCH: "2026-05-04T09:55:00Z"
-      # OPTIMIZER_EPOCH_START: floors Optuna training/OOS windows to the dm
-      # flip boundary (PR #178). Pre-flip backtest data trains the optimizer
-      # toward the wrong sign for every per-type weight; with this floor set
-      # only post-flip trades feed the optimizer. Remove once the rolling 14d
-      # training window has aged past the epoch organically (~2026-05-18).
-      OPTIMIZER_EPOCH_START: "2026-05-04T09:55:00Z"
+      # OPTIMIZER_EPOCH_START — DISABLED 2026-05-06.
+      # Originally set to floor training/OOS windows to the dm flip boundary
+      # (PR #188). Made redundant by the SQL reset of signal_weights to
+      # baseline 1.0 the same day: trial Optuna runs always use dm=+1 (global
+      # is hard-pinned) and signal-raw outputs are independent of dm, so the
+      # epoch filter was excluding 4d of usable training data without
+      # protective benefit. Empirically the filter aborted every Optuna
+      # cycle for 14h+, leaving PRs #189-#191 inert. Re-enable only if a
+      # future regression is traced back to pre-flip contamination.
+      # OPTIMIZER_EPOCH_START: "2026-05-04T09:55:00Z"
+      # Min-lift gate for direction_multiplier per-type flips. Optuna can
+      # only flip dm{-1,+1} per market_type when the trial's Sharpe exceeds
+      # the previous best by this much. Activated alongside epoch removal so
+      # mixed pre/post-flip backtests cannot re-flip dm spuriously.
+      OPTIMIZER_DM_FLIP_MIN_LIFT: "0.10"
       # Gate 0e: EventOTMGate — block opens on event_financial markets near expiry
       # with extreme-band prices. See docs/plans/2026-04-21-event-otm-gate-design.md
       EXECUTOR_EVENT_OTM_MARKET_TYPES: "event_financial"
