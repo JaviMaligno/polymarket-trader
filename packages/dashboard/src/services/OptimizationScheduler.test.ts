@@ -927,6 +927,69 @@ describe('Min-lift gate — undefined baseline edge case (2026-05-06 cycle 2 bug
     expect(dmCalls[0][2]).toBe(-1);
   });
 
+  it('syncs direction_multiplier_policy in trading_config when dm flip is applied', async () => {
+    process.env[ENV_KEY] = '0.05';
+    vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);
+    // Existing policy: dm=+1 across the board
+    vi.mocked(tradingConfigRepo.get).mockResolvedValue({
+      global: 1.0,
+      perMarketType: { event_financial: 1, event_long: 1 },
+      segments: [],
+    });
+    vi.mocked(tradingConfigRepo.set).mockClear();
+
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = { event_financial: 0.05 };
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 30, winRateOOS: 0.6, marketsEvaluated: 12,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.directionMultiplier': -1 },
+      sharpe: 0.30,  // lift = 0.30 - 0.05 = 0.25 ≥ 0.05 → flip allowed
+      totalReturn: 0.05,
+      trades: 10,
+    }, 'event_financial');
+
+    // The sync function must have been called with the updated policy.
+    const dmPolicyCall = vi.mocked(tradingConfigRepo.set).mock.calls.find(
+      ([key]) => key === 'direction_multiplier_policy',
+    );
+    expect(dmPolicyCall).toBeDefined();
+    const updatedPolicy = dmPolicyCall![1] as { perMarketType: Record<string, number> };
+    expect(updatedPolicy.perMarketType.event_financial).toBe(-1);
+    // Other types untouched
+    expect(updatedPolicy.perMarketType.event_long).toBe(1);
+  });
+
+  it('does NOT sync direction_multiplier_policy when dm flip is blocked by gate', async () => {
+    process.env[ENV_KEY] = '0.5';
+    vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);
+    vi.mocked(tradingConfigRepo.set).mockClear();
+
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = { event_financial: 0.20 };
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 30, winRateOOS: 0.6, marketsEvaluated: 12,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.directionMultiplier': -1 },
+      sharpe: 0.30,  // lift 0.10 < 0.5 → block
+      totalReturn: 0.05,
+      trades: 10,
+    }, 'event_financial');
+
+    const dmPolicyCall = vi.mocked(tradingConfigRepo.set).mock.calls.find(
+      ([key]) => key === 'direction_multiplier_policy',
+    );
+    expect(dmPolicyCall).toBeUndefined();
+  });
+
   it('blocks flip when previousBestSharpe is defined but lift < min_lift', async () => {
     process.env[ENV_KEY] = '0.5';
     vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);
