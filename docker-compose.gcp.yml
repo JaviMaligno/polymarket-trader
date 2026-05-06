@@ -189,6 +189,15 @@ services:
       # maxima on tiny universes (the original 6-market event_financial
       # incident that motivated the floor would still be rejected).
       OPTIMIZER_MIN_MARKETS_FOR_APPLY: "5"
+      # OOS-gate min-trades floors per market_type. Defaults (30/20/15/10/5)
+      # were calibrated for higher trading volume. Current system produces
+      # ~10 trades/24h total; cycle 4 (2026-05-06) had every type fail OOS
+      # with trade counts of 12 (crypto_intraday vs 30), 13 (event_financial
+      # vs 15), 5 (event_short vs 10). Lowered to keep Optuna iterating.
+      # Primary OOS gate (Sharpe + minMarkets + drawdown) still in force.
+      OPTIMIZER_MIN_TRADES_CRYPTO_INTRADAY: "10"
+      OPTIMIZER_MIN_TRADES_EVENT_FINANCIAL: "10"
+      OPTIMIZER_MIN_TRADES_EVENT_SHORT: "5"
       # Gate 0e: EventOTMGate — block opens on event_financial markets near expiry
       # with extreme-band prices. See docs/plans/2026-04-21-event-otm-gate-design.md
       EXECUTOR_EVENT_OTM_MARKET_TYPES: "event_financial"
