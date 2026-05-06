@@ -815,3 +815,139 @@ describe('resolution_prior wiring', () => {
     expect(request.combinerConfig.resolutionPriorWeight).toBe(0.7);
   });
 });
+
+describe('Optuna empty-params guard (2026-05-06 cycle 2 bug)', () => {
+  it('treats empty {} params as failed trial — does not push to results, increments consecutive failures', async () => {
+    const scheduler = new OptimizationScheduler();
+    const suggest = vi.fn().mockResolvedValue({ trialId: 0, params: {} });
+    const report = vi.fn();
+    const ping = vi.fn().mockResolvedValue(true);
+    const createOptimizer = vi.fn().mockResolvedValue('opt-1');
+    const deleteOptimizer = vi.fn().mockResolvedValue(undefined);
+
+    (scheduler as any).optunaClient = { suggest, report, ping, createOptimizer, deleteOptimizer };
+
+    // Stub fetchHistoricalData to return data so the run isn't aborted early.
+    const fetchHistoricalData = vi.fn().mockResolvedValue([{ marketId: 'mkt' } as any]);
+    (scheduler as any).backtestService = {
+      fetchHistoricalData,
+      runBacktest: vi.fn(),
+    };
+
+    const results = await (scheduler as any).runOptunaOptimization(5, 'incremental', 'crypto_intraday');
+
+    // 3 consecutive empty-params trials → loop aborts → 0 results
+    expect(results).toEqual([]);
+    expect(report).not.toHaveBeenCalled();
+  });
+
+  it('accepts non-empty params normally', async () => {
+    const scheduler = new OptimizationScheduler();
+    const suggest = vi.fn()
+      .mockResolvedValueOnce({ trialId: 0, params: { 'combiner.momentumWeight': 0.5 } })
+      .mockResolvedValueOnce({ trialId: 1, params: { 'combiner.momentumWeight': 0.7 } });
+    const report = vi.fn().mockResolvedValue(undefined);
+    const ping = vi.fn().mockResolvedValue(true);
+    const createOptimizer = vi.fn().mockResolvedValue('opt-2');
+    const deleteOptimizer = vi.fn().mockResolvedValue(undefined);
+    const getBest = vi.fn().mockResolvedValue({ best_params: {}, best_score: 0 });
+    (scheduler as any).optunaClient = { suggest, report, ping, createOptimizer, deleteOptimizer, getBest };
+
+    (scheduler as any).backtestService = {
+      fetchHistoricalData: vi.fn().mockResolvedValue([{ marketId: 'mkt' } as any]),
+      runBacktest: vi.fn().mockResolvedValue({
+        result: {
+          metrics: { sharpeRatio: 0.3, totalReturn: 0.1, maxDrawdown: 0 },
+          trades: [],
+        },
+      }),
+    };
+
+    const results = await (scheduler as any).runOptunaOptimization(2, 'incremental', 'event_financial');
+    expect(results).toHaveLength(2);
+    expect(report).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('Min-lift gate — undefined baseline edge case (2026-05-06 cycle 2 bug)', () => {
+  const ENV_KEY = 'OPTIMIZER_DM_FLIP_MIN_LIFT';
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env[ENV_KEY];
+  });
+
+  it('blocks dm flip when previousBestSharpe is undefined (post-ratchet-reset case)', async () => {
+    process.env[ENV_KEY] = '0.5';
+    vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);  // current dm = +1
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = {};  // ratchet reset → undefined
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 30, winRateOOS: 0.6, marketsEvaluated: 12,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.directionMultiplier': -1 },
+      sharpe: 0.1,
+      totalReturn: 0.05,
+      trades: 10,
+    }, 'event_financial');
+
+    // dm flip must NOT have been written — the gate's "no baseline" branch
+    // should have hit `continue` and skipped this signal_type.
+    const dmCalls = vi.mocked(signalWeightsRepo.updatePerType).mock.calls.filter(
+      ([signalType]) => signalType === 'direction_multiplier'
+    );
+    expect(dmCalls).toHaveLength(0);
+  });
+
+  it('proceeds with flip when previousBestSharpe is defined and lift >= min_lift', async () => {
+    process.env[ENV_KEY] = '0.1';
+    vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = { event_financial: 0.05 };  // baseline 0.05
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 30, winRateOOS: 0.6, marketsEvaluated: 12,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.directionMultiplier': -1 },
+      sharpe: 0.30,  // lift = 0.30 - 0.05 = 0.25 ≥ 0.1 → flip allowed
+      totalReturn: 0.05,
+      trades: 10,
+    }, 'event_financial');
+
+    const dmCalls = vi.mocked(signalWeightsRepo.updatePerType).mock.calls.filter(
+      ([signalType]) => signalType === 'direction_multiplier'
+    );
+    expect(dmCalls).toHaveLength(1);
+    expect(dmCalls[0][2]).toBe(-1);
+  });
+
+  it('blocks flip when previousBestSharpe is defined but lift < min_lift', async () => {
+    process.env[ENV_KEY] = '0.5';
+    vi.mocked(signalWeightsRepo.getPerType).mockResolvedValue(1.0);
+    const scheduler = new OptimizationScheduler();
+    (scheduler as any).state.bestSharpePerType = { event_financial: 0.20 };
+    (scheduler as any)._lastOOSResult = {
+      passed: true, sharpeOOS: 0.5, drawdownOOS: 0.05, tradesOOS: 30, winRateOOS: 0.6, marketsEvaluated: 12,
+    };
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: vi.fn() }));
+
+    await (scheduler as any).updateStrategy({
+      params: { 'combiner.directionMultiplier': -1 },
+      sharpe: 0.30,  // lift = 0.30 - 0.20 = 0.10 < 0.5 → block
+      totalReturn: 0.05,
+      trades: 10,
+    }, 'event_financial');
+
+    const dmCalls = vi.mocked(signalWeightsRepo.updatePerType).mock.calls.filter(
+      ([signalType]) => signalType === 'direction_multiplier'
+    );
+    expect(dmCalls).toHaveLength(0);
+  });
+});

@@ -656,6 +656,21 @@ export class OptimizationScheduler {
           const { trialId, params } = await client.suggest(optimizerId);
           console.log(`[OptimizationScheduler] Trial ${i + 1}/${iterations} (id=${trialId}):`, JSON.stringify(params));
 
+          // Guard against the Optuna server returning empty params (observed
+          // 2026-05-06 cycle 2 for crypto_intraday — every trial returned {}
+          // and the resulting "winner" had no params to persist, silently
+          // no-op'ing updateStrategy). Treat as a failed trial so the
+          // consecutive-failure counter trips and we abort early.
+          if (!params || typeof params !== 'object' || Object.keys(params).length === 0) {
+            console.warn(`[OptimizationScheduler] Trial ${i + 1} (id=${trialId}): empty params — treating as failed trial`);
+            consecutiveFailures++;
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+              console.error(`[OptimizationScheduler] ${MAX_CONSECUTIVE_FAILURES} consecutive failures — Optuna server returned empty params, aborting run`);
+              break;
+            }
+            continue;
+          }
+
           // 2. Map Optuna params → BacktestRequest
           const request = this.mapOptunaParamsToRequest(params, startDate, endDate);
 
@@ -1194,7 +1209,21 @@ export class OptimizationScheduler {
               const currentDm = await signalWeightsRepo.getPerType('direction_multiplier', marketType);
               if (currentDm !== null && currentDm !== weight) {
                 const prev = previousBestSharpe;
-                const lift = (result.sharpe ?? 0) - (prev ?? -Infinity);
+                // Block the flip when no baseline Sharpe exists yet — the
+                // OOS gate has only validated this single trial without
+                // anything to compare against. Letting it flip would defeat
+                // the purpose of the min-lift gate (observed 2026-05-06: a
+                // post-ratchet-reset cycle flipped event_financial dm to -1
+                // because lift=Infinity bypassed Number.isFinite). Wait one
+                // more cycle to establish baseline before allowing a flip.
+                if (prev === undefined || !Number.isFinite(prev)) {
+                  console.log(
+                    `[OptimizationScheduler] Skipping direction_multiplier flip for ${marketType}: ` +
+                    `no baseline Sharpe yet (current=${currentDm}, candidate=${weight}, min_lift=${minLift})`
+                  );
+                  continue;
+                }
+                const lift = (result.sharpe ?? 0) - prev;
                 if (Number.isFinite(lift) && lift < minLift) {
                   console.log(
                     `[OptimizationScheduler] Skipping direction_multiplier flip for ${marketType}: ` +
