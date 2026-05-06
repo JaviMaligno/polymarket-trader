@@ -1247,6 +1247,17 @@ export class OptimizationScheduler {
             `optimization-${new Date().toISOString().slice(0, 10)}-${marketType}`
           );
           console.log(`[OptimizationScheduler] Updated signal weight: ${signalType}[${marketType}] = ${weight.toFixed(4)}`);
+
+          // direction_multiplier per-type live runtime is owned by
+          // DirectionResolver, which reads `direction_multiplier_policy.perMarketType[X]`
+          // from `trading_config` — NOT from `signal_weights`. Pre-2026-05-06
+          // every Optuna apply wrote to signal_weights only, so the runtime
+          // never picked up Optuna's per-type decisions (architectural
+          // mismatch). Sync the JSON policy here so the categorical {-1, +1}
+          // choice that the trial validated against actually takes effect.
+          if (signalType === 'direction_multiplier') {
+            await this.syncDirectionMultiplierPolicy(marketType, weight);
+          }
         } catch (err) {
           console.error(`[OptimizationScheduler] Failed to update weight ${signalType}:`, err);
         }
@@ -1265,6 +1276,38 @@ export class OptimizationScheduler {
     await this.persistMeanReversionReferenceMode(result.params);
 
     return { wasApplied: true };
+  }
+
+  /**
+   * Read-modify-write `trading_config.direction_multiplier_policy` so the
+   * per-type dm Optuna chose actually takes effect at runtime. Without this
+   * sync the value lives only in `signal_weights[direction_multiplier]`,
+   * which DirectionResolver does not read.
+   */
+  private async syncDirectionMultiplierPolicy(marketType: string, weight: number): Promise<void> {
+    if (!isDatabaseConfigured()) return;
+    try {
+      const current = await tradingConfigRepo.get<{
+        global?: number;
+        perMarketType?: Record<string, number>;
+        minMultiplier?: number;
+        maxMultiplier?: number;
+        segments?: unknown[];
+      }>('direction_multiplier_policy');
+      const base = current ?? { global: 1.0, perMarketType: {}, segments: [] };
+      const updated = {
+        ...base,
+        perMarketType: { ...(base.perMarketType ?? {}), [marketType]: weight },
+      };
+      await tradingConfigRepo.set(
+        'direction_multiplier_policy',
+        updated,
+        `optimization-${new Date().toISOString().slice(0, 10)}-${marketType}-dm-sync`,
+      );
+      console.log(`[OptimizationScheduler] Synced direction_multiplier_policy.perMarketType[${marketType}] = ${weight}`);
+    } catch (err) {
+      console.error(`[OptimizationScheduler] Failed to sync direction_multiplier_policy for ${marketType}:`, err);
+    }
   }
 
   private async persistMeanReversionReferenceMode(params: Record<string, any>): Promise<void> {
