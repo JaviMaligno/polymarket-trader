@@ -45,7 +45,7 @@ If you violate this, the end-of-workflow check will fail the whole run and rever
 - DB: TimescaleDB in Docker on the VM
 - Initial capital: $10,000, max drawdown threshold: 15%
 - Signal types: momentum (contrarian, weight -0.4), mean_reversion (weight 0.8), OFI, MLOFI, Hawkes, + 6 more
-- **Direction multiplier: -1.0** (all signals are flipped — this is INTENTIONAL, see CLAUDE.md)
+- **Direction multiplier: +1.0** (no flip — dm=-1 was reverted 2026-05-04, see CLAUDE.md and issue #179)
 - **MarketScorer tradeability**: 30-70% scores 1.0 (NO 50/50 dead zone — this is INTENTIONAL, see design doc)
 - Reset epoch: use `paper_account.last_reset_at` (do NOT hardcode dates)
 - SSH: `gcloud compute ssh polymarket-vm --zone=us-east1-b`
