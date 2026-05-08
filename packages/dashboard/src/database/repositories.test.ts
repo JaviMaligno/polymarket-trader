@@ -7,7 +7,7 @@ vi.mock('./index.js', () => ({
 }));
 
 import { query, transaction } from './index.js';
-import { paperPositionsRepo } from './repositories.js';
+import { paperPositionsRepo, generatorPredictionsRepo } from './repositories.js';
 
 describe('paperPositionsRepo.insert', () => {
   beforeEach(() => {
@@ -233,5 +233,84 @@ describe('paperPositionsRepo.openPositionAtomically', () => {
     // Third query is the INSERT — param index 8 is realized_pnl
     const insertParams = mockClient.query.mock.calls[2][1] as unknown[];
     expect(insertParams[8]).toBe(0);
+  });
+});
+
+describe('generatorPredictionsRepo.bulkCreate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(query).mockResolvedValue({ rows: [], rowCount: 0 } as any);
+  });
+
+  it('does nothing on empty input', async () => {
+    await generatorPredictionsRepo.bulkCreate([]);
+    expect(query).not.toHaveBeenCalled();
+  });
+
+  it('emits a single multi-row INSERT for N predictions', async () => {
+    await generatorPredictionsRepo.bulkCreate([
+      {
+        market_id: 'mkt1',
+        market_type: 'crypto_intraday',
+        signal_id: 'momentum',
+        direction: 'long',
+        strength: 0.5,
+        confidence: 0.7,
+        yes_price_at_signal: 0.42,
+        metadata: { foo: 'bar' },
+      },
+      {
+        market_id: 'mkt1',
+        market_type: 'crypto_intraday',
+        signal_id: 'mean_reversion',
+        direction: 'short',
+        strength: -0.6,
+        confidence: 0.8,
+        yes_price_at_signal: 0.42,
+      },
+    ]);
+
+    expect(query).toHaveBeenCalledTimes(1);
+    const sql = vi.mocked(query).mock.calls[0][0] as string;
+    expect(sql).toContain('INSERT INTO generator_predictions');
+    expect(sql).toContain('($1, $2, $3, $4, $5, $6, $7, $8)');
+    expect(sql).toContain('($9, $10, $11, $12, $13, $14, $15, $16)');
+  });
+
+  it('serializes metadata as JSON and defaults to empty object', async () => {
+    await generatorPredictionsRepo.bulkCreate([
+      {
+        market_id: 'mkt1',
+        market_type: null,
+        signal_id: 'ofi',
+        direction: 'neutral',
+        strength: 0,
+        confidence: 0.5,
+        yes_price_at_signal: 0.5,
+        // no metadata field
+      },
+    ]);
+
+    const params = vi.mocked(query).mock.calls[0][1] as unknown[];
+    // 8 cols: market_id, market_type, signal_id, direction, strength, confidence, yes_price_at_signal, metadata
+    expect(params[7]).toBe('{}');
+  });
+
+  it('preserves signed strength values (negative for SHORT)', async () => {
+    await generatorPredictionsRepo.bulkCreate([
+      {
+        market_id: 'mkt1',
+        market_type: 'event_financial',
+        signal_id: 'hawkes',
+        direction: 'short',
+        strength: -0.85,
+        confidence: 0.9,
+        yes_price_at_signal: 0.7,
+      },
+    ]);
+
+    const params = vi.mocked(query).mock.calls[0][1] as unknown[];
+    expect(params[4]).toBe(-0.85); // strength preserved with negative sign
+    expect(params[3]).toBe('short'); // direction lowercase
   });
 });
