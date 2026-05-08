@@ -517,6 +517,52 @@ async function main(): Promise<void> {
         throw err;
       }
 
+      // Per-generator predictions table (mirrors init/030_generator_predictions.sql).
+      // Init SQL only runs on first volume init, so existing VMs need this
+      // bootstrap to pick up the new table on next deploy.
+      try {
+        await query(`
+          CREATE TABLE IF NOT EXISTS generator_predictions (
+            id BIGSERIAL,
+            time TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            market_id VARCHAR(128) NOT NULL,
+            market_type VARCHAR(32),
+            signal_id VARCHAR(50) NOT NULL,
+            direction VARCHAR(8) NOT NULL,
+            strength NUMERIC(7,4) NOT NULL,
+            confidence NUMERIC(5,4) NOT NULL,
+            yes_price_at_signal NUMERIC(10,6) NOT NULL,
+            metadata JSONB DEFAULT '{}',
+            PRIMARY KEY (time, id)
+          );
+        `);
+        await query(`
+          SELECT create_hypertable('generator_predictions', 'time',
+            chunk_time_interval => INTERVAL '1 day',
+            if_not_exists => TRUE
+          );
+        `);
+        await query(`
+          CREATE INDEX IF NOT EXISTS idx_gen_predictions_signal_time
+            ON generator_predictions (signal_id, time DESC);
+        `);
+        await query(`
+          CREATE INDEX IF NOT EXISTS idx_gen_predictions_market_time
+            ON generator_predictions (market_id, time DESC);
+        `);
+        await query(`
+          ALTER TABLE generator_predictions SET (
+            timescaledb.compress_after = '3 days'
+          );
+        `);
+        await query(`
+          SELECT add_retention_policy('generator_predictions', INTERVAL '30 days', if_not_exists => TRUE);
+        `);
+        console.log('[server] generator_predictions table ensured');
+      } catch (err) {
+        console.error('[server] generator_predictions migration failed:', err);
+      }
+
       // Concentration gate prerequisite: cache σ(strength × confidence) per market_type
       // and refresh every 6 h. See docs/plans/2026-04-29-concentration-gate-design.md.
       try {

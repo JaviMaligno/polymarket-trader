@@ -11,7 +11,11 @@
 
 import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
-import { signalWeightsRepo, tradingConfigRepo } from '../database/repositories.js';
+import {
+  signalWeightsRepo,
+  tradingConfigRepo,
+  generatorPredictionsRepo,
+} from '../database/repositories.js';
 import { getTradingAutomation } from './TradingAutomation.js';
 import { getDbEventListener } from './DbEventListener.js';
 import type { SignalResult } from './AutoSignalExecutor.js';
@@ -490,6 +494,26 @@ export class SignalEngine extends EventEmitter {
 
     if (signalOutputs.length === 0) {
       return null;
+    }
+
+    // Persist per-generator outputs (input to the combiner) so per-generator
+    // edge can be measured independently of weighting/dm. Fire-and-forget:
+    // a DB failure must not block the cycle.
+    if (isDatabaseConfigured()) {
+      const yesPrice = market.currentPrice;
+      const records = signalOutputs.map((o) => ({
+        market_id: market.id,
+        market_type: market.marketType ?? null,
+        signal_id: o.signalId,
+        direction: o.direction.toLowerCase() as 'long' | 'short' | 'neutral',
+        strength: Number(o.strength),
+        confidence: Number(o.confidence),
+        yes_price_at_signal: yesPrice,
+        metadata: o.metadata ?? {},
+      }));
+      generatorPredictionsRepo.bulkCreate(records).catch((err) => {
+        console.error('[SignalEngine] Failed to persist generator predictions:', err);
+      });
     }
 
     // Apply duration-based weight scaling, then price-range scaling (multiplicative composition)

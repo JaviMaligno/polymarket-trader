@@ -135,6 +135,75 @@ export const signalPredictionsRepo = {
 };
 
 // ============================================
+// Generator Predictions Repository
+// ============================================
+//
+// Captures the raw output of each individual signal generator (input to the
+// combiner). signal_predictions stores the *combined* signal; this stores its
+// inputs so we can measure per-generator edge without weighting/dm interference.
+
+export interface GeneratorPrediction {
+  id?: number;
+  time?: Date;
+  market_id: string;
+  market_type: string | null;
+  signal_id: string;
+  direction: 'long' | 'short' | 'neutral';
+  strength: number;
+  confidence: number;
+  yes_price_at_signal: number;
+  metadata?: Record<string, unknown>;
+}
+
+export const generatorPredictionsRepo = {
+  /**
+   * Batched insert for one market's per-generator outputs in a single cycle.
+   * Uses VALUES expansion (single round-trip) to keep cycle latency low.
+   */
+  async bulkCreate(predictions: GeneratorPrediction[]): Promise<void> {
+    if (predictions.length === 0) return;
+
+    const cols = ['market_id', 'market_type', 'signal_id', 'direction',
+      'strength', 'confidence', 'yes_price_at_signal', 'metadata'];
+    const placeholders: string[] = [];
+    const values: unknown[] = [];
+    predictions.forEach((p, i) => {
+      const base = i * cols.length;
+      placeholders.push(`($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8})`);
+      values.push(
+        p.market_id,
+        p.market_type,
+        p.signal_id,
+        p.direction,
+        p.strength,
+        p.confidence,
+        p.yes_price_at_signal,
+        JSON.stringify(p.metadata ?? {}),
+      );
+    });
+
+    await query(
+      `INSERT INTO generator_predictions
+       (${cols.join(', ')})
+       VALUES ${placeholders.join(', ')}`,
+      values,
+    );
+  },
+
+  async getRecentBySignal(signalId: string, hours = 24, limit = 1000): Promise<GeneratorPrediction[]> {
+    const result = await query<GeneratorPrediction>(
+      `SELECT * FROM generator_predictions
+       WHERE signal_id = $1
+         AND time >= NOW() - $2::interval
+       ORDER BY time DESC
+       LIMIT $3`,
+      [signalId, `${hours} hours`, limit],
+    );
+    return result.rows;
+  },
+};
+
+// ============================================
 // Signal Weights Repository
 // ============================================
 
