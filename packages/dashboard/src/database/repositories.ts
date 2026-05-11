@@ -732,12 +732,26 @@ export const portfolioSnapshotsRepo = {
 // ============================================
 
 export const tradingConfigRepo = {
+  // trading_config.value is TEXT, populated by `set()` with JSON.stringify().
+  // Without parsing here every caller has to remember that get() returns a
+  // string, not the typed object it claims. Some don't, and then patterns
+  // like `{ ...current, foo: bar }` silently expand the string character-by-
+  // character into numeric-keyed object properties — the corruption pattern
+  // that hit direction_multiplier_policy in May 2026.
   async get<T = unknown>(key: string): Promise<T | null> {
-    const result = await query<{ value: T }>(
+    const result = await query<{ value: string }>(
       'SELECT value FROM trading_config WHERE key = $1',
       [key]
     );
-    return result.rows[0]?.value ?? null;
+    const raw = result.rows[0]?.value;
+    if (raw == null) return null;
+    try {
+      return JSON.parse(raw) as T;
+    } catch {
+      // Legacy unencoded string values predate JSON.stringify() in set().
+      // Return raw so callers that opted into a `string` type still work.
+      return raw as unknown as T;
+    }
   },
 
   async set(key: string, value: unknown, description?: string): Promise<void> {
@@ -753,12 +767,16 @@ export const tradingConfigRepo = {
   },
 
   async getAll(): Promise<Record<string, unknown>> {
-    const result = await query<{ key: string; value: unknown }>(
+    const result = await query<{ key: string; value: string }>(
       'SELECT key, value FROM trading_config'
     );
     const config: Record<string, unknown> = {};
     for (const row of result.rows) {
-      config[row.key] = row.value;
+      try {
+        config[row.key] = JSON.parse(row.value);
+      } catch {
+        config[row.key] = row.value;
+      }
     }
     return config;
   },

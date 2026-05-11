@@ -7,7 +7,7 @@ vi.mock('./index.js', () => ({
 }));
 
 import { query, transaction } from './index.js';
-import { paperPositionsRepo, generatorPredictionsRepo } from './repositories.js';
+import { paperPositionsRepo, generatorPredictionsRepo, tradingConfigRepo } from './repositories.js';
 
 describe('paperPositionsRepo.insert', () => {
   beforeEach(() => {
@@ -312,5 +312,71 @@ describe('generatorPredictionsRepo.bulkCreate', () => {
     const params = vi.mocked(query).mock.calls[0][1] as unknown[];
     expect(params[4]).toBe(-0.85); // strength preserved with negative sign
     expect(params[3]).toBe('short'); // direction lowercase
+  });
+});
+
+describe('tradingConfigRepo.get — JSON parse from TEXT column', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('parses a JSON-encoded object value', async () => {
+    vi.mocked(query).mockResolvedValueOnce({
+      rows: [{ value: '{"global":1,"perMarketType":{"event_short":1}}' }],
+    } as any);
+
+    const result = await tradingConfigRepo.get<{ global: number; perMarketType: Record<string, number> }>(
+      'direction_multiplier_policy',
+    );
+
+    expect(result).toEqual({ global: 1, perMarketType: { event_short: 1 } });
+  });
+
+  it('parses JSON-encoded number / boolean / array', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ value: '42' }] } as any);
+    expect(await tradingConfigRepo.get<number>('k')).toBe(42);
+
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ value: 'true' }] } as any);
+    expect(await tradingConfigRepo.get<boolean>('k')).toBe(true);
+
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ value: '[1,2,3]' }] } as any);
+    expect(await tradingConfigRepo.get<number[]>('k')).toEqual([1, 2, 3]);
+  });
+
+  it('returns null for missing key', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [] } as any);
+    expect(await tradingConfigRepo.get('k')).toBeNull();
+  });
+
+  it('returns raw string for legacy non-JSON values', async () => {
+    // Pre-JSON.stringify era values exist as plain strings in the column.
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ value: 'plain-text-legacy' }] } as any);
+    expect(await tradingConfigRepo.get<string>('k')).toBe('plain-text-legacy');
+  });
+
+  it('returned object is safe to spread (no character-by-character corruption)', async () => {
+    // Regression for the {...stringValue} bug: when get() returned the raw TEXT
+    // string, `{...current}` in callers like syncDirectionMultiplierPolicy
+    // expanded characters as numeric keys, silently corrupting the stored value.
+    vi.mocked(query).mockResolvedValueOnce({
+      rows: [{ value: '{"global":1,"perMarketType":{"event_short":1}}' }],
+    } as any);
+
+    const current = await tradingConfigRepo.get<{
+      global?: number;
+      perMarketType?: Record<string, number>;
+    }>('direction_multiplier_policy');
+
+    const merged = {
+      ...(current ?? {}),
+      perMarketType: { ...(current?.perMarketType ?? {}), event_financial: 1 },
+    };
+
+    // No numeric-string keys (the corruption signature)
+    expect(Object.keys(merged).filter((k) => /^\d+$/.test(k))).toEqual([]);
+    expect(merged).toEqual({
+      global: 1,
+      perMarketType: { event_short: 1, event_financial: 1 },
+    });
   });
 });
