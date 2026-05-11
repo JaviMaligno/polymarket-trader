@@ -113,7 +113,9 @@ services:
     restart: unless-stopped
     environment:
       NODE_ENV: production
-      LOG_LEVEL: warn
+      # Temporarily info to debug 2026-05-11 trade stall (signal_predictions=0
+      # while generators emit ~600/10min). Revert to warn after diagnosis.
+      LOG_LEVEL: info
       PORT: 3001
       HOST: 0.0.0.0
       CORS_ORIGIN: "*"
