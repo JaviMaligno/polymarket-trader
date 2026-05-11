@@ -469,6 +469,67 @@ export class PortfolioManager implements IPortfolioManager {
   }
 
   /**
+   * Close positions that have been open longer than maxHoldMs at current price.
+   * Mirrors live's MAX_HOLD_TIME_HOURS exit (StopLossService) so backtest
+   * fitness reflects what live can actually realise — without this, event_long
+   * positions stay open until market resolution and capture full resolution-
+   * price PnL that live (4h time exit) cannot achieve.
+   *
+   * Returns the number of positions closed and total realised PnL.
+   */
+  closeAgedPositions(
+    currentTime: Date,
+    maxHoldMs: number,
+    getPriceFunc: (marketId: string, tokenId: string) => number | null
+  ): { closedCount: number; totalPnl: number } {
+    if (maxHoldMs <= 0) return { closedCount: 0, totalPnl: 0 };
+
+    let totalPnl = 0;
+    let closedCount = 0;
+    const cutoffTime = currentTime.getTime() - maxHoldMs;
+
+    // Snapshot keys because closePosition() mutates the underlying map
+    const aged = Array.from(this.positions.values()).filter(
+      (p) => p.openedAt.getTime() <= cutoffTime
+    );
+
+    for (const position of aged) {
+      const currentPrice = getPriceFunc(position.marketId, position.tokenId);
+      if (currentPrice === null) {
+        // No fresh price — leave the position. closeAllPositions at backtest
+        // end is the final cleanup; we don't want to fabricate an exit price.
+        continue;
+      }
+
+      const pnl =
+        position.side === 'LONG'
+          ? (currentPrice - position.entryPrice) * position.size
+          : (position.entryPrice - currentPrice) * position.size;
+      position.realizedPnl = pnl;
+
+      // Settle cash like a normal close
+      if (position.side === 'LONG') {
+        this.cash += position.size * currentPrice;
+      } else {
+        this.cash -= position.size * currentPrice;
+      }
+
+      totalPnl += pnl;
+      this.closePosition(position, currentPrice, currentTime);
+      closedCount += 1;
+    }
+
+    if (closedCount > 0) {
+      this.logger.debug(
+        { closedCount, totalPnl, maxHoldHours: maxHoldMs / 3_600_000 },
+        'Closed aged positions at time-exit horizon'
+      );
+    }
+
+    return { closedCount, totalPnl };
+  }
+
+  /**
    * Close all open positions at current prices
    * Returns total realized P&L from closing positions
    */

@@ -59,6 +59,20 @@ export interface RiskConfig {
   /** Volatility multiplier for SL/TP adjustment */
   volatilityMultiplier: number;
 
+  // === Time-Based Exit (mirrors live StopLossService MAX_HOLD_TIME_HOURS) ===
+  /**
+   * Close any position that has been open longer than `maxHoldHours`. Defaults
+   * to true and 4h to match live behaviour. Critical for fitness function
+   * correctness: without it, backtests held event_long positions for weeks
+   * and captured full resolution-price PnL that live (with its 4h time exit)
+   * can never realise. That divergence drove Optuna to weight
+   * mean_reversion event_long high despite the actual 4h drift being
+   * anti-edge (t-stat -3.16 from generator_predictions, 2026-05-11).
+   */
+  useTimeExit: boolean;
+  /** Maximum hold time in hours before forced exit at current price */
+  maxHoldHours: number;
+
   // === Correlation & Diversification ===
   /** Maximum correlation between positions (0-1) */
   maxCorrelation: number;
@@ -140,6 +154,10 @@ export const AGGRESSIVE_PROFILE: RiskConfig = {
   useVolatilityAdjusted: true,   // Adjust for volatility
   volatilityMultiplier: 1.5,     // 1.5x volatility adjustment
 
+  // Time Exit (mirrors live MAX_HOLD_TIME_HOURS=4)
+  useTimeExit: true,
+  maxHoldHours: 4,
+
   // Correlation & Diversification
   maxCorrelation: 0.7,           // 70% max correlation (tighter)
   maxCategoryConcentrationPct: 40, // Max 40% in one category
@@ -201,6 +219,10 @@ export const MODERATE_PROFILE: RiskConfig = {
   useVolatilityAdjusted: true,
   volatilityMultiplier: 1.3,
 
+  // Time Exit (mirrors live MAX_HOLD_TIME_HOURS=4)
+  useTimeExit: true,
+  maxHoldHours: 4,
+
   // Correlation & Diversification
   maxCorrelation: 0.65,
   maxCategoryConcentrationPct: 35,
@@ -261,6 +283,10 @@ export const CONSERVATIVE_PROFILE: RiskConfig = {
   trailingStopPct: 4,
   useVolatilityAdjusted: false,
   volatilityMultiplier: 1.0,
+
+  // Time Exit (mirrors live MAX_HOLD_TIME_HOURS=4)
+  useTimeExit: true,
+  maxHoldHours: 4,
 
   // Correlation & Diversification
   maxCorrelation: 0.6,
