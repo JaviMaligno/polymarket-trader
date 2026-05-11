@@ -127,33 +127,68 @@ describe('CircuitBreakerService', () => {
     expect(service.isTradingHalted()).toBe(false);
   });
 
-  it('drawdown is computed from peak_equity, not initial_capital (avoids deadlock when peak < initial)', async () => {
-    // Account state matching the 2026-04-30 deadlock that produced the trade
-    // drought before commit 44f16d1: equity below initial but well above peak.
-    //   current_capital=8695, peak_equity=8898, total_exposure=0
-    // Pre-fix denominator (initial): (10000-8695)/10000 = 13.05% → would HALT at 13% threshold
-    // Post-fix denominator (peak):   (8898-8695)/8898 = 2.28%  → safely below threshold
+  it('peak_equity is floored at initialCapital so cumulative-loss bleed still triggers halt', async () => {
+    // Account state observed on 2026-05-11: a partial reset left stored
+    // peak_equity below initialCapital. Pre-floor, the CB silently lost its
+    // cumulative-loss protection — drawdown read as 2.28% while realised loss
+    // was 13%. Post-floor, peak = max(8898, 10000) = 10000 and drawdown is
+    // computed from the true high-water mark.
+    //   stored_peak=8898, current=8695, initial=10000
+    //   pre-floor drawdown:  (8898 - 8695) / 8898 = 2.28%
+    //   post-floor drawdown: (10000 - 8695) / 10000 = 13.05% (fires at 13% gate)
     vi.mocked(query)
       .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
       .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // start()'s initial check (empty rows, exits early)
-      .mockResolvedValueOnce({  // timer-triggered check — note peak_equity < initial
+      .mockResolvedValueOnce({
         rows: [{ current_capital: '8695', initial_capital: '10000', peak_equity: '8897.79' }],
         rowCount: 1,
       } as any)
-      .mockResolvedValueOnce({  // exposure
+      .mockResolvedValueOnce({
+        rows: [{ total_exposure: '0' }],
+        rowCount: 1,
+      } as any)
+      // After the floor pushes drawdown to 13.05% > 13% threshold, the CB
+      // triggers haltTrading + closeAllPositions. Resolve subsequent queries
+      // so the trigger path can complete without throwing.
+      .mockResolvedValue({ rows: [], rowCount: 0 } as any);
+
+    const service = new CircuitBreakerService({
+      checkIntervalMs: 60_000,
+      maxDrawdownPct: 13,
+      initialCapital: 10000,
+    });
+    await service.start();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(service.isTradingHalted()).toBe(true);
+  });
+
+  it('stored peak above initial is honoured (no over-floor of legitimate HWM)', async () => {
+    // When the account has reached new highs (stored_peak > initialCapital),
+    // the floor is a no-op and the denominator is the actual HWM. This
+    // preserves the anti-deadlock spirit of PR #174: once you ratchet above
+    // initial, small dips don't unnecessarily trigger halts.
+    vi.mocked(query)
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // CREATE TABLE
+      .mockResolvedValueOnce({ rows: [], rowCount: 0 } as any) // start()'s initial check
+      .mockResolvedValueOnce({
+        rows: [{ current_capital: '11000', initial_capital: '10000', peak_equity: '11500' }],
+        rowCount: 1,
+      } as any)
+      .mockResolvedValueOnce({
         rows: [{ total_exposure: '0' }],
         rowCount: 1,
       } as any);
 
     const service = new CircuitBreakerService({
       checkIntervalMs: 60_000,
-      maxDrawdownPct: 13,  // tight enough that pre-fix would trip
+      maxDrawdownPct: 13,
       initialCapital: 10000,
     });
     await service.start();
     await vi.advanceTimersByTimeAsync(60_000);
 
-    // peak-based drawdown is 2.28%, well below 13% — no halt.
+    // Drawdown = (11500 - 11000) / 11500 = 4.35% — well below threshold
     expect(service.isTradingHalted()).toBe(false);
   });
 

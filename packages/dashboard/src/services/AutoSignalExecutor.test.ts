@@ -674,10 +674,17 @@ describe('AutoSignalExecutor', () => {
       expect(result.reason).not.toMatch(/drawdown.*too close/i);
     });
 
-    it('allows new opens when peak_equity < initial_capital (normal cumulative loss scenario)', async () => {
-      // Regression: with the initial_capital formula, peak=$8900 capital=$8695 would
-      // compute drawdown as (10000-8695)/10000 = 13.05% > 13% and permanently block opens.
-      // With the peak_equity formula it computes (8900-8695)/8900 = 2.3% → allow.
+    it('blocks new opens when stored_peak < initialCapital and cumulative drawdown exceeds CB-2% buffer', async () => {
+      // Post-2026-05-11 design: peak is floored at initialCapital so a partial
+      // reset that leaves stored_peak below initial cannot silently mask a slow
+      // bleed. peak=$8900 stored, current=$8695, initial=$10000 → floored peak
+      // is $10000 → drawdown (10000-8695)/10000 = 13.05% > (15% - 2%) buffer →
+      // soft block on new opens. This is the INTENDED behaviour: the user wanted
+      // CB to fire on cumulative loss, and the floor restores that protection.
+      //
+      // To recover from this state, the operator resets the account (which sets
+      // peak = initial_capital and clears realised pnl). Trading does not
+      // resume on its own while equity is below initial.
       const exec = new AutoSignalExecutor({ enabled: true, cooldownMs: 0 });
       (query as any).mockImplementation((sql: string) => {
         if (sql.includes('FROM markets WHERE id')) {
@@ -695,7 +702,7 @@ describe('AutoSignalExecutor', () => {
         return Promise.resolve({ rows: [] });
       });
       const result = await exec.processSignal(makeSignal({ direction: 'long', price: 0.50 }));
-      expect(result.reason).not.toMatch(/drawdown.*too close/i);
+      expect(result.reason).toMatch(/drawdown.*too close/i);
     });
   });
 
