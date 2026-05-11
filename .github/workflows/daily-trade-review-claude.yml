@@ -69,6 +69,27 @@ jobs:
           git config user.name "Claude (Daily Review)"
           git config user.email "noreply@anthropic.com"
 
+      - name: Cleanup stale SSH keys in project metadata
+        # Each `gcloud compute ssh` regenerates and uploads a key. Without
+        # cleanup, project metadata grows unbounded and delays key propagation
+        # past the ConnectTimeout, causing `Permission denied (publickey)`.
+        # deploy-gcp.yml has this step since 2026-04-15; the daily-review was
+        # missing it, causing the 5-day notification outage (2026-05-05 to 09).
+        # Keep the latest key per user only.
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          gcloud compute project-info describe \
+            --format=json \
+            | jq -r '.commonInstanceMetadata.items[]? | select(.key == "ssh-keys") | .value' \
+            | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' \
+            > "$tmp"
+          if [ -s "$tmp" ]; then
+            gcloud compute project-info add-metadata \
+              --metadata-from-file=ssh-keys="$tmp"
+          fi
+          rm -f "$tmp"
+
       - name: Run pre-review tests
         id: pre_tests
         run: |
@@ -97,20 +118,44 @@ jobs:
       - name: Gather data from VM
         id: gather
         run: |
-          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=ServerAliveInterval=30 --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=30"
+          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=us-east1-b --ssh-flag=-o --ssh-flag=ServerAliveInterval=30 --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=60"
 
-          # Run script on VM, save to temp file
-          $SSH --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh > /tmp/daily-review-output.json 2>/tmp/daily-review-stderr.log" \
-            2>ssh-stderr.log || true
+          # Retry loop: VM SSH key propagation can take up to 60s after the
+          # project-metadata update in the cleanup step above. Three attempts
+          # with 20s waits gives ~3 minutes total before falling back.
+          SSH_OK=false
+          for attempt in 1 2 3; do
+            if $SSH --command="echo ssh_ok" > /dev/null 2>>ssh-stderr.log; then
+              SSH_OK=true
+              break
+            fi
+            echo "::warning::SSH attempt $attempt/3 failed — waiting 20s for key propagation"
+            sleep 20
+          done
 
-          # Retrieve JSON
-          $SSH --command="cat /tmp/daily-review-output.json" \
-            > review-data.json 2>>ssh-stderr.log || true
+          if [ "$SSH_OK" = "true" ]; then
+            # Run script on VM, save to temp file
+            $SSH --command="cd /home/Usuario/polymarket-trader && git pull --quiet origin main >/dev/null 2>&1; bash scripts/daily-review.sh > /tmp/daily-review-output.json 2>/tmp/daily-review-stderr.log" \
+              2>>ssh-stderr.log || true
 
-          if ! jq . review-data.json > /dev/null 2>&1; then
-            echo "::error::Invalid JSON from daily-review.sh"
-            cat ssh-stderr.log 2>/dev/null || true
-            exit 1
+            # Retrieve JSON
+            $SSH --command="cat /tmp/daily-review-output.json" \
+              > review-data.json 2>>ssh-stderr.log || true
+          else
+            echo "::warning::SSH failed after 3 attempts — VM unreachable"
+            : > review-data.json
+          fi
+
+          # Empty-file / invalid-JSON fallback: write a gather_failed stub so
+          # format-review.js triggers its degraded-notification path (Slack +
+          # email "FAILED" alert) instead of crashing on JSON.parse(''). Empty
+          # JSON before this fix silently passed `jq .` on some runners but
+          # broke notifications downstream.
+          if [ ! -s review-data.json ] || ! jq . review-data.json > /dev/null 2>&1; then
+            echo "::warning::review-data.json empty or invalid — emitting gather_failed stub"
+            cat ssh-stderr.log 2>/dev/null | head -20 || true
+            printf '{"gather_failed":true,"ssh_error":true,"generated_at":"%s"}\n' \
+              "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > review-data.json
           fi
           echo "data_collected=true" >> $GITHUB_OUTPUT
 
