@@ -54,6 +54,11 @@ export interface IPortfolioManager {
   getPosition(marketId: string, tokenId: string): { side: 'LONG' | 'SHORT'; size: number } | null;
   /** Close all open positions at current prices */
   closeAllPositions(currentTime: Date, getPriceFunc: (marketId: string, tokenId: string) => number | null): number;
+  closeAgedPositions(
+    currentTime: Date,
+    maxHoldMs: number,
+    getPriceFunc: (marketId: string, tokenId: string) => number | null
+  ): { closedCount: number; totalPnl: number };
 }
 
 export interface IOrderBookSimulator {
@@ -222,6 +227,28 @@ export class BacktestEngine {
           originalHandler(signal);
         }
         pendingSignals = [];
+
+        // Time-exit: close positions that have been open longer than
+        // maxHoldHours. Mirrors live MAX_HOLD_TIME_HOURS — without this the
+        // fitness function captures resolution-price PnL the live system
+        // never sees (event_long markets resolve over weeks, live time-exits
+        // at 4h). See RiskProfiles.useTimeExit jsdoc for the empirical case.
+        if (
+          this.portfolioManager &&
+          this.config.risk?.useTimeExit &&
+          this.config.risk.maxHoldHours > 0
+        ) {
+          const maxHoldMs = this.config.risk.maxHoldHours * 60 * 60 * 1000;
+          this.portfolioManager.closeAgedPositions(
+            tickTime,
+            maxHoldMs,
+            (marketId: string, tokenId: string) => {
+              const cacheKey = `${marketId}:${tokenId}`;
+              const cache = this.priceCache.get(cacheKey);
+              return cache?.currentBar?.close ?? null;
+            }
+          );
+        }
 
         // Generate signals for current state (will be executed next tick)
         await this.generateSignals();
