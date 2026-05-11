@@ -285,7 +285,7 @@ export class CircuitBreakerService extends EventEmitter {
       size: string;
       avg_entry_price: string;
       latest_price: string | null;
-      created_at: string;
+      opened_at: string;
     }>(`
       SELECT
         pp.id,
@@ -294,7 +294,7 @@ export class CircuitBreakerService extends EventEmitter {
         pp.side,
         pp.size,
         pp.avg_entry_price,
-        pp.created_at,
+        pp.opened_at,
         -- For SHORT positions, price_history only has Yes token data
         -- No token price = 1 - Yes token price
         CASE WHEN pp.side = 'short' THEN 1 - ph.close ELSE ph.close END as latest_price
@@ -317,7 +317,7 @@ export class CircuitBreakerService extends EventEmitter {
 
       // Skip positions opened less than 5 minutes ago (prevent flash close)
       const MIN_HOLD_MS = 5 * 60 * 1000;
-      const positionAge = Date.now() - new Date(pos.created_at).getTime();
+      const positionAge = Date.now() - new Date(pos.opened_at).getTime();
       if (positionAge < MIN_HOLD_MS) {
         console.log(`[CircuitBreaker] Skipping position ${pos.market_id} — opened ${Math.round(positionAge / 1000)}s ago (min hold: ${MIN_HOLD_MS / 1000}s)`);
         continue;
