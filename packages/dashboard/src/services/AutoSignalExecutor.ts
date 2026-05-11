@@ -233,6 +233,28 @@ const ALLOWED_MARKET_TYPES: Set<string> | null = process.env.ALLOWED_MARKET_TYPE
   ? new Set(process.env.ALLOWED_MARKET_TYPES.split(',').map(t => t.trim()))
   : null;
 
+/**
+ * Per-(market_type, direction) blocklist. Surgically blocks (type, side)
+ * combinations that empirical generator_predictions analysis identifies as
+ * anti-edge. Format: comma-separated `type:direction` pairs, both lowercase
+ * (e.g. "event_financial:short,event_long:short").
+ *
+ * Why this is per-direction and not per-signal: per-type weights apply to
+ * both LONG and SHORT outputs of a generator. mean_reversion event_financial
+ * has LONG t=+8.61 (strong edge) AND SHORT t=-9.97 (strong anti-edge) over
+ * 3 days of generator_predictions; the schema cannot capture that
+ * asymmetry, so the cleanest filter is at the executor level.
+ *
+ * Closes of existing positions are NEVER blocked (legacy unwind path),
+ * matching the ALLOWED_MARKET_TYPES gate behaviour.
+ */
+const BLOCKED_TYPE_DIRECTIONS: Set<string> = new Set(
+  (process.env.EXECUTOR_BLOCKED_TYPE_DIRECTIONS || '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => /^[a-z_]+:(long|short)$/.test(s)),
+);
+
 interface TradeRecord {
   marketId: string;
   timestamp: number;
@@ -553,6 +575,38 @@ export class AutoSignalExecutor extends EventEmitter {
               `event_otm_near_expiry (position check failed)`
           );
           return { executed: false, reason: 'event_otm_near_expiry: position check failed' };
+        }
+      }
+    }
+
+    // 0f. Per-(market_type, direction) blocklist. Surgically blocks the
+    // anti-edge (type, side) cells that emerge in generator_predictions per-
+    // type t-stats. Closes of existing positions are always allowed (matches
+    // 0d behaviour). Shadow trade is recorded on block so we can re-evaluate
+    // promotion if the per-type edge shifts.
+    if (BLOCKED_TYPE_DIRECTIONS.size > 0) {
+      const key = `${effectiveMarketType}:${signal.direction}`.toLowerCase();
+      if (BLOCKED_TYPE_DIRECTIONS.has(key)) {
+        try {
+          const openPositions = await paperPositionsRepo.getAll();
+          const hasOpenPosition = openPositions.some((p) => p.market_id === signal.marketId);
+          if (!hasOpenPosition) {
+            console.log(
+              `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+                `direction_blocked_for_type (${key})`
+            );
+            this.insertShadowTrade(signal, 'direction_blocked_for_type').catch(() => {});
+            return {
+              executed: false,
+              reason: `direction_blocked_for_type: ${key}`,
+            };
+          }
+        } catch {
+          console.log(
+            `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+              `direction_blocked_for_type (${key}, position check failed)`
+          );
+          return { executed: false, reason: `direction_blocked_for_type: ${key} (position check failed)` };
         }
       }
     }

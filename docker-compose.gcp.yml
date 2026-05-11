@@ -204,6 +204,16 @@ services:
       EXECUTOR_EVENT_OTM_TTR_HOURS: "240"
       EXECUTOR_EVENT_OTM_PRICE_LO: "0.20"
       EXECUTOR_EVENT_OTM_PRICE_HI: "0.80"
+      # Gate 0f: per-(market_type, direction) blocklist. Cells with empirical
+      # anti-edge in generator_predictions per-type t-stat analysis. The
+      # signal_weights schema can't separately downweight SHORT vs LONG inside
+      # a (signal, type), so the only place to act on direction asymmetry is
+      # this executor filter. Format: comma-separated type:direction pairs
+      # (both lowercase). Configured 2026-05-11 from 3 days of P2 data:
+      #   mean_reversion event_financial LONG  t=+8.61  (strong edge — allow)
+      #   mean_reversion event_financial SHORT t=-9.97  (strong anti — block)
+      # Closes of existing positions are never blocked (unwind path).
+      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short"
       # Market type gate: only trade these types live, shadow-trade the rest
       # event_financial: WTI, Fed, indices (continuous underlying)
       # event_short: event markets with short resolution windows (better win rate than event_long)
