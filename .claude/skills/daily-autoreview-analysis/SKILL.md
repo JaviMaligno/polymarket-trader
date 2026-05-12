@@ -91,17 +91,38 @@ WHERE p.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 
   AND p.realized_pnl IS NOT NULL
 GROUP BY m.market_type, p.side ORDER BY m.market_type, p.side;
 
--- Shadow, by type and direction (shadow_trades uses `direction`, not `side`)
-SELECT market_type, direction, COUNT(*) n, ROUND(AVG(theoretical_pnl)::numeric,4) avg_pnl,
-       COUNT(*) FILTER (WHERE theoretical_pnl > 0) wins
-FROM shadow_trades WHERE resolved_at IS NOT NULL AND time >= NOW() - INTERVAL '30 days'
-GROUP BY market_type, direction ORDER BY market_type, direction;
+-- Shadow, by type and direction — KEY: group by m.market_type (current), NOT
+-- s.market_type (frozen at trade time). shadow_trades.market_type is the type
+-- the market HAD when the shadow trade was recorded; markets get reclassified
+-- (e.g. PR #211 backfilled 105 crypto_intraday → event_long on 2026-05-12;
+-- WTI Oil markets were misclassified as event_short before being moved to
+-- event_financial). Grouping by s.market_type produces Simpson's-paradox
+-- mixes — see project_event_short_supply.md phase 2 finding.
+SELECT m.market_type, s.direction, COUNT(*) n,
+       ROUND(AVG(s.theoretical_pnl)::numeric,4) avg_pnl,
+       COUNT(*) FILTER (WHERE s.theoretical_pnl > 0) wins
+FROM shadow_trades s JOIN markets m ON m.id = s.market_id
+WHERE s.resolved_at IS NOT NULL AND s.time >= NOW() - INTERVAL '30 days'
+GROUP BY m.market_type, s.direction ORDER BY m.market_type, s.direction;
+
+-- Misattribution sanity check — surfaces cohorts where the frozen and
+-- current types disagree. If any row has n > 30, the historical aggregation
+-- by s.market_type was misleading and that type's shadow stats need a
+-- re-derivation. Should be near-empty in steady state.
+SELECT s.market_type AS shadow_recorded, m.market_type AS current_type,
+       COUNT(*) AS n,
+       ROUND(AVG(s.theoretical_pnl)::numeric,2) AS avg_pnl
+FROM shadow_trades s JOIN markets m ON m.id = s.market_id
+WHERE s.resolved_at IS NOT NULL AND s.time >= NOW() - INTERVAL '30 days'
+  AND s.market_type <> m.market_type
+GROUP BY 1, 2 HAVING COUNT(*) > 0 ORDER BY 3 DESC;
 ```
 
 Report: live PnL/WR vs shadow PnL/WR side-by-side, per (type, side). Flag when:
 - Shadow shows positive PnL while live shows negative for the same (type, side) → sampling artifact, not promotion candidate.
 - Shadow win rate > 90% on n ≥ 30 → almost certainly the SHORT-resolves-NO bias; do NOT propose promotion.
 - Live SHORT win rate stays < 20% across multiple types → cross-reference `project_short_asymmetry.md`. PRs #110/#111 are partial guardrails.
+- **Misattribution sanity check returns rows with n > 30**: the historical shadow stats for that type are contaminated. Re-derive after backfilling the type label or filter explicitly on `m.market_type` for both arms of the comparison. Example: on 2026-05-12, shadow `event_short LONG` showed 59.5% WR — but 407/660 of those trades were WTI Oil markets reclassified to `event_financial`, and the genuine cohort had 0% WR. See `project_event_short_supply.md`.
 
 The empirical haircut for shadow → live (project_shadow_execution_realism.md) is currently 0.33 for `event_long` (n=16, small sample). Do NOT use shadow Sharpe directly to argue for promotion — apply the haircut and note it.
 
