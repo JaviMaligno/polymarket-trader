@@ -527,17 +527,30 @@ export class Scheduler {
    */
   private async pruneZombieMarkets(): Promise<void> {
     const pool = getPool();
+    // Two zombie criteria:
+    //  1. End date passed by >1 day — market is no longer tradeable regardless
+    //     of update recency. (The previous `updated_at < NOW() - 7d` gate never
+    //     fired because sync-markets refreshes updated_at every 5 min, so
+    //     43k+ expired markets were left is_active=true. Discovered 2026-05-12
+    //     investigating event_short supply: 43,138 expired event_short alone.)
+    //  2. No volume + no recent update >7d — legacy criterion for null-end_date
+    //     markets that drifted out of activity.
     const result = await pool.query(`
       UPDATE markets
       SET is_active = false, updated_at = NOW()
       WHERE is_active = true
-        AND is_resolved = false
-        AND (volume_24h IS NULL OR volume_24h = 0)
-        AND updated_at < NOW() - INTERVAL '7 days'
+        AND COALESCE(is_resolved, false) = false
+        AND (
+          (end_date IS NOT NULL AND end_date < NOW() - INTERVAL '1 day')
+          OR (
+            (volume_24h IS NULL OR volume_24h = 0)
+            AND updated_at < NOW() - INTERVAL '7 days'
+          )
+        )
     `);
     const pruned = result.rowCount ?? 0;
     if (pruned > 0) {
-      logger.info({ pruned }, 'Pruned zombie markets (no volume, stale >7d)');
+      logger.info({ pruned }, 'Pruned zombie markets (expired or stale)');
     }
   }
 
