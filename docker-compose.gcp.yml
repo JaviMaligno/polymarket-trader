@@ -212,8 +212,12 @@ services:
       # (both lowercase). Configured 2026-05-11 from 3 days of P2 data:
       #   mean_reversion event_financial LONG  t=+8.61  (strong edge — allow)
       #   mean_reversion event_financial SHORT t=-9.97  (strong anti — block)
+      # Configured 2026-05-12: crypto_intraday LONG blocked — all active
+      #   crypto_intraday markets are multi-month binary price targets (end date
+      #   Jul 2026 – Jan 2027); 4h MAX_HOLD_TIME_HOURS causes 7/7 time exits
+      #   with 0% WR. Structural mismatch, not a signal quality issue.
       # Closes of existing positions are never blocked (unwind path).
-      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short"
+      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,crypto_intraday:long"
       # Market type gate: only trade these types live, shadow-trade the rest
       # event_financial: WTI, Fed, indices (continuous underlying)
       # event_short: event markets with short resolution windows (better win rate than event_long)
