@@ -105,6 +105,26 @@ Report: live PnL/WR vs shadow PnL/WR side-by-side, per (type, side). Flag when:
 
 The empirical haircut for shadow → live (project_shadow_execution_realism.md) is currently 0.33 for `event_long` (n=16, small sample). Do NOT use shadow Sharpe directly to argue for promotion — apply the haircut and note it.
 
+**Per-generator P2 cost-aware t-stat** (whenever proposing to enable, disable, or rebalance a (signal, market_type, direction) cell):
+
+Gross t-stat from raw `generator_predictions` joined to 4h-forward `price_history` drift over-states edge because it ignores execution costs. For low-volatility cohorts (year-horizon binary markets, mid-priced event_financial) the drift is comparable to round-trip cost (~0.5%), so a +8 gross t-stat can be a near-zero or negative net t-stat. Empirically falsified 2026-05-12 (`mean_reversion crypto_intraday LONG`: gross t=+8 → live 0/7 WR).
+
+Always run **both** versions side-by-side via `scripts/p2-tstat.js`:
+
+```bash
+# From VM (preferred — pg + DATABASE_URL are present in dashboard container):
+docker cp /home/Usuario/polymarket-trader/scripts/p2-tstat.js polymarket-dashboard-api:/app/p2-tstat.js
+docker exec polymarket-dashboard-api node /app/p2-tstat.js --window 7d --rtcost 0.005
+
+# Flags:
+#   --window {7d|3d|24h}   lookback (default 7d)
+#   --rtcost 0.005         round-trip cost as fraction (default 0.005 = 0.5%)
+#   --horizon 4h           forward price horizon (default 4h)
+#   --minn 100             skip cohorts smaller than N (default 100)
+```
+
+The script outputs per-(signal, type, direction) gross_pct, net_pct, t_gross, t_net. **Decisions must use t_net, not t_gross.** Flag any cell with t_gross ≥ 2 but t_net ≤ 0 — that's a cohort where edge exists in theory but is consumed by friction. Captured as a principle in `feedback_realistic_costs.md`.
+
 **Loss-streak forensic** (MANDATORY when consecutive losses ≥ 5 OR daily PnL < −$30 OR day-N win rate < 50% of historical baseline):
 
 Do NOT accept the auto-review's narrative ("warm-up artifact", "post-deploy noise", "low signal confidence on first exposure") at face value. The auto-review is biased toward not creating reactive PRs, which can read as complacency when losses actually fit known dysfunctional patterns. Examine the streak yourself:
