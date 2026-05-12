@@ -390,7 +390,13 @@ export class BacktestEngine {
         bar => bar.time >= this.config.startDate && bar.time <= this.config.endDate
       );
 
-      // Generate price update events from bars
+      // Generate price update events from bars.
+      // bid/ask are intentionally omitted: bars carry OHLC, not order-book quotes.
+      // Using bar.low/bar.high as bid/ask produced an artificially zero spread on
+      // snapshot bars (low == high == close) and an unrealistically wide spread
+      // on volatile bars (e.g. 8% on a 1-min bar that wicked). The synthetic
+      // spread inside OrderBookSimulator (baseSpreadPct) is a better proxy for
+      // Polymarket's actual round-trip cost.
       for (const bar of validBars) {
         const priceEvent: PriceUpdateEvent = {
           type: 'PRICE_UPDATE',
@@ -400,8 +406,6 @@ export class BacktestEngine {
             tokenId: bar.tokenId,
             price: bar.close,
             volume: bar.volume,
-            bid: bar.low,
-            ask: bar.high,
           },
         };
         events.push(priceEvent);
