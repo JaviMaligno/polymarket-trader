@@ -63,9 +63,17 @@ export class OrderBookSimulator implements IOrderBookSimulator {
     slippageModel: SlippageModel,
     config?: Partial<OrderBookSimulatorConfig>
   ) {
+    // baseSpreadPct: percent of mid (e.g. 1.5 = 1.5% mid-relative spread).
+    // Default 1.5% matches empirical Polymarket round-trip cost — earlier 0.5%
+    // under-priced friction on snapshot-driven backtests and caused Optuna to
+    // over-reward signals whose drift < real spread. Override via env var
+    // BACKTEST_BASE_SPREAD_PCT for explicit calibration.
+    const envSpread = process.env.BACKTEST_BASE_SPREAD_PCT
+      ? parseFloat(process.env.BACKTEST_BASE_SPREAD_PCT)
+      : null;
     this.config = {
       depthLevels: 10,
-      baseSpreadPct: 0.5,
+      baseSpreadPct: envSpread != null && Number.isFinite(envSpread) && envSpread > 0 ? envSpread : 1.5,
       sizeDecay: 0.8,
       minLevelSize: 100,
       volumeSpreadImpact: 0.1,
