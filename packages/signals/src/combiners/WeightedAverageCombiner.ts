@@ -24,6 +24,12 @@ interface WeightedAverageParams {
   /** Consensus discount floor ∈ [0, 1]. 1.0 = no effect. 0.0 = aggressive
    *  filter. Optuna tunes this value weekly via signal_weights table. */
   consensusDiscountFloor: number;
+  /** Signal IDs disabled entirely. Filtered before weight lookup so they
+   *  contribute zero regardless of signal_weights rows or per-type weights.
+   *  Mirrors EXECUTOR_BLOCKED_TYPE_DIRECTIONS semantics for signal_type-level
+   *  control. The Optimizer can still write rows for these signals — they're
+   *  ignored here, immune to oscillation. */
+  disabledSignalIds: Set<string>;
 }
 
 /**
@@ -135,8 +141,19 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       timeDecayFactor: 0.9,
       maxSignalAgeMs: 5 * 60 * 1000, // 5 minutes
       consensusDiscountFloor: 0.5,
+      disabledSignalIds: new Set<string>(),
       ...params,
     };
+  }
+
+  /** Replace the disabled signal-id set. Pass empty Set to re-enable everything. */
+  setDisabledSignalIds(ids: Iterable<string>): void {
+    this.parameters.disabledSignalIds = new Set(ids);
+    this.logger.info({ disabled: Array.from(this.parameters.disabledSignalIds) }, 'Disabled signal IDs updated');
+  }
+
+  getDisabledSignalIds(): Set<string> {
+    return new Set(this.parameters.disabledSignalIds);
   }
 
   /**
@@ -448,6 +465,13 @@ export class WeightedAverageCombiner implements ISignalCombiner {
    * Get weight for a specific signal, using market-type-specific weights if available
    */
   private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
+    // Hard disable: configured via SIGNAL_TYPES_DISABLED env var. Immune to
+    // signal_weights rows (the Optimizer can write whatever it wants — this
+    // gate ignores them). Resolves the oscillation discovered 2026-05-12 where
+    // dashboard boot cleanup deleted rows but Optuna re-wrote them every 6h.
+    if (this.parameters.disabledSignalIds.has(signal.signalId)) {
+      return 0;
+    }
     // Per-type weights are explicit allowlists — generators not listed for this
     // market_type intentionally do not contribute. Default 0 honors that intent
     // (a previous default of 1 caused unlisted generators to dominate via the

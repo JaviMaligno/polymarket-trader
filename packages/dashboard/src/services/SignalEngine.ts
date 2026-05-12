@@ -114,6 +114,18 @@ const DEFAULT_CONFIG: Omit<SignalEngineConfig, 'directionResolver'> = {
   exitThreshold: 0.25,           // Exit threshold (lower — only exits on real reversals)
 };
 
+/** Parse comma-separated SIGNAL_TYPES_DISABLED env var into a Set.
+ *  Whitespace-tolerant. Empty / unset → empty set. */
+export function parseDisabledSignalIds(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+  );
+}
+
 interface ActiveMarket {
   id: string;
   question: string;
@@ -179,6 +191,11 @@ export class SignalEngine extends EventEmitter {
         minCombinedStrength: this.config.minCombinedStrength ?? 0.27,
         // Loaded from signal_weights table at startup (matches direction_multiplier precedent)
         consensusDiscountFloor: this.config.consensusDiscountFloor ?? 0.5,
+        // Hard-disabled signals (env: SIGNAL_TYPES_DISABLED, comma-separated).
+        // Bypasses any signal_weights row. Use for generators not wired into
+        // BacktestService (where Optuna can't fit them meaningfully) or
+        // empirically anti-edge ones.
+        disabledSignalIds: parseDisabledSignalIds(process.env.SIGNAL_TYPES_DISABLED),
       }
     );
   }

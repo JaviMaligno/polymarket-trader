@@ -1,4 +1,32 @@
 import { describe, it, expect } from 'vitest';
+import { parseDisabledSignalIds } from './SignalEngine.js';
+
+describe('parseDisabledSignalIds', () => {
+  it('returns empty set for undefined or empty string', () => {
+    expect(parseDisabledSignalIds(undefined).size).toBe(0);
+    expect(parseDisabledSignalIds('').size).toBe(0);
+    expect(parseDisabledSignalIds('   ').size).toBe(0);
+  });
+
+  it('parses comma-separated ids with whitespace tolerance', () => {
+    const s = parseDisabledSignalIds(' mlofi , spread_compression ,cross_market_corr');
+    expect(s.size).toBe(3);
+    expect(s.has('mlofi')).toBe(true);
+    expect(s.has('spread_compression')).toBe(true);
+    expect(s.has('cross_market_corr')).toBe(true);
+  });
+
+  it('drops empty entries (trailing commas)', () => {
+    const s = parseDisabledSignalIds('mlofi,,spread_compression,');
+    expect(s.size).toBe(2);
+  });
+
+  it('preserves the standard not-wired-in-backtest list', () => {
+    const list = 'mlofi,spread_compression,cross_market_corr,price_divergence,attention_spike,news_sentiment';
+    const s = parseDisabledSignalIds(list);
+    expect(s.size).toBe(6);
+  });
+});
 
 /**
  * Extract the pure Bayesian confidence cap computation for testing.

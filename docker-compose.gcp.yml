@@ -218,6 +218,14 @@ services:
       #   with 0% WR. Structural mismatch, not a signal quality issue.
       # Closes of existing positions are never blocked (unwind path).
       EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,crypto_intraday:long"
+      # Hard-disable signal_types at the combiner layer. Bypasses any signal_weights
+      # row (even ones the Render Optimizer writes). Same list as the boot cleanup
+      # in dashboard/src/server.ts:467 — these 6 generators are not wired into
+      # BacktestService so Optuna can't trial-fit them meaningfully. Until the
+      # Optimizer is patched to skip them server-side, this gate makes the system
+      # immune to the oscillation discovered 2026-05-12 (boot cleanup deletes
+      # per-type rows; Optimizer re-writes them every 6h).
+      SIGNAL_TYPES_DISABLED: "mlofi,spread_compression,cross_market_corr,price_divergence,attention_spike,news_sentiment"
       # Market type gate: only trade these types live, shadow-trade the rest
       # event_financial: WTI, Fed, indices (continuous underlying)
       # event_short: event markets with short resolution windows (better win rate than event_long)
