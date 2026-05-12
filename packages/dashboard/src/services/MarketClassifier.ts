@@ -163,6 +163,14 @@ export class MarketClassifier {
         console.warn(`[MarketClassifier] Haiku said "${text}" but question does not look like a crypto price market, overriding to ${fallback}: "${question.slice(0, 60)}"`);
         return fallback;
       }
+      // Horizon sanity: crypto markets resolving > 7 days are not intraday/daily.
+      // E.g., "Will Bitcoin dip to $55,000 by Dec 31, 2026?" with end_date in 2027
+      // — the 4h MAX_HOLD_TIME_HOURS makes signal-based trading structurally
+      // unprofitable on these. Route to event_long so the live gate shadows them.
+      if ((text === 'crypto_intraday' || text === 'crypto_daily') && this.endsAfterCryptoHorizon(endDate)) {
+        console.warn(`[MarketClassifier] Haiku said "${text}" but end_date is > 7 days out, overriding to event_long: "${question.slice(0, 60)}"`);
+        return 'event_long';
+      }
       // Same sanity check for event_financial — ensure it has a financial keyword.
       if (text === 'event_financial' && !this.questionLooksFinancial(question)) {
         const fallback = this.classifyWithRegex(question, endDate);
@@ -229,6 +237,15 @@ export class MarketClassifier {
     return commodities.test(question) || equitiesIndices.test(question) || rates.test(question) || forex.test(question);
   }
 
+  /** True when end_date is more than 7 days from now (the upper bound of
+   *  the crypto_daily horizon). Returns false for null end_date because we
+   *  can't tell, so callers stick with the legacy "treat as daily" default. */
+  private endsAfterCryptoHorizon(endDate: Date | null): boolean {
+    if (!endDate) return false;
+    const hoursUntilEnd = (endDate.getTime() - Date.now()) / (1000 * 60 * 60);
+    return hoursUntilEnd > 7 * 24;
+  }
+
   /**
    * Simple regex-based classification as fallback.
    * Priority: crypto > financial > event_{long,short}.
@@ -241,9 +258,17 @@ export class MarketClassifier {
     if (isCrypto) {
       if (endDate) {
         const hoursUntilEnd = (endDate.getTime() - Date.now()) / (1000 * 60 * 60);
-        if (hoursUntilEnd <= 4 || isUpDown) return 'crypto_intraday';
+        if (hoursUntilEnd <= 4) return 'crypto_intraday';
         if (hoursUntilEnd <= 7 * 24) return 'crypto_daily';
+        // Year-horizon binary crypto markets (e.g., "Will Bitcoin dip to $55,000
+        // by Dec 31, 2026?" with end_date in 2027). The 4h MAX_HOLD_TIME_HOURS
+        // makes signal-based trading structurally unprofitable on these — 7/7
+        // time exits, 0% WR observed 2026-05-12. Route to event_long so the
+        // live gate shadows them but does not live-trade.
+        return 'event_long';
       }
+      // No end_date: legacy behaviour — treat as intraday for up/down phrasing,
+      // else daily. Reached only when classifying a market with NULL end_date.
       return isUpDown ? 'crypto_intraday' : 'crypto_daily';
     }
 

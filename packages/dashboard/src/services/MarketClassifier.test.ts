@@ -59,5 +59,29 @@ describe('MarketClassifier', () => {
       // Question with no keywords at all, no end date → still returns a type
       expect(classifier.classifyWithRegex('Opaque question with no hints', null)).toBe('event_short');
     });
+
+    it('routes year-horizon binary crypto markets to event_long, not crypto_intraday', () => {
+      // Real example from 2026-05-12: end_date 2027-01-01, "dip to" phrasing.
+      // Pre-fix would have matched isUpDown and returned crypto_intraday despite
+      // the year-horizon end_date.
+      const yearOut = new Date(Date.now() + 230 * 24 * 60 * 60 * 1000); // ~2027-01
+      expect(
+        classifier.classifyWithRegex('Will Bitcoin dip to $55,000 by Dec 31, 2026?', yearOut)
+      ).toBe('event_long');
+    });
+
+    it('routes "hit $X by <far date>" crypto markets to event_long', () => {
+      const yearOut = new Date(Date.now() + 230 * 24 * 60 * 60 * 1000);
+      expect(
+        classifier.classifyWithRegex('Will Bitcoin hit $150k by June 30, 2026?', yearOut)
+      ).toBe('event_long');
+    });
+
+    it('keeps crypto markets at <= 4h horizon as crypto_intraday', () => {
+      const threeHours = new Date(Date.now() + 3 * 60 * 60 * 1000);
+      expect(
+        classifier.classifyWithRegex('Will Bitcoin reach $100k in the next 3 hours?', threeHours)
+      ).toBe('crypto_intraday');
+    });
   });
 });
