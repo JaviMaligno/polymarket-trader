@@ -109,6 +109,70 @@ describe('WeightedAverageCombiner — applied direction multiplier', () => {
   });
 });
 
+describe('WeightedAverageCombiner — disabledSignalIds', () => {
+  it('drops a disabled signal even when it has a non-zero weight', () => {
+    const combiner = new WeightedAverageCombiner(
+      { momentum: 1, mlofi: 1 },
+      { ...params(), disabledSignalIds: new Set(['mlofi']) }
+    );
+    combiner.setDirectionMultiplier(1); // disable contrarian default for assertion clarity
+    const signals = [
+      buildSignal({ signalId: 'momentum',   direction: 'long',  strength: 0.6, confidence: 0.9 }),
+      buildSignal({ signalId: 'mlofi',      direction: 'short', strength: 0.8, confidence: 0.9 }),
+    ];
+    const result = combiner.combine(signals);
+    expect(result).not.toBeNull();
+    // mlofi (short, 0.8) is filtered out; only momentum (long, 0.6) contributes.
+    expect(result!.direction).toBe('LONG');
+    expect(result!.componentSignals.map((s) => s.signalId)).toEqual(['momentum']);
+  });
+
+  it('drops a disabled signal even when typeWeights would assign it', () => {
+    const combiner = new WeightedAverageCombiner({}, {
+      ...params(),
+      disabledSignalIds: new Set(['spread_compression']),
+    });
+    combiner.setDirectionMultiplier(1);
+    combiner.setTypeWeights({
+      event_financial: { mean_reversion: 0.5, spread_compression: 1.99 },
+    });
+    const signals = [
+      buildSignal({ signalId: 'mean_reversion',     direction: 'long',  strength: 0.6, confidence: 0.9 }),
+      buildSignal({ signalId: 'spread_compression', direction: 'short', strength: 0.9, confidence: 0.9 }),
+    ];
+    const result = combiner.combine(signals, undefined, 'event_financial');
+    expect(result).not.toBeNull();
+    expect(result!.componentSignals.map((s) => s.signalId)).toEqual(['mean_reversion']);
+  });
+
+  it('setDisabledSignalIds replaces the previous set', () => {
+    const combiner = new WeightedAverageCombiner(
+      { momentum: 1, mlofi: 1 },
+      { ...params(), disabledSignalIds: new Set(['mlofi']) }
+    );
+    combiner.setDirectionMultiplier(1);
+    combiner.setDisabledSignalIds([]); // re-enable everything
+    expect(combiner.getDisabledSignalIds().size).toBe(0);
+
+    const result = combiner.combine([
+      buildSignal({ signalId: 'momentum', direction: 'long', strength: 0.6, confidence: 0.9 }),
+      buildSignal({ signalId: 'mlofi',    direction: 'long', strength: 0.6, confidence: 0.9 }),
+    ]);
+    expect(result!.componentSignals.length).toBe(2);
+  });
+
+  it('empty set is the default and does not filter anything', () => {
+    const combiner = new WeightedAverageCombiner({ momentum: 1, mlofi: 1 }, params());
+    combiner.setDirectionMultiplier(1);
+    expect(combiner.getDisabledSignalIds().size).toBe(0);
+    const result = combiner.combine([
+      buildSignal({ signalId: 'momentum', direction: 'long', strength: 0.6, confidence: 0.9 }),
+      buildSignal({ signalId: 'mlofi',    direction: 'long', strength: 0.6, confidence: 0.9 }),
+    ]);
+    expect(result!.componentSignals.length).toBe(2);
+  });
+});
+
 function mkSignalForConsensusTest(direction: 'LONG' | 'SHORT' | 'NEUTRAL'): SignalOutput {
   return {
     signalId: 'x',
