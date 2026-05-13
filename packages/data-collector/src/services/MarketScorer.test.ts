@@ -1283,9 +1283,13 @@ describe('MarketScorer', () => {
   });
 
   describe('MarketScorer.WEIGHTS', () => {
-    it('all weight values sum to 1.0 (within float tolerance)', () => {
+    it('all weight values sum to 1.05 (Phase 4 added edgeCapacity 0.05; compositeScore renormalizes)', () => {
       const total = Object.values(WEIGHTS).reduce((sum, w) => sum + w, 0);
-      expect(total).toBeCloseTo(1.0, 6);
+      expect(total).toBeCloseTo(1.05, 6);
+    });
+
+    it('edgeCapacity weight is 0.05 (Phase 4 anchor; ScorerWeightOptimizer tunes later)', () => {
+      expect(WEIGHTS.edgeCapacity).toBe(0.05);
     });
 
     it('shadowExpectedValue weight is 0.05', () => {
@@ -1294,6 +1298,70 @@ describe('MarketScorer', () => {
 
     it('typeExpectedValue weight is 0.1615 (rescaled from 0.17 by 0.95)', () => {
       expect(WEIGHTS.typeExpectedValue).toBeCloseTo(0.1615, 6);
+    });
+  });
+
+  // ─── Phase 4: edgeCapacityScore ──────────────────────────────────────
+  describe('MarketScorer.edgeCapacityScore (Phase 4)', () => {
+    it('returns null when input is null (unmeasured type)', () => {
+      expect(MarketScorer.edgeCapacityScore(null)).toBeNull();
+    });
+
+    it('returns 0 when input is 0 or negative', () => {
+      expect(MarketScorer.edgeCapacityScore(0)).toBe(0);
+      expect(MarketScorer.edgeCapacityScore(-5)).toBe(0);
+    });
+
+    it('returns capacity/NORM for positive input, capped at 1.0', () => {
+      // Default NORM = 10. Input 2.14 (the only positive cell on 2026-05-13) → 0.214
+      expect(MarketScorer.edgeCapacityScore(2.14)).toBeCloseTo(0.214, 3);
+      // Input 10 → 1.0
+      expect(MarketScorer.edgeCapacityScore(10)).toBe(1);
+      // Input 50 → clipped at 1.0
+      expect(MarketScorer.edgeCapacityScore(50)).toBe(1);
+    });
+
+    it('honors NORM override', () => {
+      expect(MarketScorer.edgeCapacityScore(2, 4)).toBe(0.5);
+      expect(MarketScorer.edgeCapacityScore(4, 4)).toBe(1);
+    });
+  });
+
+  // ─── Phase 4: compositeScore with edgeCapacity ───────────────────────
+  describe('MarketScorer.compositeScore — edgeCapacity integration (Phase 4)', () => {
+    const neutralDims = {
+      tradeability: 0.5,
+      liquidity: 0.5,
+      volatility: 0.5,
+      ttr: 0.5,
+      dataQuality: 0.5,
+      typeExpectedValue: 0.5,
+      realizedVolatility: 0.5,
+      shadowExpectedValue: 0.5,
+    } as const;
+
+    it('omitted edgeCapacity (undefined) drops from renormalization (backwards-compat)', () => {
+      // Existing test literals don't pass edgeCapacity. Score should match
+      // pre-Phase 4 behaviour because the dim is excluded.
+      const score = MarketScorer.compositeScore({ ...neutralDims });
+      expect(score).toBeCloseTo(0.5, 6);
+    });
+
+    it('null edgeCapacity drops from renormalization (explicit "unmeasured")', () => {
+      const score = MarketScorer.compositeScore({ ...neutralDims, edgeCapacity: null });
+      expect(score).toBeCloseTo(0.5, 6);
+    });
+
+    it('high edgeCapacity (1.0) pulls the composite score UP from the 0.5 neutral floor', () => {
+      const score = MarketScorer.compositeScore({ ...neutralDims, edgeCapacity: 1.0 });
+      // The dim adds weight × value to the numerator and weight to the denominator.
+      // Going from 0.5 neutral to 1.0 on this dim should raise the score.
+      expect(score).toBeGreaterThan(0.5);
+    });
+
+    it('zero edgeCapacity (anti-edge type) pulls the composite score DOWN', () => {
+      const score = MarketScorer.compositeScore({ ...neutralDims, edgeCapacity: 0 });
+      expect(score).toBeLessThan(0.5);
     });
   });
 
