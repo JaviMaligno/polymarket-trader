@@ -14,6 +14,7 @@ import {
   updateShadowCategoryPerformance,
   resolveShadowTrades,
 } from './MarketPerformanceTracker.js';
+import { refreshEdgeCapacity } from './EdgeCapacityRefresher.js';
 import { NewsCollector } from '../collectors/NewsCollector.js';
 
 const logger = pino({ name: 'scheduler' });
@@ -111,6 +112,11 @@ export class Scheduler {
     this.defineJob('match-external-markets', '0 3 * * *', this.matchExternalMarkets.bind(this));  // Daily at 3 UTC
     this.defineJob('optimize-scorer-weights', '17 3 * * 1', this.optimizeScorerWeights.bind(this));  // Every Monday at 03:17 UTC
     this.defineJob('compute-market-priors', '45 2 * * *', this.computeMarketPriors.bind(this));  // Daily at 02:45 UTC
+    // Phase 4 (2026-05-13): refresh per-(market_type) cost-aware edge_capacity
+    // from generator_predictions × price_history forward drift. Runs just
+    // before compute-market-priors so both data sources are fresh for the next
+    // MarketScorer cycle. See docs/plans/2026-05-13-phase4-edge-aware-scorer-design.md.
+    this.defineJob('refresh-edge-capacity', '30 2 * * *', this.refreshEdgeCapacity.bind(this));  // Daily at 02:30 UTC
     this.defineJob('collect-news', '*/15 * * * *', this.collectNews.bind(this));  // News pipeline every 15 minutes
     this.defineJob('compute-realized-volatility', '*/15 * * * *', computeRealizedVolatility);  // Every 15 min
   }
@@ -509,6 +515,21 @@ export class Scheduler {
     await updateCategoryPriors();
     await updateShadowCategoryPerformance();
     await resolveShadowTrades();
+  }
+
+  /**
+   * Phase 4 (2026-05-13): nightly refresh of `market_type_edge_capacity` from
+   * generator_predictions. MarketScorer reads on next scoreAllMarkets (hourly :17).
+   * Daily at 02:30 UTC. Uses 1% default RT cost per type — production should
+   * later pass a measured per-type cost map from scripts/measure-rt-cost.js.
+   */
+  private async refreshEdgeCapacity(): Promise<void> {
+    await refreshEdgeCapacity({
+      windowDays: 7,
+      horizonHours: 4,
+      defaultRtCost: 0.01,
+      minN: 50,
+    });
   }
 
   /**
