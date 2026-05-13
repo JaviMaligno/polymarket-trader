@@ -48,12 +48,27 @@ function randomWeights(): ScorerWeights {
     typeExpectedValue:   r(),
     realizedVolatility:  r(), // 5th optimizable dim
     shadowExpectedValue: WEIGHTS.shadowExpectedValue, // fixed; not optimized in this pass
+    // Phase 4 (2026-05-13): edgeCapacity sampled uniform [0.0, 0.20]. Narrower
+    // range than the 5 main dims because the dim is highly informative when
+    // present but null often (only types with measurements contribute). A wide
+    // range would over-weight one dim's variance. ScorerWeightOptimizer treats
+    // it as the 6th optimizable dim — normalization below includes it in
+    // targetSum so the saved row remains internally consistent.
+    edgeCapacity:        Math.random() * 0.20,
   };
 }
 
 // ── DB helpers ─────────────────────────────────────────────────────────────
 
 async function loadClosedTrades(marketType: string | null): Promise<ClosedTrade[]> {
+  // We do NOT filter on `? 'edgeCapacity'` because pre-Phase 4 trades don't
+  // have that key in score_dimensions_at_entry. Those trades still contribute
+  // their existing dim values; edgeCapacity is treated as null when missing
+  // (drops from compositeScore renormalization). Once enough post-Phase-4
+  // trades accumulate Optuna can compute a meaningful correlation for the
+  // new dim. Until then, the random search just floats edgeCapacity weight
+  // without an information gradient — which is fine, the dim only kicks in
+  // for trades that recorded it.
   const result = await query<{
     score_dimensions_at_entry: Record<string, number | null>;
     realized_pnl: string;
@@ -82,6 +97,10 @@ async function loadClosedTrades(marketType: string | null): Promise<ClosedTrade[
         typeExpectedValue:   d.typeExpectedValue   ?? 0.5,
         realizedVolatility:  d.realizedVolatility  ?? null,
         shadowExpectedValue: d.shadowExpectedValue ?? 0.5, // neutral when historical entry pre-dates dim
+        // Phase 4: undefined → compositeScore drops it from renormalization,
+        // matching the production semantics where pre-Phase-4 trades had no
+        // edge_capacity contribution.
+        edgeCapacity:        d.edgeCapacity ?? null,
       },
       pnl: parseFloat(r.realized_pnl),
     };
@@ -96,9 +115,9 @@ async function saveWeights(
   await query(
     `INSERT INTO scorer_weights
        (market_type, tradeability, liquidity, volatility, ttr, data_quality,
-        type_expected_value, realized_volatility,
+        type_expected_value, realized_volatility, edge_capacity,
         n_trades, n_trials, best_value, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
      ON CONFLICT (market_type) DO UPDATE SET
        tradeability        = EXCLUDED.tradeability,
        liquidity           = EXCLUDED.liquidity,
@@ -107,6 +126,7 @@ async function saveWeights(
        data_quality        = EXCLUDED.data_quality,
        type_expected_value = EXCLUDED.type_expected_value,
        realized_volatility = EXCLUDED.realized_volatility,
+       edge_capacity       = EXCLUDED.edge_capacity,
        n_trades            = EXCLUDED.n_trades,
        n_trials            = EXCLUDED.n_trials,
        best_value          = EXCLUDED.best_value,
@@ -114,7 +134,8 @@ async function saveWeights(
     [
       marketType,
       weights.tradeability, weights.liquidity, weights.volatility,
-      weights.ttr, weights.dataQuality, weights.typeExpectedValue, weights.realizedVolatility,
+      weights.ttr, weights.dataQuality, weights.typeExpectedValue,
+      weights.realizedVolatility, weights.edgeCapacity ?? WEIGHTS.edgeCapacity,
       meta.nTrades, meta.nTrials, meta.bestValue,
     ],
   );
@@ -133,24 +154,27 @@ function runRandomSearch(trades: ClosedTrade[]): { weights: ScorerWeights; bestV
     }
   }
 
-  // Normalize the 5 optimizable dims so that the saved row sums to 1.0 across
-  // all 8 ScorerWeights fields, so loadWeights() doesn't log a warning.
+  // Normalize the 6 optimizable dims so the saved row sums to 1.0 across all
+  // 9 ScorerWeights fields. Phase 4 (2026-05-13): edgeCapacity joined the
+  // optimizable set.
   const optimizableSum =
     bestWeights.tradeability + bestWeights.liquidity +
     bestWeights.ttr + bestWeights.typeExpectedValue +
-    bestWeights.realizedVolatility;
-  // Excludes volatility, dataQuality (computed from price_history at enrich time)
-  // and shadowExpectedValue (fixed at WEIGHTS.shadowExpectedValue, not optimized).
+    bestWeights.realizedVolatility +
+    (bestWeights.edgeCapacity ?? WEIGHTS.edgeCapacity);
+  // Excludes volatility, dataQuality (computed from price_history at enrich
+  // time) and shadowExpectedValue (fixed; not optimized in this pass).
   const targetSum = 1 - WEIGHTS.volatility - WEIGHTS.dataQuality - WEIGHTS.shadowExpectedValue;
   if (optimizableSum > 0) {
     const scale = targetSum / optimizableSum;
     bestWeights = {
       ...bestWeights,
-      tradeability:       bestWeights.tradeability       * scale,
-      liquidity:          bestWeights.liquidity          * scale,
-      ttr:                bestWeights.ttr                * scale,
-      typeExpectedValue:  bestWeights.typeExpectedValue  * scale,
-      realizedVolatility: bestWeights.realizedVolatility * scale,
+      tradeability:       bestWeights.tradeability                                          * scale,
+      liquidity:          bestWeights.liquidity                                             * scale,
+      ttr:                bestWeights.ttr                                                   * scale,
+      typeExpectedValue:  bestWeights.typeExpectedValue                                     * scale,
+      realizedVolatility: bestWeights.realizedVolatility                                    * scale,
+      edgeCapacity:       (bestWeights.edgeCapacity ?? WEIGHTS.edgeCapacity)                * scale,
     };
   }
 

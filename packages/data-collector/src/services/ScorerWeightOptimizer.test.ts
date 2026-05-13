@@ -196,3 +196,88 @@ describe('optimizeScorerWeights — realizedVolatility', () => {
     expect(selectWithFilter).toBeDefined();
   });
 });
+
+// ─── Phase 4: edgeCapacity in optimizer ──────────────────────────────────
+describe('optimizeScorerWeights — edgeCapacity (Phase 4)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('saveWeights INSERT includes edge_capacity column and param', async () => {
+    const captured: Array<{ sql: string; params: unknown[] }> = [];
+    (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.startsWith('INSERT INTO scorer_weights')) {
+        captured.push({ sql, params: params ?? [] });
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'crypto_intraday' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM paper_positions pp')) {
+        return {
+          rows: Array.from({ length: 50 }, (_, i) => ({
+            score_dimensions_at_entry: {
+              tradeability: 0.5, liquidity: 0.5, ttr: 0.5,
+              typeExpectedValue: 0.7, realizedVolatility: 0.4,
+              // Some rows have edge_capacity (post-Phase-4 entries), others don't.
+              ...(i % 2 === 0 ? { edgeCapacity: 0.2 } : {}),
+            },
+            realized_pnl: '10',
+          })),
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+
+    await optimizeScorerWeights();
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const c of captured) {
+      // INSERT statement references the column
+      expect(c.sql).toContain('edge_capacity');
+      expect(c.sql).toContain('EXCLUDED.edge_capacity');
+      // params[8] is edge_capacity in the new 12-param INSERT order.
+      // Should be a non-null number (random sample, possibly normalized).
+      expect(typeof c.params[8]).toBe('number');
+      expect(Number.isFinite(c.params[8] as number)).toBe(true);
+    }
+  });
+
+  it('normalization: saved weights sum to ~1.0 with edgeCapacity included', async () => {
+    const captured: Array<{ params: unknown[] }> = [];
+    (query as unknown as Mock).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.startsWith('INSERT INTO scorer_weights')) {
+        captured.push({ params: params ?? [] });
+      }
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type FROM markets')) {
+        return { rows: [{ market_type: 'crypto_intraday' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM paper_positions pp')) {
+        return {
+          rows: Array.from({ length: 50 }, () => ({
+            score_dimensions_at_entry: {
+              tradeability: 0.5, liquidity: 0.5, ttr: 0.5,
+              typeExpectedValue: 0.7, realizedVolatility: 0.4,
+            },
+            realized_pnl: '10',
+          })),
+        };
+      }
+      return { rowCount: 1, rows: [] };
+    });
+
+    await optimizeScorerWeights();
+    expect(captured.length).toBeGreaterThan(0);
+    for (const c of captured) {
+      // params order in saveWeights:
+      //   1:market_type, 2:tradeability, 3:liquidity, 4:volatility, 5:ttr,
+      //   6:data_quality, 7:type_expected_value, 8:realized_volatility,
+      //   9:edge_capacity, 10:n_trades, 11:n_trials, 12:best_value
+      const sum =
+        (c.params[1] as number) + (c.params[2] as number) + (c.params[3] as number) +
+        (c.params[4] as number) + (c.params[5] as number) + (c.params[6] as number) +
+        (c.params[7] as number) + (c.params[8] as number);
+      // (shadowExpectedValue is fixed at WEIGHTS.shadowExpectedValue = 0.05,
+      // not in saveWeights params — but the optimizable dims should normalize
+      // so that all 9 fields would sum to 1 once shadow is added.)
+      expect(sum + 0.05).toBeCloseTo(1.0, 2);
+    }
+  });
+});
