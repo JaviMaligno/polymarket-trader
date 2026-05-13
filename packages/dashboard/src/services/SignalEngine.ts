@@ -126,6 +126,21 @@ export function parseDisabledSignalIds(raw: string | undefined): Set<string> {
   );
 }
 
+/** Parse comma-separated SIGNAL_DIRECTIONS_DISABLED env var into a Set.
+ *  Tokens must be lowercase `signalId:direction` with direction ∈ {long, short}.
+ *  Invalid tokens are silently dropped (typo-tolerant; bad input never bypasses
+ *  the gate via implicit acceptance). Empty / unset → empty set.
+ *  PR-B 2026-05-13. */
+export function parseDisabledSignalDirections(raw: string | undefined): Set<string> {
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => /^[a-z_]+:(long|short)$/.test(s))
+  );
+}
+
 interface ActiveMarket {
   id: string;
   question: string;
@@ -196,6 +211,12 @@ export class SignalEngine extends EventEmitter {
         // BacktestService (where Optuna can't fit them meaningfully) or
         // empirically anti-edge ones.
         disabledSignalIds: parseDisabledSignalIds(process.env.SIGNAL_TYPES_DISABLED),
+        // Hard-disabled per-direction (env: SIGNAL_DIRECTIONS_DISABLED).
+        // Tokens are lowercase `signalId:direction`. Same operational kill-switch
+        // semantics as disabledSignalIds but with PR-A's per-direction granularity.
+        // Empty by default; deferred operational use until cost-aware data
+        // justifies muting a specific (signal, direction) cell.
+        disabledSignalDirections: parseDisabledSignalDirections(process.env.SIGNAL_DIRECTIONS_DISABLED),
       }
     );
   }
@@ -361,6 +382,33 @@ export class SignalEngine extends EventEmitter {
       } catch (err) {
         console.error('[SignalEngine] Failed to sync per-type weights:', err);
         // Continue with empty typeWeights; combiner falls back to this.weights.
+      }
+
+      // PR-B 2026-05-13: per-direction overrides. Fed into the combiner's
+      // perDirectionTypeWeights map. Empty until PR-C/PR-D start writing
+      // per-direction rows — at which point the combiner's lookup chain
+      // (per-direction → '__all__' → 0) starts picking these up.
+      try {
+        const perDirWeights = await signalWeightsRepo.getAllPerDirection();
+        const filteredPerDir: Record<string, Record<string, Record<string, number>>> = {};
+        for (const [marketType, generators] of Object.entries(perDirWeights)) {
+          for (const [signalType, dirMap] of Object.entries(generators)) {
+            // Mirror getAllPerType filter: drop signals without an active generator.
+            if (!this.signals.has(signalType)) continue;
+            if (!filteredPerDir[marketType]) filteredPerDir[marketType] = {};
+            filteredPerDir[marketType][signalType] = { ...dirMap };
+          }
+        }
+        this.combiner.setPerDirectionTypeWeights(filteredPerDir);
+        const cellCount = Object.values(filteredPerDir)
+          .flatMap((m) => Object.values(m))
+          .flatMap((d) => Object.keys(d)).length;
+        console.log(
+          `[SignalEngine] Synced perDirectionWeights from database: ${cellCount} cells across ${Object.keys(filteredPerDir).length} types`
+        );
+      } catch (err) {
+        console.error('[SignalEngine] Failed to sync per-direction weights:', err);
+        // Non-fatal: combiner falls back to typeWeights ('__all__' direction).
       }
     } catch (error) {
       console.error('[SignalEngine] Failed to sync weights:', error);

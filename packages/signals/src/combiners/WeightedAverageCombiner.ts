@@ -30,6 +30,13 @@ interface WeightedAverageParams {
    *  control. The Optimizer can still write rows for these signals — they're
    *  ignored here, immune to oscillation. */
   disabledSignalIds: Set<string>;
+  /** Per-(signalId, direction) hard-disable set. Tokens are lowercase
+   *  `signalId:direction` (direction ∈ {long, short}). Used to selectively
+   *  silence one direction of a generator without nuking the whole signal.
+   *  Same operational-gate semantics as `disabledSignalIds` but with the
+   *  granularity that PR-A's per-direction `signal_weights` schema unlocks.
+   *  Source: SIGNAL_DIRECTIONS_DISABLED env var (parsed by SignalEngine). */
+  disabledSignalDirections: Set<string>;
 }
 
 /**
@@ -113,6 +120,11 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   private logger: Logger;
   private weights: Record<string, number> = {};
   private typeWeights: Record<string, Record<string, number>>;
+  /** Per-direction overrides — populated by setPerDirectionTypeWeights.
+   *  Shape: { marketType → { signalId → { 'long'|'short' → weight } } }.
+   *  Lookup falls back to typeWeights (=== direction '__all__') when an entry
+   *  is missing. Empty initially; PR-C's Optuna writes rows that load here. */
+  private perDirectionTypeWeights: Record<string, Record<string, Record<string, number>>> = {};
   private parameters: WeightedAverageParams;
   /** Multiplier applied to combined strength before direction determination.
    *  -1 = flip all signals (contrarian). Context overrides are stored separately
@@ -142,6 +154,7 @@ export class WeightedAverageCombiner implements ISignalCombiner {
       maxSignalAgeMs: 5 * 60 * 1000, // 5 minutes
       consensusDiscountFloor: 0.5,
       disabledSignalIds: new Set<string>(),
+      disabledSignalDirections: new Set<string>(),
       ...params,
     };
   }
@@ -150,6 +163,37 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   setDisabledSignalIds(ids: Iterable<string>): void {
     this.parameters.disabledSignalIds = new Set(ids);
     this.logger.info({ disabled: Array.from(this.parameters.disabledSignalIds) }, 'Disabled signal IDs updated');
+  }
+
+  /** Replace the disabled (signalId, direction) set. Tokens must be lowercase
+   *  `signalId:direction` with direction ∈ {long, short}. Pass an empty Set
+   *  to clear. SignalEngine parses SIGNAL_DIRECTIONS_DISABLED into this. */
+  setDisabledSignalDirections(tokens: Iterable<string>): void {
+    this.parameters.disabledSignalDirections = new Set(tokens);
+    this.logger.info(
+      { disabled: Array.from(this.parameters.disabledSignalDirections) },
+      'Disabled signal directions updated'
+    );
+  }
+
+  getDisabledSignalDirections(): Set<string> {
+    return new Set(this.parameters.disabledSignalDirections);
+  }
+
+  /** Set per-direction weights for combiner lookup (PR-B 2026-05-13).
+   *  Shape: { marketType: { signalId: { 'long' | 'short': weight } } }.
+   *  Missing entries fall back to typeWeights (the legacy '__all__' direction). */
+  setPerDirectionTypeWeights(
+    weights: Record<string, Record<string, Record<string, number>>>
+  ): void {
+    this.perDirectionTypeWeights = { ...this.perDirectionTypeWeights, ...weights };
+    const totalCells = Object.values(weights)
+      .flatMap((m) => Object.values(m))
+      .flatMap((d) => Object.keys(d)).length;
+    this.logger.info(
+      { markets: Object.keys(weights), cells: totalCells },
+      'Per-direction type weights updated'
+    );
   }
 
   getDisabledSignalIds(): Set<string> {
@@ -462,26 +506,60 @@ export class WeightedAverageCombiner implements ISignalCombiner {
   }
 
   /**
-   * Get weight for a specific signal, using market-type-specific weights if available
+   * Get weight for a specific signal, using market-type-specific weights if available.
+   *
+   * PR-B 2026-05-13: lookup is now per-direction. For a signal with direction
+   * LONG or SHORT, we look up `perDirectionTypeWeights[marketType][signalId][direction]`
+   * first; if absent, fall back to `typeWeights[marketType][signalId]` (legacy
+   * '__all__' direction). NEUTRAL signals always use the legacy path.
+   *
+   * Normalization base is built consistently with the fallback chain: for each
+   * other signal configured on this market_type, take its per-direction weight
+   * for THIS direction if present, else its '__all__' weight. This keeps the
+   * normalize semantics correct during the transition period where some cells
+   * are per-direction and others are still '__all__'.
    */
   private getSignalWeight(signal: SignalOutput, now: Date, marketType?: string): number {
-    // Hard disable: configured via SIGNAL_TYPES_DISABLED env var. Immune to
+    // Hard disable (whole signal): SIGNAL_TYPES_DISABLED env var. Immune to
     // signal_weights rows (the Optimizer can write whatever it wants — this
     // gate ignores them). Resolves the oscillation discovered 2026-05-12 where
     // dashboard boot cleanup deleted rows but Optuna re-wrote them every 6h.
     if (this.parameters.disabledSignalIds.has(signal.signalId)) {
       return 0;
     }
-    // Per-type weights are explicit allowlists — generators not listed for this
-    // market_type intentionally do not contribute. Default 0 honors that intent
-    // (a previous default of 1 caused unlisted generators to dominate via the
-    // normalize pass). The legacy this.weights branch keeps default 1 for
-    // backward compatibility with markets that have no type-specific entry.
+    // Hard disable (specific direction): SIGNAL_DIRECTIONS_DISABLED env var.
+    // Lets us silence one direction of a generator (e.g., "momentum:short")
+    // without nuking its other direction. PR-B 2026-05-13.
+    const dirKey =
+      signal.direction === 'LONG' ? 'long' : signal.direction === 'SHORT' ? 'short' : null;
+    if (dirKey && this.parameters.disabledSignalDirections.has(`${signal.signalId}:${dirKey}`)) {
+      return 0;
+    }
+
     let weight: number;
     let weightSource: Record<string, number>;
+
     if (marketType && this.typeWeights[marketType]) {
-      weightSource = this.typeWeights[marketType];
-      weight = weightSource[signal.signalId] ?? 0;
+      // Per-direction override (PR-B). Falls back to typeWeights when no
+      // explicit per-direction row exists for this (signal, direction).
+      const perDir = dirKey ? this.perDirectionTypeWeights[marketType] : undefined;
+      const perDirWeight = perDir?.[signal.signalId]?.[dirKey!];
+
+      if (perDirWeight !== undefined) {
+        weight = perDirWeight;
+        // Build normalize base: each configured signal contributes its
+        // per-direction weight for THIS direction if present, else its
+        // legacy '__all__' weight. Captures the effective weight vector
+        // that's active for this signal's direction.
+        weightSource = {};
+        for (const sigId of Object.keys(this.typeWeights[marketType])) {
+          weightSource[sigId] =
+            perDir?.[sigId]?.[dirKey!] ?? this.typeWeights[marketType][sigId];
+        }
+      } else {
+        weightSource = this.typeWeights[marketType];
+        weight = weightSource[signal.signalId] ?? 0;
+      }
     } else {
       weightSource = this.weights;
       weight = weightSource[signal.signalId] ?? 1;
