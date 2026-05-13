@@ -208,7 +208,11 @@ zombie_positions=$(query_one "
   ) t;
 ")
 
-# 10. Orphaned buys (buy trades without corresponding position)
+# 10. Orphaned buys (buy trades without corresponding position, scoped to post-reset)
+# Pre-reset buy trades have no surviving position rows (positions deleted during reset),
+# so the unscoped query would inflate the count with historical noise. Filtering to
+# trades after last_reset_at catches the only actionable case: a buy executed in the
+# current epoch that never created a position record.
 orphaned_buys=$(query_one "
   SELECT row_to_json(t) FROM (
     SELECT
@@ -216,7 +220,9 @@ orphaned_buys=$(query_one "
       COALESCE(SUM(tr.value_usd), 0)::float AS total_value
     FROM paper_trades tr
     LEFT JOIN paper_positions p ON tr.market_id = p.market_id AND tr.token_id = p.token_id
-    WHERE tr.side = 'buy' AND p.market_id IS NULL
+    WHERE tr.side = 'buy'
+      AND p.market_id IS NULL
+      AND tr.time > (SELECT last_reset_at FROM paper_account)
   ) t;
 ")
 
