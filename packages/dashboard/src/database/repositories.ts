@@ -213,20 +213,31 @@ export interface SignalWeight {
   is_enabled: boolean;
   min_confidence: number;
   updated_at: Date;
+  direction?: SignalWeightDirection;
 }
 
+/** PR-A added: '__all__' = legacy/global semantics (any direction). */
+export type SignalWeightDirection = '__all__' | 'long' | 'short';
+
 export const signalWeightsRepo = {
-  async getAll(): Promise<SignalWeight[]> {
+  async getAll(direction: SignalWeightDirection = '__all__'): Promise<SignalWeight[]> {
     const result = await query<SignalWeight>(
-      `SELECT * FROM signal_weights WHERE market_type = '__global__' ORDER BY signal_type`
+      `SELECT * FROM signal_weights
+       WHERE market_type = '__global__' AND direction = $1
+       ORDER BY signal_type`,
+      [direction]
     );
     return result.rows;
   },
 
-  async get(signalType: string): Promise<SignalWeight | null> {
+  async get(
+    signalType: string,
+    direction: SignalWeightDirection = '__all__'
+  ): Promise<SignalWeight | null> {
     const result = await query<SignalWeight>(
-      `SELECT * FROM signal_weights WHERE signal_type = $1 AND market_type = '__global__'`,
-      [signalType]
+      `SELECT * FROM signal_weights
+       WHERE signal_type = $1 AND market_type = '__global__' AND direction = $2`,
+      [signalType, direction]
     );
     return result.rows[0] ?? null;
   },
@@ -234,13 +245,15 @@ export const signalWeightsRepo = {
   async update(
     signalType: string,
     weight: number,
-    reason: string
+    reason: string,
+    direction: SignalWeightDirection = '__all__'
   ): Promise<void> {
     await transaction(async (client: PoolClient) => {
       // Get current weight
       const current = await client.query<SignalWeight>(
-        'SELECT weight FROM signal_weights WHERE signal_type = $1 AND market_type = $2',
-        [signalType, '__global__']
+        `SELECT weight FROM signal_weights
+         WHERE signal_type = $1 AND market_type = $2 AND direction = $3`,
+        [signalType, '__global__', direction]
       );
       const previousWeight = current.rows[0]?.weight;
 
@@ -248,8 +261,8 @@ export const signalWeightsRepo = {
       await client.query(
         `UPDATE signal_weights
          SET weight = $1, updated_at = NOW()
-         WHERE signal_type = $2 AND market_type = $3`,
-        [weight, signalType, '__global__']
+         WHERE signal_type = $2 AND market_type = $3 AND direction = $4`,
+        [weight, signalType, '__global__', direction]
       );
 
       // Record history
@@ -265,12 +278,14 @@ export const signalWeightsRepo = {
   /**
    * Get all per-type weights, grouped by market_type. Excludes '__global__' rows
    * and disabled rows (is_enabled = false). Returns { market_type → { signal_type → weight } }.
+   * Filters to direction='__all__' so existing callers keep legacy semantics until
+   * PR-B migrates them to per-direction lookup via `getAllPerDirection`.
    */
   async getAllPerType(): Promise<Record<string, Record<string, number>>> {
     const result = await query<{ signal_type: string; market_type: string; weight: number }>(
       `SELECT signal_type, market_type, weight
        FROM signal_weights
-       WHERE market_type != '__global__' AND is_enabled = true`
+       WHERE market_type != '__global__' AND direction = '__all__' AND is_enabled = true`
     );
     const map: Record<string, Record<string, number>> = {};
     for (const row of result.rows) {
@@ -285,11 +300,15 @@ export const signalWeightsRepo = {
    * Used by the OptimizationScheduler min-lift gate to compare against the
    * currently-persisted dm before flipping it.
    */
-  async getPerType(signalType: string, marketType: string): Promise<number | null> {
+  async getPerType(
+    signalType: string,
+    marketType: string,
+    direction: SignalWeightDirection = '__all__'
+  ): Promise<number | null> {
     const result = await query<{ weight: number }>(
       `SELECT weight FROM signal_weights
-       WHERE signal_type = $1 AND market_type = $2 AND is_enabled = true`,
-      [signalType, marketType]
+       WHERE signal_type = $1 AND market_type = $2 AND direction = $3 AND is_enabled = true`,
+      [signalType, marketType, direction]
     );
     return result.rows[0] ? Number(result.rows[0].weight) : null;
   },
@@ -298,21 +317,25 @@ export const signalWeightsRepo = {
    * UPSERT a per-type weight row. Used by OptimizationScheduler.updateStrategy.
    * History insert is intentionally skipped in this PR (signal_weights_history
    * lacks a market_type column; tracked as separate follow-up).
+   *
+   * `direction` defaults to '__all__' (legacy). Optuna (PR-C) will start writing
+   * per-direction rows ('long'/'short') against the new 3-column PK.
    */
   async updatePerType(
     signalType: string,
     marketType: string,
     weight: number,
-    reason: string
+    reason: string,
+    direction: SignalWeightDirection = '__all__'
   ): Promise<void> {
     await query(
-      `INSERT INTO signal_weights (signal_type, market_type, weight, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (signal_type, market_type)
+      `INSERT INTO signal_weights (signal_type, market_type, direction, weight, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (signal_type, market_type, direction)
        DO UPDATE SET weight = EXCLUDED.weight, updated_at = EXCLUDED.updated_at`,
-      [signalType, marketType, weight]
+      [signalType, marketType, direction, weight]
     );
-    console.log(`[signalWeightsRepo] updatePerType ${signalType}@${marketType} = ${weight} (${reason})`);
+    console.log(`[signalWeightsRepo] updatePerType ${signalType}@${marketType}:${direction} = ${weight} (${reason})`);
   },
 
   async getHistory(

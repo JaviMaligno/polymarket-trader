@@ -20,9 +20,11 @@ describe('bootstrapDirectionMultiplierRows', () => {
     expect(sql).toMatch(/INSERT INTO signal_weights/);
     expect(sql).toMatch(/'direction_multiplier'/);
     // 2026-05-04: all five seeds flipped to +1.0 (see DirectionMultiplierPolicy.ts header).
-    expect(sql).toMatch(/'event_financial',\s*1\.0/);
-    expect(sql).toMatch(/'crypto_intraday',\s*1\.0/);
-    expect(sql).toMatch(/'event_short',\s*1\.0/);
-    expect(sql).toMatch(/ON CONFLICT \(signal_type, market_type\) DO NOTHING/);
+    // 2026-05-13 PR-A: direction='__all__' between market_type and weight — dm is
+    // not a directional signal, so its row is the legacy/global one.
+    expect(sql).toMatch(/'event_financial',\s*'__all__',\s*1\.0/);
+    expect(sql).toMatch(/'crypto_intraday',\s*'__all__',\s*1\.0/);
+    expect(sql).toMatch(/'event_short',\s*'__all__',\s*1\.0/);
+    expect(sql).toMatch(/ON CONFLICT \(signal_type, market_type, direction\) DO NOTHING/);
   });
 });

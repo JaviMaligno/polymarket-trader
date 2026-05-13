@@ -1817,11 +1817,12 @@ export async function registerRoutes(
       // Also update in database if configured
       if (isDatabaseConfigured()) {
         for (const [signalType, weight] of Object.entries(weights)) {
-          // Use raw query for upsert since repo doesn't have it
+          // Use raw query for upsert since repo doesn't have it.
+          // direction='__all__' = legacy/global semantics (PR-A 2026-05-13).
           await query(
-            `INSERT INTO signal_weights (signal_type, market_type, weight, is_enabled, min_confidence, updated_at)
-             VALUES ($1, $2, $3, true, 0.6, NOW())
-             ON CONFLICT (signal_type, market_type) DO UPDATE SET
+            `INSERT INTO signal_weights (signal_type, market_type, direction, weight, is_enabled, min_confidence, updated_at)
+             VALUES ($1, $2, '__all__', $3, true, 0.6, NOW())
+             ON CONFLICT (signal_type, market_type, direction) DO UPDATE SET
                weight = EXCLUDED.weight,
                is_enabled = EXCLUDED.is_enabled,
                min_confidence = EXCLUDED.min_confidence,
