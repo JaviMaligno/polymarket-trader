@@ -329,12 +329,19 @@ async function main(): Promise<void> {
             ADD COLUMN IF NOT EXISTS market_type VARCHAR(32) NOT NULL DEFAULT '__global__';
         `);
 
-        // Defensive PK swap: discover existing PK name dynamically
+        // Defensive PK swap: discover existing PK name dynamically.
+        // Skip if EITHER the per-type OR the per-direction (PR-A 2026-05-13) PK is
+        // already installed — otherwise we'd PK-flap on every boot, and once
+        // per-direction rows exist, a 2-col PK can't be created without
+        // unique-constraint violations.
         await query(`
           DO $$
           DECLARE pkey_name TEXT;
           BEGIN
-            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'signal_weights_pkey_per_type') THEN
+            IF EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname IN ('signal_weights_pkey_per_type', 'signal_weights_pkey_per_direction')
+            ) THEN
               RETURN;
             END IF;
 
@@ -351,7 +358,60 @@ async function main(): Promise<void> {
           END $$;
         `);
 
-        // Bootstrap 55 per-type rows from current DEFAULT_TYPE_WEIGHTS hardcoded values
+        // PR-A (2026-05-13): per-direction schema migration. Must run BEFORE
+        // the bootstrap INSERT below so its ON CONFLICT (sig, type, direction)
+        // target has a matching unique constraint.
+        // See docs/plans/2026-05-13-per-direction-weights-design.md.
+        await query(`
+          ALTER TABLE signal_weights
+            ADD COLUMN IF NOT EXISTS direction VARCHAR(8) NOT NULL DEFAULT '__all__';
+        `);
+        await query(`
+          DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+              WHERE conname = 'signal_weights_direction_check'
+                AND conrelid = 'signal_weights'::regclass
+            ) THEN
+              ALTER TABLE signal_weights
+                ADD CONSTRAINT signal_weights_direction_check
+                CHECK (direction IN ('__all__','long','short'));
+            END IF;
+          END $$;
+        `);
+        await query(`
+          DO $$
+          DECLARE pkey_name TEXT;
+          BEGIN
+            IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'signal_weights_pkey_per_direction') THEN
+              RETURN;
+            END IF;
+
+            SELECT conname INTO pkey_name
+            FROM pg_constraint
+            WHERE conrelid = 'signal_weights'::regclass AND contype = 'p';
+
+            IF pkey_name IS NOT NULL THEN
+              EXECUTE format('ALTER TABLE signal_weights DROP CONSTRAINT %I', pkey_name);
+            END IF;
+
+            ALTER TABLE signal_weights
+              ADD CONSTRAINT signal_weights_pkey_per_direction
+              PRIMARY KEY (signal_type, market_type, direction);
+          END $$;
+        `);
+        await query(`
+          CREATE INDEX IF NOT EXISTS idx_signal_weights_lookup
+            ON signal_weights (signal_type, market_type, direction)
+            WHERE is_enabled = true;
+        `);
+
+        // Bootstrap 55 per-type rows from current DEFAULT_TYPE_WEIGHTS hardcoded values.
+        // PR-A (2026-05-13): rows are direction='__all__' (legacy/global semantics).
+        // Per-direction rows ('long','short') are seeded later by PR-D's backfill
+        // SQL using cost-aware t-stat priors. Until then, the combiner's fallback
+        // to '__all__' makes these the active weights.
         await query(`
           INSERT INTO signal_weights (signal_type, weight, market_type, updated_at) VALUES
             -- crypto_intraday
@@ -414,7 +474,7 @@ async function main(): Promise<void> {
             ('price_divergence',    0.0, 'event_long', NOW()),
             ('attention_spike',     0.0, 'event_long', NOW()),
             ('news_sentiment',      0.0, 'event_long', NOW())
-          ON CONFLICT (signal_type, market_type) DO NOTHING;
+          ON CONFLICT (signal_type, market_type, direction) DO NOTHING;
         `);
 
         console.log('[server] signal_weights per-type schema migration applied');
@@ -426,10 +486,11 @@ async function main(): Promise<void> {
       // Sub-project B.2: seed consensus_discount_floor config row.
       // signal_weights uses the row-per-config pattern (same as
       // direction_multiplier). See docs/plans/2026-04-25-signal-consensus-design.md.
+      // direction='__all__' — config rows are not directional.
       await query(`
-        INSERT INTO signal_weights (signal_type, weight, market_type, is_enabled, min_confidence, updated_at)
-        VALUES ('consensus_discount_floor', 0.5, '__global__', true, 0.0, NOW())
-        ON CONFLICT (signal_type, market_type) DO NOTHING;
+        INSERT INTO signal_weights (signal_type, weight, market_type, direction, is_enabled, min_confidence, updated_at)
+        VALUES ('consensus_discount_floor', 0.5, '__global__', '__all__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type, direction) DO NOTHING;
       `);
       console.log('signal_weights.consensus_discount_floor row ensured');
 
@@ -438,9 +499,9 @@ async function main(): Promise<void> {
       // so the generator is wired but inactive until Optuna provides
       // empirical evidence of value.
       await query(`
-        INSERT INTO signal_weights (signal_type, weight, market_type, is_enabled, min_confidence, updated_at)
-        VALUES ('resolution_prior', 0.0, '__global__', true, 0.0, NOW())
-        ON CONFLICT (signal_type, market_type) DO NOTHING;
+        INSERT INTO signal_weights (signal_type, weight, market_type, direction, is_enabled, min_confidence, updated_at)
+        VALUES ('resolution_prior', 0.0, '__global__', '__all__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type, direction) DO NOTHING;
       `);
       console.log('[server] signal_weights.resolution_prior row ensured');
 
