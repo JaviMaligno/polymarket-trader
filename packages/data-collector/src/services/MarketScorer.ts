@@ -12,9 +12,16 @@ export const WEIGHTS = {
   dataQuality:         0.0950,  // 0.10 × 0.95
   typeExpectedValue:   0.1615,  // 0.17 × 0.95
   realizedVolatility:  0.1140,  // 0.12 × 0.95
-  shadowExpectedValue: 0.0500,  // NEW
+  shadowExpectedValue: 0.0500,
+  // Phase 4 (2026-05-13): cost-aware edge_capacity per market_type. Starts
+  // small (0.05) — anchor for ScorerWeightOptimizer (PR-C) to tune. The
+  // compositeScore renormalizes, so adding 0.05 just nudges things 5% in
+  // favor of types with measured positive cost-aware edge cells (or against
+  // those with zero/negative). null when no measurement → drops from
+  // renormalization, like volatility/dataQuality.
+  edgeCapacity:        0.0500,
 } as const;
-// Total: 1.0000
+// Total: 1.0500 — renormalized at compositeScore time.
 
 export const MAX_VOLUME_REF = 30_000_000;
 
@@ -34,7 +41,12 @@ export interface ScoreDimensions {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
-  shadowExpectedValue: number;       // NEW — always present (0.5 neutral default)
+  shadowExpectedValue: number;       // always present (0.5 neutral default)
+  // Phase 4 (2026-05-13) — optional for backwards-compat with existing test
+  // literals. Production code paths in MarketScorer always provide a value
+  // (null when type has no edge_capacity measurement, number otherwise).
+  // compositeScore treats both `undefined` and `null` as "skip this dim".
+  edgeCapacity?: number | null;
 }
 
 export interface ScorerWeights {
@@ -45,7 +57,10 @@ export interface ScorerWeights {
   dataQuality: number;
   typeExpectedValue: number;
   realizedVolatility: number;
-  shadowExpectedValue: number;     // NEW
+  shadowExpectedValue: number;
+  // Optional like ScoreDimensions for the same reason. compositeScore falls
+  // back to WEIGHTS.edgeCapacity when missing.
+  edgeCapacity?: number;
 }
 
 export interface EnrichUpdate {
@@ -59,7 +74,8 @@ export interface EnrichUpdate {
   dataQuality: number | null;
   typeExpectedValue: number;
   realizedVolatility: number | null;
-  shadowExpectedValue: number;       // NEW
+  shadowExpectedValue: number;
+  edgeCapacity: number | null;       // Phase 4
   currentPriceYes: number | null;
   volume24h: number | null;
   marketType: string | null;
@@ -244,6 +260,31 @@ export class MarketScorer {
    * overrides the default VOL_REF=0.02 (a raw vol of 2 percentage points
    * maps to 1.0 on the normalized scale).
    */
+  /**
+   * Phase 4 — Map raw edge_capacity (sum of positive cost-aware t_net over
+   * cells for this market_type) to a [0, 1] score.
+   *
+   * Formula: clamp(edgeCapacity / NORM, 0, 1) with NORM=10 — corresponds to
+   * "one cell at t_net=10" or "two cells at t_net=5" being fully covered.
+   * Sub-NORM edge gets a proportional score; over-NORM clips at 1.0.
+   *
+   * Returns null when the market_type has no measurement row yet — caller
+   * (compositeScore) drops the dim from renormalization in that case, so
+   * unmeasured types get neutral treatment, not penalty.
+   *
+   * Negative input → 0 (clipped, not penalized; aggregated as Σ max(0, t_net)
+   * upstream so this should never happen except defensively).
+   */
+  static edgeCapacityScore(
+    rawEdgeCapacity: number | null,
+    NORM: number = Number(process.env.EDGE_CAPACITY_NORM ?? 10),
+  ): number | null {
+    if (rawEdgeCapacity === null) return null;
+    if (!Number.isFinite(NORM) || NORM <= 0) NORM = 10;
+    if (rawEdgeCapacity <= 0) return 0;
+    return clamp01(rawEdgeCapacity / NORM);
+  }
+
   static mapRealizedVolatility(
     raw: number | null,
     barCount: number | null,
@@ -300,6 +341,16 @@ export class MarketScorer {
       totalWeight += weights.realizedVolatility;
     }
 
+    // Phase 4 (2026-05-13): edge_capacity. null/undefined when the market_type
+    // has no measurement row yet or the caller is a legacy test that doesn't
+    // supply the field. Drops from renormalization when missing — unmeasured
+    // types get neutral treatment, not penalty.
+    if (dims.edgeCapacity != null) {  // catches both null AND undefined
+      const w = weights.edgeCapacity ?? WEIGHTS.edgeCapacity;
+      weightedSum += dims.edgeCapacity * w;
+      totalWeight += w;
+    }
+
     if (totalWeight === 0) return 0;
     return weightedSum / totalWeight;
   }
@@ -342,10 +393,12 @@ export class MarketScorer {
         data_quality: number | string;
         type_expected_value: number | string | null;
         realized_volatility: number | string | null;
+        edge_capacity: number | string | null;
         n_trades: number | null;
       }>(
         `SELECT market_type, tradeability, liquidity, volatility, ttr,
-                data_quality, type_expected_value, realized_volatility, n_trades
+                data_quality, type_expected_value, realized_volatility,
+                edge_capacity, n_trades
          FROM scorer_weights
          WHERE market_type IN ($1, $2)`,
         [key, MarketScorer.GLOBAL_MARKET_TYPE],
@@ -371,7 +424,13 @@ export class MarketScorer {
             realizedVolatility:  row.realized_volatility !== null
               ? Number(row.realized_volatility)
               : WEIGHTS.realizedVolatility,
-            shadowExpectedValue: WEIGHTS.shadowExpectedValue,  // NEW — always WEIGHTS default; per-type DB override out of scope
+            shadowExpectedValue: WEIGHTS.shadowExpectedValue,
+            // Phase 4: edge_capacity weight from per-type row when present.
+            // NULL in DB → use hardcoded default (waiting for ScorerWeightOptimizer
+            // PR-C to populate this column).
+            edgeCapacity:        row.edge_capacity !== null
+              ? Number(row.edge_capacity)
+              : WEIGHTS.edgeCapacity,
           }
         : { ...WEIGHTS };
 
@@ -432,6 +491,30 @@ export class MarketScorer {
     return { live, shadow };
   }
 
+  /**
+   * Phase 4 — Read per-(market_type) edge_capacity from market_type_edge_capacity.
+   * Returns a Map keyed by market_type. Types absent from the table → not in
+   * the map → callers treat them as null (drops from compositeScore renorm).
+   *
+   * Falls back to empty map on any error (table missing on fresh deploy, DB
+   * transient failure, etc.) — matches the resilience pattern of
+   * loadAllCategoryMetrics. Phase 4 then behaves as if the dim weren't there.
+   */
+  static async loadEdgeCapacityMap(): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    try {
+      const res = await query<{ market_type: string; edge_capacity: number | string }>(
+        `SELECT market_type, edge_capacity FROM market_type_edge_capacity`,
+      );
+      for (const r of res.rows) {
+        map.set(r.market_type, Number(r.edge_capacity));
+      }
+    } catch (err) {
+      logger.warn({ err: (err as Error).message }, 'loadEdgeCapacityMap failed; returning empty');
+    }
+    return map;
+  }
+
   // ─── Instance method: score all markets from DB ────────────────────
   /**
    * Two-pass scoring of all active markets.
@@ -458,6 +541,12 @@ export class MarketScorer {
     // Live → typeExpectedValue. Shadow → shadowExpectedValue (haircut already applied by writer).
     const { live: liveMetrics, shadow: shadowMetrics } =
       await MarketScorer.loadAllCategoryMetrics();
+
+    // Phase 4 (2026-05-13): per-(market_type) cost-aware edge_capacity. Empty
+    // map on a fresh deploy → all types get null edgeCapacity → drops from
+    // compositeScore renormalization (neutral). Populated by PR-D's nightly
+    // cron and the one-shot seed-edge-capacity-from-tstat.js bootstrap.
+    const edgeCapacityMap = await MarketScorer.loadEdgeCapacityMap();
 
     // Fetch all cold candidates.
     const pass1Candidates = await query<Pass1CandidateRow>(`
@@ -504,6 +593,12 @@ export class MarketScorer {
         shadowRow?.sharpe ?? null,
         shadowRow?.n ?? 0,
       );
+      // Phase 4: edge_capacity is per-(market_type), so it's the same value
+      // for every market in this loop iteration. null when the type has no
+      // measurement row → compositeScore drops the dim from renormalization.
+      const edgeCap = edgeCapacityMap.has(marketType)
+        ? MarketScorer.edgeCapacityScore(edgeCapacityMap.get(marketType)!)
+        : null;
 
       const updates = rows.map((row) => {
         const tradeability = MarketScorer.tradeabilityScore(
@@ -529,6 +624,7 @@ export class MarketScorer {
           typeExpectedValue: typeEV,
           realizedVolatility,
           shadowExpectedValue: shadowEV,
+          edgeCapacity: edgeCap,
         }, weights);
 
         return {
@@ -543,6 +639,7 @@ export class MarketScorer {
           typeExpectedValue: typeEV,
           realizedVolatility,
           shadowExpectedValue: shadowEV,
+          edgeCapacity: edgeCap,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: row.market_type ?? null,
@@ -559,6 +656,7 @@ export class MarketScorer {
       const weights = await MarketScorer.loadWeights(null);
       const typeEV = 0.5; // neutral for unknown type
       const shadowEV = MarketScorer.shadowExpectedValue(null, 0); // neutral 0.5
+      const edgeCap = null; // null market_type → no edge_capacity lookup possible
 
       const updates = nullRows.map((row) => {
         const tradeability = MarketScorer.tradeabilityScore(
@@ -584,6 +682,7 @@ export class MarketScorer {
           typeExpectedValue: typeEV,
           realizedVolatility,
           shadowExpectedValue: shadowEV,
+          edgeCapacity: edgeCap,
         }, weights);
 
         return {
@@ -598,6 +697,7 @@ export class MarketScorer {
           typeExpectedValue: typeEV,
           realizedVolatility,
           shadowExpectedValue: shadowEV,
+          edgeCapacity: edgeCap,
           currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
           volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
           marketType: null,
@@ -678,6 +778,10 @@ export class MarketScorer {
         shadowRow?.sharpe ?? null,
         shadowRow?.n ?? 0,
       );
+      // Phase 4: per-(market_type) edge_capacity. null when no measurement.
+      const edgeCap = row.market_type != null && edgeCapacityMap.has(row.market_type)
+        ? MarketScorer.edgeCapacityScore(edgeCapacityMap.get(row.market_type)!)
+        : null;
 
       const tradeability = MarketScorer.tradeabilityScore(
         row.current_price_yes != null ? Number(row.current_price_yes) : null,
@@ -711,6 +815,7 @@ export class MarketScorer {
         typeExpectedValue: typeEV,
         realizedVolatility,
         shadowExpectedValue: shadowEV,
+        edgeCapacity: edgeCap,
       }, weights);
 
       enrichUpdates.push({
@@ -725,6 +830,7 @@ export class MarketScorer {
         typeExpectedValue: typeEV,
         realizedVolatility,
         shadowExpectedValue: shadowEV,
+        edgeCapacity: edgeCap,
         currentPriceYes: row.current_price_yes != null ? Number(row.current_price_yes) : null,
         volume24h: row.volume_24h != null ? Number(row.volume_24h) : null,
         marketType: row.market_type ?? null,
@@ -772,6 +878,7 @@ export class MarketScorer {
       score_data_quality: u.dataQuality,
       score_type_expected_value: u.typeExpectedValue,
       score_realized_volatility: u.realizedVolatility,
+      score_edge_capacity: u.edgeCapacity,
       current_price_yes: u.currentPriceYes,
       volume_24h: u.volume24h,
     }));
@@ -791,6 +898,7 @@ export class MarketScorer {
       score_data_quality: null as number | null,
       score_type_expected_value: null as number | null,
       score_realized_volatility: null as number | null,
+      score_edge_capacity: null as number | null,
       current_price_yes: r.current_price_yes != null ? Number(r.current_price_yes) : null,
       volume_24h: r.volume_24h != null ? Number(r.volume_24h) : null,
     }));
@@ -798,11 +906,11 @@ export class MarketScorer {
     const all = [...trackedRows, ...coldRows];
     if (all.length === 0) return;
 
-    // Single multi-row INSERT (13 columns per row, plus NOW() for time)
+    // Single multi-row INSERT (14 columns per row, plus NOW() for time)
     const values = all
       .map((_, i) => {
-        const base = i * 13;
-        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12},$${base+13})`;
+        const base = i * 14;
+        return `($${base+1},$${base+2},$${base+3},$${base+4},$${base+5},$${base+6},$${base+7},$${base+8},$${base+9},$${base+10},$${base+11},$${base+12},$${base+13},$${base+14})`;
       })
       .join(', ');
 
@@ -810,7 +918,7 @@ export class MarketScorer {
       r.time, r.condition_id, r.tracking_status,
       r.market_score, r.score_tradeability, r.score_liquidity, r.score_ttr,
       r.score_volatility, r.score_data_quality, r.score_type_expected_value,
-      r.score_realized_volatility,
+      r.score_realized_volatility, r.score_edge_capacity,
       r.current_price_yes, r.volume_24h,
     ]);
 
@@ -819,7 +927,7 @@ export class MarketScorer {
          (time, condition_id, tracking_status, market_score,
           score_tradeability, score_liquidity, score_ttr,
           score_volatility, score_data_quality, score_type_expected_value,
-          score_realized_volatility,
+          score_realized_volatility, score_edge_capacity,
           current_price_yes, volume_24h)
        VALUES ${values}`,
       params,
