@@ -226,6 +226,13 @@ services:
       # immune to the oscillation discovered 2026-05-12 (boot cleanup deletes
       # per-type rows; Optimizer re-writes them every 6h).
       SIGNAL_TYPES_DISABLED: "mlofi,spread_compression,cross_market_corr,price_divergence,attention_spike,news_sentiment"
+      # PR-B 2026-05-13: per-(signal_id, direction) hard-disable. Tokens are
+      # lowercase `signalId:direction` (direction ∈ {long, short}), e.g.
+      # "momentum:short,ofi:long". Empty by default — same operational
+      # kill-switch as SIGNAL_TYPES_DISABLED but at PR-A's per-direction granularity.
+      # Will start being populated once cost-aware seeds (PR-D) reveal specific
+      # cells that warrant muting. See feedback_realistic_costs.md.
+      SIGNAL_DIRECTIONS_DISABLED: ""
       # Market type gate: only trade these types live, shadow-trade the rest
       # event_financial: WTI, Fed, indices (continuous underlying)
       # event_short: event markets with short resolution windows (better win rate than event_long)

@@ -296,6 +296,38 @@ export const signalWeightsRepo = {
   },
 
   /**
+   * Get all per-direction weights (rows where direction IN ('long','short')),
+   * grouped as { marketType → { signalType → { direction → weight } } }.
+   * Used by SignalEngine to populate the combiner's per-direction lookup map.
+   * Returns an empty object until PR-C/PR-D start writing per-direction rows
+   * (currently all rows are direction='__all__' and read via getAllPerType).
+   * PR-B 2026-05-13.
+   */
+  async getAllPerDirection(): Promise<Record<string, Record<string, Record<string, number>>>> {
+    const result = await query<{
+      signal_type: string;
+      market_type: string;
+      direction: string;
+      weight: number;
+    }>(
+      `SELECT signal_type, market_type, direction, weight
+       FROM signal_weights
+       WHERE market_type != '__global__'
+         AND direction IN ('long','short')
+         AND is_enabled = true`
+    );
+    const map: Record<string, Record<string, Record<string, number>>> = {};
+    for (const row of result.rows) {
+      if (!map[row.market_type]) map[row.market_type] = {};
+      if (!map[row.market_type][row.signal_type]) {
+        map[row.market_type][row.signal_type] = {};
+      }
+      map[row.market_type][row.signal_type][row.direction] = Number(row.weight);
+    }
+    return map;
+  },
+
+  /**
    * Read a single per-type weight. Returns null if no row exists or row is disabled.
    * Used by the OptimizationScheduler min-lift gate to compare against the
    * currently-persisted dm before flipping it.
