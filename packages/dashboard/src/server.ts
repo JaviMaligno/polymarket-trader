@@ -317,6 +317,30 @@ async function main(): Promise<void> {
       `);
       console.log('realized_volatility columns ensured on markets / scorer_weights / market_score_history');
 
+      // Phase 4 (2026-05-13): edge_capacity infrastructure. Mirrors
+      // init/031_edge_capacity.sql for existing volumes. See
+      // docs/plans/2026-05-13-phase4-edge-aware-scorer-design.md.
+      await query(`
+        CREATE TABLE IF NOT EXISTS market_type_edge_capacity (
+          market_type      VARCHAR(32) PRIMARY KEY,
+          edge_capacity    DOUBLE PRECISION NOT NULL,
+          n_cells_positive INT NOT NULL DEFAULT 0,
+          n_cells_measured INT NOT NULL DEFAULT 0,
+          rt_cost_pct      DOUBLE PRECISION NOT NULL,
+          source           TEXT NOT NULL,
+          updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+      `);
+      await query(`
+        ALTER TABLE market_score_history
+          ADD COLUMN IF NOT EXISTS score_edge_capacity FLOAT;
+      `);
+      await query(`
+        ALTER TABLE scorer_weights
+          ADD COLUMN IF NOT EXISTS edge_capacity FLOAT;
+      `);
+      console.log('[server] edge_capacity (Phase 4) schema ensured');
+
       // Post-init hook applies signal_weights per-type migration.
       // Task 2 of per-type-optimizer plan: extends signal_weights with market_type column
       // and per-type weight bootstrap rows. Matches data-collector 025_signal_weights_per_type.sql
