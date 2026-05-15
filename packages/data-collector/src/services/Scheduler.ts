@@ -264,6 +264,13 @@ export class Scheduler {
         case 'compute-market-priors':
           await this.computeMarketPriors();
           break;
+        case 'refresh-edge-capacity':
+          // Phase 4 (2026-05-13). PR #224 defined the job + binding but
+          // forgot to add the runJob switch case → cron fired daily but
+          // fell through to 'No handler for job' (lastDuration=0ms, no
+          // upserts). Discovered 2026-05-15 in the daily-autoreview validation.
+          await this.refreshEdgeCapacity();
+          break;
         case 'collect-news':
           await this.collectNews();
           break;
