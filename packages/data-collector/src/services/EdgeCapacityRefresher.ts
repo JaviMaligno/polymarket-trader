@@ -80,6 +80,49 @@ export interface RefreshOptions {
 }
 
 /**
+ * Phase 5 Pilar 1-B: persist every cell measurement into `generator_edge`
+ * (append-only). One row per (signal, type, direction) — captures the raw
+ * t_gross + computed t_net + sample_size at this measurement time. Lets
+ * downstream queries trend a specific cell over time (instead of just
+ * snapshotting the per-type aggregate in market_type_edge_capacity).
+ *
+ * Skipped: cells under minN are dropped (insufficient stat power, would
+ * just add noise to trends). Cells with gross=0 are kept (zero-information
+ * but documents that we measured + got nothing — useful for "is X cell
+ * still flat?" queries).
+ */
+async function persistCellsToHistory(
+  cells: Cell[],
+  rtCost: number,
+  windowDays: number,
+  horizonHours: number,
+  sampleSize: number | null,
+  source: string,
+  minN: number,
+): Promise<void> {
+  const rtPct = rtCost * 100;
+  for (const c of cells) {
+    if (c.n < minN) continue;
+    // t_net = t_gross × (gross_pct - rt_cost_pct) / gross_pct. Edge cases:
+    // gross_pct=0 → t_net=0; t_gross=null → t_net=null.
+    let tNet: number | null = null;
+    if (c.t_gross != null && c.gross_pct !== 0) {
+      tNet = c.t_gross * (c.gross_pct - rtPct) / c.gross_pct;
+    } else if (c.t_gross != null && c.gross_pct === 0) {
+      tNet = 0;
+    }
+    await query(
+      `INSERT INTO generator_edge
+         (signal_id, market_type, direction, window_days, horizon_hours,
+          sample_size, n, gross_pct, t_gross, rt_cost_pct, t_net, source)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [c.signal_id, c.market_type, c.direction, windowDays, horizonHours,
+       sampleSize, c.n, c.gross_pct, c.t_gross, rtPct, tNet, source],
+    );
+  }
+}
+
+/**
  * Build the t-stat SQL for a single market_type with optional sampling.
  * Phase 5 Pilar 1-A: when sampleSize is set, we use `ORDER BY random() LIMIT N`
  * to avoid the LATERAL bulk-scan timeout on e2-micro. The price_history seek
@@ -210,6 +253,59 @@ async function measureCellsForType(
  * sampling. Calibrated N=10000 takes 47-150s/type on e2-micro. perTypeTimeoutMs
  * caps each type at 300s so a slow type doesn't block the others.
  */
+/**
+ * Phase 5 Pilar 1-B reporting helper: latest measurement per (signal, type,
+ * direction) cell, with t_net > 0 indicating cost-aware positive edge. Used
+ * by Pilar 4-A health-of-edge daily-review queries to answer "what cohorts
+ * currently have measurable edge?".
+ *
+ * Returns rows ordered by t_net DESC NULLS LAST so the most-positive cells
+ * appear first. Includes ALL measured cells (positive, zero, negative) —
+ * caller filters by t_net > 0 if they want only "edge" cells.
+ */
+export async function getLatestEdgePerCell(): Promise<Array<{
+  signal_id: string;
+  market_type: string;
+  direction: string;
+  n: number;
+  gross_pct: number | null;
+  t_gross: number | null;
+  t_net: number | null;
+  rt_cost_pct: number;
+  measured_at: Date;
+}>> {
+  const res = await query<{
+    signal_id: string;
+    market_type: string;
+    direction: string;
+    n: number;
+    gross_pct: number | null;
+    t_gross: number | null;
+    t_net: number | null;
+    rt_cost_pct: number;
+    measured_at: Date;
+  }>(
+    `SELECT DISTINCT ON (signal_id, market_type, direction)
+       signal_id, market_type, direction, n, gross_pct, t_gross, t_net,
+       rt_cost_pct, measured_at
+     FROM generator_edge
+     ORDER BY signal_id, market_type, direction, measured_at DESC`,
+  );
+  return res.rows
+    .map((r) => ({
+      signal_id: r.signal_id,
+      market_type: r.market_type,
+      direction: r.direction,
+      n: Number(r.n),
+      gross_pct: r.gross_pct == null ? null : Number(r.gross_pct),
+      t_gross: r.t_gross == null ? null : Number(r.t_gross),
+      t_net: r.t_net == null ? null : Number(r.t_net),
+      rt_cost_pct: Number(r.rt_cost_pct),
+      measured_at: r.measured_at,
+    }))
+    .sort((a, b) => (b.t_net ?? -Infinity) - (a.t_net ?? -Infinity));
+}
+
 export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise<{
   upserts: number;
   perType: Map<string, EdgeCapacityEntry>;
@@ -252,6 +348,18 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
       skipped.push(marketType);
       continue;
     }
+
+    // Phase 5 Pilar 1-B (2026-05-15): persist per-cell measurements to
+    // generator_edge for trending. Append-only — every refresh adds rows so
+    // we can answer "is X cell drifting positive over the last 30d?".
+    // Best-effort; failure to insert one row should NOT abort the type.
+    const rtForType = options.rtCostMap?.get(marketType) ?? defaultRt;
+    await persistCellsToHistory(
+      cells, rtForType, windowDays, horizonHours, sampleSize, source, minN,
+    ).catch((err) => {
+      logger.warn({ marketType, err: (err as Error).message }, 'persistCellsToHistory failed (non-fatal)');
+    });
+
     const oneTypeMap = computeEdgeCapacity(cells, options.rtCostMap ?? null, defaultRt, minN);
     for (const [mt, entry] of oneTypeMap.entries()) {
       perTypeAcc.set(mt, entry);

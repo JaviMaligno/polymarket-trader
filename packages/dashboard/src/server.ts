@@ -341,6 +341,52 @@ async function main(): Promise<void> {
       `);
       console.log('[server] edge_capacity (Phase 4) schema ensured');
 
+      // Phase 5 Pilar 1-B (2026-05-15): generator_edge history table.
+      // Append-only per-(signal, type, direction) t-stat measurements for
+      // trending. Mirrors init/032_generator_edge.sql for existing volumes.
+      await query(`
+        CREATE TABLE IF NOT EXISTS generator_edge (
+          id            BIGSERIAL,
+          measured_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          signal_id     VARCHAR(50) NOT NULL,
+          market_type   VARCHAR(32) NOT NULL,
+          direction     VARCHAR(8) NOT NULL,
+          window_days   INT NOT NULL,
+          horizon_hours INT NOT NULL,
+          sample_size   INT,
+          n             INT NOT NULL,
+          gross_pct     DOUBLE PRECISION,
+          t_gross       DOUBLE PRECISION,
+          rt_cost_pct   DOUBLE PRECISION NOT NULL,
+          t_net         DOUBLE PRECISION,
+          source        TEXT,
+          PRIMARY KEY (measured_at, id)
+        );
+      `);
+      await query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint
+            WHERE conname = 'generator_edge_direction_check'
+              AND conrelid = 'generator_edge'::regclass
+          ) THEN
+            ALTER TABLE generator_edge
+              ADD CONSTRAINT generator_edge_direction_check
+              CHECK (direction IN ('long','short'));
+          END IF;
+        END $$;
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_generator_edge_cell
+          ON generator_edge (signal_id, market_type, direction, measured_at DESC);
+      `);
+      await query(`
+        CREATE INDEX IF NOT EXISTS idx_generator_edge_measured_at
+          ON generator_edge (measured_at DESC);
+      `);
+      console.log('[server] generator_edge (Phase 5 Pilar 1-B) schema ensured');
+
       // Post-init hook applies signal_weights per-type migration.
       // Task 2 of per-type-optimizer plan: extends signal_weights with market_type column
       // and per-type weight bootstrap rows. Matches data-collector 025_signal_weights_per_type.sql
