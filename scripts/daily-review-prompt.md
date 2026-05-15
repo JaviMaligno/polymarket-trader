@@ -122,6 +122,10 @@ The executor restricts live trades to `ALLOWED_MARKET_TYPES`. Other market types
 - `category_performance`: cumulative win_rate / Sharpe / prior per market_type
 - `shadow_summary`: blocked signals recorded as shadow trades, aggregated per market_type
 - `shadow_summary_by_direction`: same fields as shadow_summary, additionally split by `direction` ('long'|'short'). Use this to detect SHORT-bias inflation before recommending promotion.
+- `edge_cohorts_positive` (Phase 5 Pilar 4-A): per-(signal, market_type, direction) cells with measured `t_net > 0` (cost-aware forward-drift t-stat from `generator_edge`). Each row: signal_id, market_type, direction, t_net, n, rt_cost_pct, measured_at. **Empty list = no measured edge anywhere in the active universe** (data says system has no positive expected return).
+- `edge_cohorts_traded` (Phase 5 Pilar 4-A): (market_type, direction, n_trades, total_pnl, wins) over the last 7 days from live paper trades.
+- `edge_gap` (Phase 5 Pilar 4-A): **CRITICAL ALERT** when non-empty. Rows here are (market_type, direction) we are TRADING in production but have NO signal with measured positive cost-aware edge for. Each row = capital burning in a cohort the data says is anti-edge. If non-empty, surface as a finding with severity HIGH at minimum.
+- `edge_measurement_freshness` (Phase 5 Pilar 4-A): per-market_type latest `measured_at` + `hours_since`. If `hours_since > 48` for an active type, the nightly cron is failing for that type — surface as INFRA issue.
 
 ### Shadow → Live promotion recommendation
 
@@ -275,6 +279,33 @@ The `review_history` section contains metrics from previous daily reviews. Compa
 **If a metric has been bad for 2+ consecutive days**, escalate severity by one level and prefix with `[PERSISTENT]`.
 
 **If a metric improved after a PR was merged**, note: "Fix in PR #N appears effective (metric improved from X to Y)."
+
+## Health-of-Edge Analysis (Phase 5 Pilar 4-A — MANDATORY section)
+
+Phase 5 introduces three operational signals about whether our trading universe has any measured cost-aware edge:
+
+### 1. `edge_cohorts_positive` (what works)
+
+Per-(signal, market_type, direction) cells where the latest measurement shows `t_net > 0` (cost-aware drift > round-trip cost). **Empty list is a profound signal**: it means we measured every cohort and found nothing tradeable. Do NOT recommend continued trading in this state without explicit mention.
+
+Render in the issue:
+- A table listing each cell with t_net, n, market_type, direction, measured_at
+- If empty, a paragraph stating: "No cohort in the active universe currently has measured positive cost-aware edge. The system is trading at a net negative expected value. Recommend: pause new opens; rely on Pilar 1 measurements to flag emerging edge."
+
+### 2. `edge_gap` (what we trade WITHOUT edge — CRITICAL)
+
+Rows here are (market_type, direction) we executed trades in (last 7d) but for which **no signal has positive measured cost-aware edge**. This is "burning capital in cohorts the data says are anti-edge". 
+
+If `edge_gap` is non-empty:
+- Severity: at least HIGH (CRITICAL if cumulative pnl < -$50 across rows)
+- Recommendation: add specific gates that block opens in these (type, direction) combos OR build a new signal that DOES have edge there
+- Reference: `feedback_realistic_costs.md` — this is the recurring "trade despite negative net t-stat" failure mode
+
+### 3. `edge_measurement_freshness` (infra health)
+
+Per market_type, latest `measured_at` and `hours_since`. Stale (>48h) means the nightly cron is failing for that type — measurement infrastructure broken. Surface as INFRA issue.
+
+Cross-check with `optimization_runs` and dashboard logs to confirm the EdgeCapacityRefresher cron is firing without errors.
 
 ## Step 3: Generate Outputs (MANDATORY — do this BEFORE Step 4)
 

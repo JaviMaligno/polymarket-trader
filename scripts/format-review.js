@@ -175,6 +175,11 @@ const realPnlCheck = data.real_pnl_check || null;
 const categoryPerformance = Array.isArray(data.category_performance) ? data.category_performance : [];
 const tradesByType = Array.isArray(data.trades_by_type) ? data.trades_by_type : [];
 const shadowSummary = Array.isArray(data.shadow_summary) ? data.shadow_summary : [];
+// Phase 5 Pilar 4-A (2026-05-15): health-of-edge metrics.
+const edgeCohortsPositive = Array.isArray(data.edge_cohorts_positive) ? data.edge_cohorts_positive : [];
+const edgeCohortsTraded = Array.isArray(data.edge_cohorts_traded) ? data.edge_cohorts_traded : [];
+const edgeGap = Array.isArray(data.edge_gap) ? data.edge_gap : [];
+const edgeMeasurementFreshness = Array.isArray(data.edge_measurement_freshness) ? data.edge_measurement_freshness : [];
 const generatedAt = data.generated_at || new Date().toISOString();
 
 // ── Trading-state derived signals ───────────────────────────────────────────
@@ -196,6 +201,27 @@ const alerts = []; // { level: 'critical'|'warning', message: string }
 // Drawdown > 10% (max_drawdown stored as percentage, e.g. 10.0 = 10%)
 if (account && account.max_drawdown != null && account.max_drawdown > 10) {
   alerts.push({ level: 'critical', message: `Drawdown at ${fmtPctRaw(account.max_drawdown)} (threshold: 10%)` });
+}
+
+// Phase 5 Pilar 4-A: edge_gap = trading without measured edge. The biggest
+// failure mode in production. Critical when cumulative loss > $50 across rows.
+if (edgeGap.length > 0) {
+  const totalLoss = edgeGap.reduce((s, r) => s + (Number(r.total_pnl) < 0 ? Number(r.total_pnl) : 0), 0);
+  const level = totalLoss < -50 ? 'critical' : 'warning';
+  alerts.push({
+    level,
+    message: `Edge gap: trading ${edgeGap.length} (type, direction) cohort(s) WITHOUT measured cost-aware edge. Cumulative loss: ${fmtUsd(totalLoss)}`,
+  });
+}
+
+// Phase 5 Pilar 4-A: measurement infra. Stale edge measurement (>48h) means
+// the nightly EdgeCapacityRefresher cron is failing for some types.
+const staleMeasurements = edgeMeasurementFreshness.filter((r) => Number(r.hours_since) > 48);
+if (staleMeasurements.length > 0) {
+  alerts.push({
+    level: 'warning',
+    message: `Edge measurement stale (>48h) for ${staleMeasurements.length} market_type(s): ${staleMeasurements.map((r) => r.market_type).join(', ')}`,
+  });
 }
 
 // 5+ consecutive losses. The metric is a cumulative DB counter, so when the
@@ -382,7 +408,18 @@ function buildMarkdown() {
   // Performance breakdown — three independent sources, separated so live and
   // shadow numbers are not visually adjacent (shadow is theoretical-no-fees
   // and was being mistaken for promotion candidates).
-  if (tradesByType.length > 0 || categoryPerformance.length > 0 || shadowSummary.length > 0) {
+  if (
+    tradesByType.length > 0 ||
+    categoryPerformance.length > 0 ||
+    shadowSummary.length > 0 ||
+    // Phase 5 Pilar 4-A (2026-05-15): include the Performance Breakdown
+    // section even when there are no trades — Health-of-Edge ("we measured
+    // and found nothing") is one of the most important findings to surface
+    // in exactly that case.
+    edgeCohortsPositive.length > 0 ||
+    edgeGap.length > 0 ||
+    edgeMeasurementFreshness.length > 0
+  ) {
     ln(`## Performance Breakdown`);
     ln();
 
@@ -410,6 +447,52 @@ function buildMarkdown() {
         ln(`| ${c.market_type || 'N/A'} | ${fmt(c.n_trades, 0)} | ${fmtPct(c.win_rate)} | ${fmtUsd(c.avg_pnl)} | ${fmt(c.sharpe_ratio, 3)} | ${fmt(c.prior, 3)} |`);
       }
       ln();
+    }
+
+    // Phase 5 Pilar 4-A (2026-05-15): Health-of-Edge section. Shows whether
+    // we measured any positive cost-aware edge anywhere, and whether we're
+    // trading in cohorts the data says are anti-edge (the "edge gap").
+    if (edgeCohortsPositive.length > 0 || edgeGap.length > 0 || edgeMeasurementFreshness.length > 0) {
+      ln(`### Health of Edge (cost-aware measurement)`);
+      ln();
+
+      if (edgeCohortsPositive.length === 0) {
+        ln(`> **No cohort in the active universe currently has measured positive cost-aware edge** (t_net > 0). The system is operating in a measured-anti-edge regime.`);
+      } else {
+        ln(`**Cohorts with positive cost-aware edge** (top ${Math.min(edgeCohortsPositive.length, 10)} by t_net):`);
+        ln();
+        ln(`| Signal | Type | Dir | t_net | n | RT cost % |`);
+        ln(`|--------|------|-----|-------|---|-----------|`);
+        for (const c of edgeCohortsPositive.slice(0, 10)) {
+          ln(`| ${c.signal_id || 'N/A'} | ${c.market_type || 'N/A'} | ${c.direction || 'N/A'} | ${fmt(c.t_net, 2)} | ${fmt(c.n, 0)} | ${fmt(c.rt_cost_pct, 2)} |`);
+        }
+      }
+      ln();
+
+      if (edgeGap.length > 0) {
+        ln(`**Edge gap — trading WITHOUT measured edge** (capital at risk in anti-edge cohorts):`);
+        ln();
+        ln(`| Type | Direction | Trades | PnL (7d) |`);
+        ln(`|------|-----------|--------|----------|`);
+        for (const g of edgeGap) {
+          ln(`| ${g.market_type || 'N/A'} | ${g.direction || 'N/A'} | ${fmt(g.n_trades, 0)} | ${fmtUsd(g.total_pnl)} |`);
+        }
+        ln();
+      }
+
+      if (edgeMeasurementFreshness.length > 0) {
+        const stale = edgeMeasurementFreshness.filter((r) => Number(r.hours_since) > 48);
+        if (stale.length > 0) {
+          ln(`**Measurement freshness — stale (>48h)**:`);
+          ln();
+          ln(`| Type | Latest measurement | Hours since |`);
+          ln(`|------|-------------------|-------------|`);
+          for (const f of stale) {
+            ln(`| ${f.market_type || 'N/A'} | ${fmtDateShort(f.latest_measurement)} | ${fmt(f.hours_since, 1)} |`);
+          }
+          ln();
+        }
+      }
     }
 
     // Shadow — theoretical, NOT directly comparable to live
