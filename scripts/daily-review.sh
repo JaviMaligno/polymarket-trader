@@ -349,6 +349,105 @@ signal_weights=$(query_json "
   ) t;
 ")
 
+# Phase 5 Pilar 4-A (2026-05-15): health-of-edge metrics.
+# Surface the gap between "cohorts we trade" and "cohorts where measurement
+# says we have positive cost-aware edge". When the gap > 0, we're burning
+# capital in cohorts the data says are anti-edge. Daily-review prompt should
+# treat a non-empty edge_gap as CRITICAL.
+
+# 15a. Cohorts with positive cost-aware edge (latest measurement per cell, t_net > 0)
+edge_cohorts_positive=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    WITH latest AS (
+      SELECT DISTINCT ON (signal_id, market_type, direction)
+        signal_id, market_type, direction, t_net, n, rt_cost_pct, measured_at
+      FROM generator_edge
+      ORDER BY signal_id, market_type, direction, measured_at DESC
+    )
+    SELECT
+      signal_id, market_type, direction,
+      ROUND(t_net::numeric, 2)::float AS t_net,
+      n::float AS n,
+      ROUND(rt_cost_pct::numeric, 3)::float AS rt_cost_pct,
+      measured_at
+    FROM latest
+    WHERE t_net > 0
+    ORDER BY t_net DESC
+    LIMIT 30
+  ) t
+")
+
+# 15b. Cohorts traded in last 7 days (type, side, count, pnl)
+edge_cohorts_traded=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      m.market_type,
+      p.side AS direction,
+      COUNT(*)::float AS n_trades,
+      ROUND(COALESCE(SUM(p.realized_pnl), 0)::numeric, 2)::float AS total_pnl,
+      COUNT(*) FILTER (WHERE p.realized_pnl > 0)::float AS wins
+    FROM paper_positions p
+    JOIN markets m ON m.id = p.market_id
+    WHERE p.opened_at >= NOW() - INTERVAL '7 days'
+      AND p.realized_pnl IS NOT NULL
+    GROUP BY 1, 2
+    ORDER BY 3 DESC
+  ) t
+")
+
+# 15c. Edge gap — (type, direction) traded but NO signal has positive edge.
+# When this returns rows, we are burning capital on cohorts that have been
+# measured as anti-edge net. CRITICAL signal for the daily-review.
+edge_gap=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    WITH latest_positive AS (
+      SELECT DISTINCT market_type, direction
+      FROM (
+        SELECT DISTINCT ON (signal_id, market_type, direction)
+          signal_id, market_type, direction, t_net
+        FROM generator_edge
+        ORDER BY signal_id, market_type, direction, measured_at DESC
+      ) le
+      WHERE t_net > 0
+    ),
+    traded AS (
+      SELECT m.market_type, p.side AS direction,
+             COUNT(*) AS n_trades,
+             ROUND(SUM(p.realized_pnl)::numeric, 2) AS total_pnl
+      FROM paper_positions p
+      JOIN markets m ON m.id = p.market_id
+      WHERE p.opened_at >= NOW() - INTERVAL '7 days'
+        AND p.realized_pnl IS NOT NULL
+      GROUP BY 1, 2
+    )
+    SELECT
+      t.market_type, t.direction,
+      t.n_trades::float AS n_trades,
+      t.total_pnl::float AS total_pnl
+    FROM traded t
+    LEFT JOIN latest_positive lp
+      ON lp.market_type = t.market_type AND lp.direction = t.direction
+    WHERE lp.market_type IS NULL
+    ORDER BY 3 DESC
+  ) t
+")
+
+# 15d. Measurement freshness — when was each market_type last measured?
+# Stale (> 48h) means the nightly cron isn't running or is timing out for
+# that type. The daily-review should alert when hours_since > 48.
+edge_measurement_freshness=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      market_type,
+      MAX(measured_at) AS latest_measurement,
+      ROUND((EXTRACT(EPOCH FROM (NOW() - MAX(measured_at)))/3600)::numeric, 1)::float
+        AS hours_since
+    FROM generator_edge
+    GROUP BY market_type
+    ORDER BY hours_since DESC
+  ) t
+")
+
 # 16. Consecutive losses (from recently closed positions with negative PnL)
 consecutive_losses=$(query_one "
   SELECT row_to_json(t) FROM (
@@ -648,6 +747,10 @@ jq -n \
   --argjson trades_by_type "$trades_by_type" \
   --argjson shadow_summary "$shadow_summary" \
   --argjson shadow_summary_by_direction "$shadow_summary_by_direction" \
+  --argjson edge_cohorts_positive "$edge_cohorts_positive" \
+  --argjson edge_cohorts_traded "$edge_cohorts_traded" \
+  --argjson edge_gap "$edge_gap" \
+  --argjson edge_measurement_freshness "$edge_measurement_freshness" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -680,5 +783,9 @@ jq -n \
     trades_by_type: $trades_by_type,
     shadow_summary: $shadow_summary,
     shadow_summary_by_direction: $shadow_summary_by_direction,
+    edge_cohorts_positive: $edge_cohorts_positive,
+    edge_cohorts_traded: $edge_cohorts_traded,
+    edge_gap: $edge_gap,
+    edge_measurement_freshness: $edge_measurement_freshness,
     review_history: $review_history
   }'
