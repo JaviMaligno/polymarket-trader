@@ -218,6 +218,13 @@ services:
       #   with 0% WR. Structural mismatch, not a signal quality issue.
       # Closes of existing positions are never blocked (unwind path).
       EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,crypto_intraday:long"
+      # Per-market consecutive-loss block threshold (default 3).
+      # Lowered to 2 on 2026-05-15: CL futures markets accumulated 10 and 8 losses
+      # respectively (1652677, 1652685) in 4 days — each 24h ban cycle absorbed 3
+      # losing entries before blocking. Threshold=2 prevents the third re-entry.
+      # Temporary containment; root cause is mean_reversion signal miscalibration
+      # for long-dated event_financial binary markets. See issue #226.
+      EXECUTOR_PER_MARKET_LOSS_BLOCK: "2"
       # Hard-disable signal_types at the combiner layer. Bypasses any signal_weights
       # row (even ones the Render Optimizer writes). Same list as the boot cleanup
       # in dashboard/src/server.ts:467 — these 6 generators are not wired into
