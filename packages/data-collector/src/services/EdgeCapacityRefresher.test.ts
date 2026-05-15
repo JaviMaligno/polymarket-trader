@@ -8,7 +8,7 @@ vi.mock('../database/connection.js', () => ({
   query: vi.fn(),
 }));
 
-import { computeEdgeCapacity, refreshEdgeCapacity } from './EdgeCapacityRefresher.js';
+import { computeEdgeCapacity, refreshEdgeCapacity, getLatestEdgePerCell } from './EdgeCapacityRefresher.js';
 import { query } from '../database/connection.js';
 
 describe('computeEdgeCapacity (TS port)', () => {
@@ -190,5 +190,91 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
     await refreshEdgeCapacity();
     const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
     expect(selectStmt).toContain('LIMIT 10000');
+  });
+
+  // ─── Phase 5 Pilar 1-B: generator_edge persistence ──────────────────
+  it('persists each measured cell to generator_edge with computed t_net', async () => {
+    const insertedRows: any[][] = [];
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [{ market_type: 'event_long' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+        return { rows: [
+          // cell with positive t_gross → t_net should be t_gross × (gross-rtPct)/gross
+          { signal_id: 'spread_compression', market_type: 'event_long', direction: 'long', n: 99, gross_pct: 0.88, t_gross: 1.71 },
+          // cell with gross=0 → t_net=0
+          { signal_id: 'mean_reversion', market_type: 'event_long', direction: 'long', n: 100, gross_pct: 0, t_gross: 0 },
+          // cell under minN → should NOT be persisted
+          { signal_id: 'tiny', market_type: 'event_long', direction: 'short', n: 5, gross_pct: 1, t_gross: 5 },
+        ]};
+      }
+      if (typeof sql === 'string' && sql.startsWith('INSERT INTO generator_edge')) {
+        insertedRows.push(params ?? []);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    await refreshEdgeCapacity({ defaultRtCost: 0.01, minN: 50 });
+    expect(insertedRows.length).toBe(2);  // 'tiny' filtered out
+    // First row: t_net = 1.71 × (0.88-1) / 0.88 ≈ -0.233
+    const firstParams = insertedRows[0];
+    // params: signal_id, market_type, direction, window_days, horizon_hours,
+    //         sample_size, n, gross_pct, t_gross, rt_cost_pct, t_net, source
+    expect(firstParams[0]).toBe('spread_compression');
+    expect(firstParams[10]).toBeCloseTo(-0.233, 2);
+    // Second row: gross_pct=0 → t_net=0
+    expect(insertedRows[1][10]).toBe(0);
+  });
+
+  it('persistence failure does not abort the per-type loop', async () => {
+    let insertCalls = 0;
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [{ market_type: 'event_long' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+        return { rows: [
+          { signal_id: 'mean_reversion', market_type: 'event_long', direction: 'long', n: 200, gross_pct: 0.5, t_gross: 3 },
+        ]};
+      }
+      if (typeof sql === 'string' && sql.startsWith('INSERT INTO generator_edge')) {
+        insertCalls++;
+        throw new Error('simulated history insert failure');
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const { upserts } = await refreshEdgeCapacity({ minN: 50 });
+    // The market_type_edge_capacity upsert should still happen even if
+    // generator_edge inserts failed.
+    expect(upserts).toBe(1);
+    expect(insertCalls).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe('getLatestEdgePerCell (Phase 5 Pilar 1-B reporting)', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('returns rows sorted by t_net DESC (positive edge first)', async () => {
+    (query as any).mockResolvedValueOnce({
+      rows: [
+        { signal_id: 'a', market_type: 't', direction: 'long', n: 100, gross_pct: 0.5, t_gross: 2, t_net: -1.0, rt_cost_pct: 1, measured_at: new Date('2026-05-15') },
+        { signal_id: 'b', market_type: 't', direction: 'short', n: 100, gross_pct: 1.5, t_gross: 10, t_net: 3.5, rt_cost_pct: 1, measured_at: new Date('2026-05-15') },
+        { signal_id: 'c', market_type: 't', direction: 'long', n: 100, gross_pct: 0.0, t_gross: 0, t_net: 0, rt_cost_pct: 1, measured_at: new Date('2026-05-15') },
+      ],
+    });
+    const out = await getLatestEdgePerCell();
+    expect(out.map(r => r.signal_id)).toEqual(['b', 'c', 'a']);  // 3.5, 0, -1.0
+  });
+
+  it('issues a DISTINCT ON query to fetch latest per cell', async () => {
+    let capturedSql = '';
+    (query as any).mockImplementation(async (sql: string) => {
+      capturedSql = sql;
+      return { rows: [] };
+    });
+    await getLatestEdgePerCell();
+    expect(capturedSql).toContain('DISTINCT ON (signal_id, market_type, direction)');
+    expect(capturedSql).toContain('measured_at DESC');
   });
 });
