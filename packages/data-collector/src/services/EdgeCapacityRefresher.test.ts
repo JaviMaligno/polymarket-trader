@@ -91,19 +91,32 @@ describe('computeEdgeCapacity (TS port)', () => {
   });
 });
 
-describe('refreshEdgeCapacity (integration)', () => {
+describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('runs SELECT then UPSERTs one row per market_type with measurable cells', async () => {
+  it('iterates types from markets and UPSERTs one row per type with measurable cells', async () => {
     let upsertCount = 0;
-    (query as any).mockImplementation(async (sql: string) => {
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [
+          { market_type: 'crypto_intraday' },
+          { market_type: 'event_financial' },
+        ]};
+      }
+      // Per-type t-stat query: returns cells for the specific market_type param
       if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
-        return {
-          rows: [
+        const mt = String(params?.[0]);
+        if (mt === 'crypto_intraday') {
+          return { rows: [
             { signal_id: 'mean_reversion', market_type: 'crypto_intraday', direction: 'short', n: 126, gross_pct: 1.369, t_gross: 10.14 },
+          ]};
+        }
+        if (mt === 'event_financial') {
+          return { rows: [
             { signal_id: 'momentum', market_type: 'event_financial', direction: 'long', n: 4200, gross_pct: 0.20, t_gross: 11 },
-          ],
-        };
+          ]};
+        }
+        return { rows: [] };
       }
       if (typeof sql === 'string' && sql.startsWith('INSERT INTO market_type_edge_capacity')) {
         upsertCount++;
@@ -112,26 +125,70 @@ describe('refreshEdgeCapacity (integration)', () => {
       return { rows: [], rowCount: 0 };
     });
 
-    const { upserts, perType } = await refreshEdgeCapacity({ defaultRtCost: 0.0108, minN: 50 });
+    const { upserts, perType, skipped } = await refreshEdgeCapacity({ defaultRtCost: 0.0108, minN: 50 });
     expect(upserts).toBe(2);
     expect(upsertCount).toBe(2);
     expect(perType.has('crypto_intraday')).toBe(true);
     expect(perType.has('event_financial')).toBe(true);
+    expect(skipped).toEqual([]);
   });
 
-  it('passes window/horizon into the SQL', async () => {
+  it('skips a type whose per-type query throws (continues with the next)', async () => {
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [
+          { market_type: 'event_long' },
+          { market_type: 'event_financial' },
+        ]};
+      }
+      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+        const mt = String(params?.[0]);
+        if (mt === 'event_long') throw new Error('simulated DB error');
+        return { rows: [
+          { signal_id: 'mean_reversion', market_type: mt, direction: 'long', n: 200, gross_pct: 0.5, t_gross: 5 },
+        ]};
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const { upserts, perType, skipped } = await refreshEdgeCapacity({ minN: 50 });
+    // event_long failed → skipped; event_financial succeeded → upsert
+    expect(skipped).toEqual(['event_long']);
+    expect(upserts).toBe(1);
+    expect(perType.has('event_financial')).toBe(true);
+  });
+
+  it('passes window / horizon / sampleSize into the per-type SQL', async () => {
     const capturedSql: string[] = [];
     (query as any).mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [{ market_type: 'event_long' }] };
+      }
       if (typeof sql === 'string') capturedSql.push(sql);
       return { rows: [], rowCount: 0 };
     });
 
-    await refreshEdgeCapacity({ windowDays: 3, horizonHours: 6, minN: 100 });
+    await refreshEdgeCapacity({ windowDays: 3, horizonHours: 6, minN: 100, sampleSize: 5000 });
 
     const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
     expect(selectStmt).toBeDefined();
     expect(selectStmt).toContain("INTERVAL '3 days'");
     expect(selectStmt).toContain("INTERVAL '6 hours'");
     expect(selectStmt).toContain("INTERVAL '7 hours'");
+    expect(selectStmt).toContain('ORDER BY random() LIMIT 5000');
+  });
+
+  it('uses sampleSize=10000 by default (Phase 5 Pilar 1-A calibrated sweet spot)', async () => {
+    const capturedSql: string[] = [];
+    (query as any).mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [{ market_type: 'event_long' }] };
+      }
+      if (typeof sql === 'string') capturedSql.push(sql);
+      return { rows: [], rowCount: 0 };
+    });
+    await refreshEdgeCapacity();
+    const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
+    expect(selectStmt).toContain('LIMIT 10000');
   });
 });
