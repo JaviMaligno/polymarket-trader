@@ -693,6 +693,13 @@ export class SignalEngine extends EventEmitter {
         tokenIdNo: market.tokenIdNo,
         currentPriceYes: market.currentPrice,
         volume24h: market.volume24h,
+        // Resolution-aware generators (resolution_prior v1+v2) gate firing
+        // on `isReady` requiring endDate. Without this line they're wired
+        // but ineffective — predictions table will show zero rows for them
+        // forever. Verified empirically 2026-05-17 16:45 UTC: 837734
+        // (Georgia primary, TTR 2d) had momentum/ofi/mlofi predictions but
+        // zero RPv1/RPv2 because endDate was undefined here.
+        endDate: market.endDate ?? undefined,
       };
 
       // Fetch latest order book snapshot from DB
@@ -1115,6 +1122,7 @@ export class SignalEngine extends EventEmitter {
       tokenIdYes: market.tokenIdYes,
       tokenIdNo: market.tokenIdNo,
       currentPriceYes: market.currentPrice,
+      endDate: market.endDate ?? undefined,
     };
 
     return {
