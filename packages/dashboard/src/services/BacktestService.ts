@@ -31,6 +31,7 @@ import {
   SpreadCompressionGenerator,
   ResolutionPriorGenerator,
   FavoriteLongshotBiasGenerator,
+  ResolutionPriorV2Generator,
   PriceRangeWeightModifier,
   type ISignal,
   type OrderBookSnapshot,
@@ -86,6 +87,7 @@ export interface BacktestRequest {
     spreadCompressionWeight?: number;
     resolutionPriorWeight?: number;
     favoriteLongshotBiasWeight?: number;
+    resolutionPriorV2Weight?: number;
     minCombinedConfidence?: number;
     minCombinedStrength?: number;
     onlyDirection?: string | null;
@@ -209,6 +211,7 @@ export class BacktestService extends EventEmitter {
         spread_compression: cc?.spreadCompressionWeight ?? 0,
         resolution_prior: cc?.resolutionPriorWeight ?? 0,
         favorite_longshot_bias: cc?.favoriteLongshotBiasWeight ?? 0,
+        resolution_prior_v2: cc?.resolutionPriorV2Weight ?? 0,
         wallet_tracking: 0.3,
       };
       const combiner = new WeightedAverageCombiner(weights, cc ? {
@@ -686,6 +689,9 @@ export class BacktestService extends EventEmitter {
           break;
         case 'favorite_longshot_bias':
           signals.push(new FavoriteLongshotBiasGenerator());
+          break;
+        case 'resolution_prior_v2':
+          signals.push(new ResolutionPriorV2Generator());
           break;
         default:
           console.warn(`[BacktestService] Unknown signal type: ${type}`);

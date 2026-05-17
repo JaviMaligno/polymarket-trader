@@ -66,6 +66,11 @@ export const OPTUNA_PARAM_SPACE: ParameterDef[] = [
   // without affecting the combiner until Optuna has cost-aware t-stat
   // evidence. [0, 2] range matches other tail-anchored generators.
   { name: 'combiner.favoriteLongshotBiasWeight', type: 'float', low: 0.0, high: 2.0 },
+  // Resolution prior v2 (Sprint 2 PR-2, 2026-05-17). Mean-reversion against
+  // a SMA anchor of the earliest bars in the lookback. Distinct from v1
+  // which is trend-following relative to 0.5. Bootstrap at 0; same gating
+  // as the other Sprint 2 generators.
+  { name: 'combiner.resolutionPriorV2Weight', type: 'float', low: 0.0, high: 2.0 },
   // Consensus discount floor (Sub-project B.2, see docs/plans/2026-04-25-signal-consensus-design.md).
   // Combiner-layer confidence multiplier driven by entropy across active generators.
   // 0.0 = full discount on disagreement; 1.0 = no-op. Live default in signal_weights is 0.5.
@@ -128,6 +133,7 @@ export const REFINEMENT_PARAM_SPACE: ParameterDef[] = [
   { name: 'combiner.spreadCompressionWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.resolutionPriorWeight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.favoriteLongshotBiasWeight', type: 'float', low: 0.0, high: 2.0 },
+  { name: 'combiner.resolutionPriorV2Weight', type: 'float', low: 0.0, high: 2.0 },
   { name: 'combiner.consensusDiscountFloor', type: 'float', low: 0.0, high: 1.0 },
   { name: 'risk.maxPositionSizePct', type: 'float', low: 3.0, high: 15.0 },
   { name: 'risk.stopLossPct', type: 'float', low: 8.0, high: 30.0 },
@@ -764,6 +770,7 @@ export class OptimizationScheduler {
         spreadCompressionWeight: params['combiner.spreadCompressionWeight'],
         resolutionPriorWeight: params['combiner.resolutionPriorWeight'],
         favoriteLongshotBiasWeight: params['combiner.favoriteLongshotBiasWeight'],
+        resolutionPriorV2Weight: params['combiner.resolutionPriorV2Weight'],
         minCombinedConfidence: params['combiner.minCombinedConfidence'],
         minCombinedStrength: params['combiner.minCombinedStrength'],
         onlyDirection: params['combiner.onlyDirection'],
@@ -1192,6 +1199,7 @@ export class OptimizationScheduler {
       'combiner.spreadCompressionWeight': 'spread_compression',
       'combiner.resolutionPriorWeight': 'resolution_prior',
       'combiner.favoriteLongshotBiasWeight': 'favorite_longshot_bias',
+      'combiner.resolutionPriorV2Weight': 'resolution_prior_v2',
       // Per-type dm (REFINEMENT_PARAM_SPACE only). Categorical {-1, +1} so the
       // generic clamp below trivially preserves the value. Min-lift gate
       // (OPTIMIZER_DM_FLIP_MIN_LIFT) gates flips when configured.
