@@ -9,6 +9,7 @@ import { EventEmitter } from 'events';
 import { isDatabaseConfigured, query } from '../database/index.js';
 import { getSignalEngine } from './SignalEngine.js';
 import { getDataCollectorService, type PriceData } from './DataCollectorService.js';
+import { applyLiquidityFilter } from './MarketLiquidityFilterBridge.js';
 
 export interface PolymarketConfig {
   apiUrl: string;
@@ -528,7 +529,7 @@ export class PolymarketService extends EventEmitter {
       console.log(`[PolymarketService] Selected ${selectedMarkets.length} diversified markets`);
 
       // Update SignalEngine with discovered markets
-      this.updateSignalEngineMarkets(selectedMarkets);
+      await this.updateSignalEngineMarkets(selectedMarkets);
 
       this.emit('markets:discovered', selectedMarkets);
       return selectedMarkets;
@@ -687,11 +688,11 @@ export class PolymarketService extends EventEmitter {
   /**
    * Update SignalEngine with current markets
    */
-  private updateSignalEngineMarkets(markets: PolymarketMarket[]): void {
+  private async updateSignalEngineMarkets(markets: PolymarketMarket[]): Promise<void> {
     try {
       const engine = getSignalEngine();
 
-      const activeMarkets = markets
+      const baseActiveMarkets = markets
         .filter(m => m.isActive)
         .slice(0, this.config.maxMarketsToTrack)
         .map(m => ({
@@ -707,6 +708,8 @@ export class PolymarketService extends EventEmitter {
           endDate: m.endDate ?? null,
           trackingStatus: m.trackingStatus,
         }));
+
+      const activeMarkets = await applyLiquidityFilter(baseActiveMarkets);
 
       engine.setActiveMarkets(activeMarkets);
       console.log(`[PolymarketService] Updated SignalEngine with ${activeMarkets.length} markets`);
