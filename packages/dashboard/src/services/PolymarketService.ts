@@ -41,7 +41,14 @@ const DEFAULT_CONFIG: PolymarketConfig = {
   marketsToFetch: 200,       // Fetch more for diversified selection
   maxMarketsPerCategory: 8,  // Max 8 per category ensures diversity across ~6+ categories
   autoDiscoverMarkets: true,
-  minVolume24h: 1000,
+  // Default lowered from 1000 → 500 on 2026-05-17. The 1000 threshold was
+  // hiding low-volume but resolution-soon markets (e.g. primaries) that the
+  // resolution_prior v1+v2 generators need to fire on. Tune via env
+  // POLYMARKET_MIN_VOLUME_24H.
+  minVolume24h: (() => {
+    const parsed = Number(process.env.POLYMARKET_MIN_VOLUME_24H);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 500;
+  })(),
   minLiquidity: 500,
   // Rate limiting - very conservative to avoid 429s
   requestDelayMs: 1000,         // 1 second between requests (1 req/sec max)
@@ -438,7 +445,12 @@ export class PolymarketService extends EventEmitter {
       const MAX_PRICE = 0.98;
 
       // Only select markets that have recent price_history data (last 24 hours)
-      // This ensures signals are never generated for markets without real price data
+      // This ensures signals are never generated for markets without real price data.
+      // Force-included IDs (FORCE_INCLUDE_MARKET_IDS env) bypass the volume +
+      // price-history filters but still must have a YES token, an active status,
+      // and a sane price range — those are correctness preconditions for the
+      // downstream engine, not selection filters.
+      const forceIds = Array.from(parseForceIncludeIds(process.env.FORCE_INCLUDE_MARKET_IDS));
       const marketsResult = await query<{
         id: string;
         condition_id: string;
@@ -471,16 +483,23 @@ export class PolymarketService extends EventEmitter {
           AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
           AND m.current_price_yes > $1
           AND m.current_price_yes < $2
-          AND m.volume_24h >= $3
-          AND EXISTS (
-            SELECT 1 FROM price_history ph
-            WHERE ph.token_id = m.clob_token_id_yes
-              AND ph.time > NOW() - INTERVAL '24 hours'
-            LIMIT 1
+          AND (
+            -- Normal path: above volume threshold AND has recent price history
+            (m.volume_24h >= $3
+              AND EXISTS (
+                SELECT 1 FROM price_history ph
+                WHERE ph.token_id = m.clob_token_id_yes
+                  AND ph.time > NOW() - INTERVAL '24 hours'
+                LIMIT 1
+              ))
+            OR
+            -- Force-include bypass: explicitly allow-listed markets skip the
+            -- volume + price-history filters above.
+            m.id = ANY($5::varchar[])
           )
         ORDER BY m.volume_24h DESC NULLS LAST
         LIMIT $4
-      `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch]);
+      `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch, forceIds]);
 
       console.log(`[PolymarketService] Found ${marketsResult.rows.length} markets with recent price data (filtered by price_history)`);
 
