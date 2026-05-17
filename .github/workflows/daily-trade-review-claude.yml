@@ -188,6 +188,29 @@ jobs:
             --dangerously-skip-permissions \
             2>&1 | tee claude-output.log
 
+      - name: Verify daily-review issue was created
+        id: verify_issue
+        if: always() && steps.gather.outputs.data_collected == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Claude's session occasionally exits without creating the daily issue
+          # (judgment call when system seems healthy). Step 3 of the prompt is
+          # mandatory but not workflow-enforced. This step surfaces those misses
+          # so the audit trail stays complete.
+          TODAY=$(date -u +%Y-%m-%d)
+          # Use --search created:>=TODAY so the count is unambiguous even if the
+          # daily issue title is unconventional.
+          COUNT=$(gh issue list --label daily-review --state all \
+            --search "created:>=$TODAY" --json number --jq 'length' || echo "0")
+          echo "Daily-review issues created today ($TODAY): $COUNT"
+          if [ "$COUNT" = "0" ]; then
+            echo "::warning::Claude completed analysis but did NOT create a daily-review issue today. Step 3 was skipped. Check claude-output.log for the reasoning."
+            echo "issue_created=false" >> $GITHUB_OUTPUT
+          else
+            echo "issue_created=true" >> $GITHUB_OUTPUT
+          fi
+
       - name: Send notifications
         if: always() && steps.gather.outputs.data_collected == 'true'
         env:
