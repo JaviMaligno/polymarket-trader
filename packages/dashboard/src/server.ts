@@ -587,6 +587,18 @@ async function main(): Promise<void> {
       `);
       console.log('[server] signal_weights.favorite_longshot_bias row ensured');
 
+      // resolution_prior_v2 bootstrap (Sprint 2 PR-2, 2026-05-17). Mean-
+      // reversion-against-anchor generator. Weight 0.0 so predictions flow
+      // to Pilar 1 measurement without affecting the combiner until cost-
+      // aware t-stat evidence accrues. Design doc:
+      // docs/plans/2026-05-17-resolution-prior-v2-design.md.
+      await query(`
+        INSERT INTO signal_weights (signal_type, weight, market_type, direction, is_enabled, min_confidence, updated_at)
+        VALUES ('resolution_prior_v2', 0.0, '__global__', '__all__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type, direction) DO NOTHING;
+      `);
+      console.log('[server] signal_weights.resolution_prior_v2 row ensured');
+
       // direction_multiplier per-(market_type) bootstrap. Mirror init/028_*.sql
       // for existing VMs whose volume already initialized (so 028 won't re-run).
       // See docs/plans/2026-04-30-direction-multiplier-per-type-design.md.

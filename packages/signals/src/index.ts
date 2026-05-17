@@ -92,6 +92,11 @@ export {
   DEFAULT_FAVORITE_LONGSHOT_BIAS_PARAMS,
   type FavoriteLongshotBiasParams,
 } from './signals/market-structure/FavoriteLongshotBiasGenerator.js';
+export {
+  ResolutionPriorV2Generator,
+  DEFAULT_RESOLUTION_PRIOR_V2_PARAMS,
+  type ResolutionPriorV2Params,
+} from './signals/market-structure/ResolutionPriorV2Generator.js';
 
 // External Data Signals
 export { PriceDivergenceGenerator } from './signals/external/PriceDivergenceGenerator.js';
@@ -273,6 +278,7 @@ import { EventDrivenSignal } from './signals/event/EventDrivenSignal.js';
 import { RLSignal } from './signals/rl/RLSignal.js';
 import { ResolutionPriorGenerator } from './signals/market-structure/ResolutionPriorGenerator.js';
 import { FavoriteLongshotBiasGenerator } from './signals/market-structure/FavoriteLongshotBiasGenerator.js';
+import { ResolutionPriorV2Generator } from './signals/market-structure/ResolutionPriorV2Generator.js';
 import type { ISignal, SignalConfig } from './core/types/signal.types.js';
 
 const signalRegistry: Record<string, () => ISignal> = {
@@ -288,6 +294,7 @@ const signalRegistry: Record<string, () => ISignal> = {
   rl: () => new RLSignal(),
   resolution_prior: () => new ResolutionPriorGenerator(),
   favorite_longshot_bias: () => new FavoriteLongshotBiasGenerator(),
+  resolution_prior_v2: () => new ResolutionPriorV2Generator(),
 };
 
 /**

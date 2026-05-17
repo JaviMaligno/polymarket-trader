@@ -38,6 +38,7 @@ import {
   NewsSentimentGenerator,
   ResolutionPriorGenerator,
   FavoriteLongshotBiasGenerator,
+  ResolutionPriorV2Generator,
   WeightedAverageCombiner,
   DurationWeightModifier,
   PriceRangeWeightModifier,
@@ -245,6 +246,7 @@ export class SignalEngine extends EventEmitter {
     this.signals.set('cross_market_corr', new CrossMarketCorrelationGenerator());
     this.signals.set('resolution_prior', new ResolutionPriorGenerator());
     this.signals.set('favorite_longshot_bias', new FavoriteLongshotBiasGenerator());
+    this.signals.set('resolution_prior_v2', new ResolutionPriorV2Generator());
 
     // External data signals
     this.signals.set('price_divergence', new PriceDivergenceGenerator());
