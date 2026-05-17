@@ -10,6 +10,11 @@ import { isDatabaseConfigured, query } from '../database/index.js';
 import { getSignalEngine } from './SignalEngine.js';
 import { getDataCollectorService, type PriceData } from './DataCollectorService.js';
 import { applyLiquidityFilter } from './MarketLiquidityFilterBridge.js';
+import {
+  parseForceIncludeIds,
+  parseVolumeWeight,
+  rankMarketsByVolumeScoreBlend,
+} from './MarketSelector.js';
 
 export interface PolymarketConfig {
   apiUrl: string;
@@ -64,6 +69,9 @@ export interface PolymarketMarket {
   category: string;  // Primary category for diversification
   marketType?: string;  // crypto_intraday, crypto_daily, event_short, event_long
   trackingStatus?: string;
+  /** `markets.market_score` — populated when fetched from DB. Drives the
+   *  blended ranking inside selectDiversifiedMarkets (volume + score). */
+  marketScore?: number;
 }
 
 export interface PolymarketPrice {
@@ -346,10 +354,30 @@ export class PolymarketService extends EventEmitter {
    * Ensures no single category dominates the selection
    */
   private selectDiversifiedMarkets(allMarkets: PolymarketMarket[]): PolymarketMarket[] {
-    // Group markets by category
-    const byCategory = new Map<string, PolymarketMarket[]>();
+    const maxPerCategory = this.config.maxMarketsPerCategory;
+    const maxTotal = this.config.maxMarketsToTrack;
 
-    for (const market of allMarkets) {
+    const forceIds = parseForceIncludeIds(process.env.FORCE_INCLUDE_MARKET_IDS);
+    const volumeWeight = parseVolumeWeight(process.env.MARKET_SELECTION_VOLUME_WEIGHT);
+
+    // Step 1: pin force-included markets at the top, regardless of volume/score.
+    const forced = allMarkets.filter(m => forceIds.has(m.id));
+    const missingForced = [...forceIds].filter(id => !forced.some(m => m.id === id));
+    if (forced.length > 0) {
+      console.log(`[PolymarketService] Force-included ${forced.length} markets: ${forced.map(m => m.id).join(',')}`);
+    }
+    if (missingForced.length > 0) {
+      console.log(`[PolymarketService] Force-include IDs not in candidate set (skipped): ${missingForced.join(',')}`);
+    }
+
+    // Step 2: rank the non-forced pool by blended volume + market_score.
+    const candidates = allMarkets.filter(m => !forceIds.has(m.id));
+    const ranked = rankMarketsByVolumeScoreBlend(candidates, volumeWeight);
+    const rankMap = new Map(ranked.map(r => [r.market.id, r.blendedRank]));
+
+    // Step 3: diversify by category, taking the highest-ranked first.
+    const byCategory = new Map<string, PolymarketMarket[]>();
+    for (const { market } of ranked) {
       const cat = market.category;
       if (!byCategory.has(cat)) {
         byCategory.set(cat, []);
@@ -357,42 +385,38 @@ export class PolymarketService extends EventEmitter {
       byCategory.get(cat)!.push(market);
     }
 
-    // Sort each category by volume (highest first)
-    for (const markets of byCategory.values()) {
-      markets.sort((a, b) => b.volume - a.volume);
-    }
-
-    const selected: PolymarketMarket[] = [];
-    const maxPerCategory = this.config.maxMarketsPerCategory;
-    const maxTotal = this.config.maxMarketsToTrack;
-
-    // First pass: take up to maxPerCategory from each category
+    const selected: PolymarketMarket[] = [...forced];
     for (const [category, markets] of byCategory) {
       const toTake = Math.min(maxPerCategory, markets.length);
       selected.push(...markets.slice(0, toTake));
       console.log(`[PolymarketService] Category '${category}': ${toTake}/${markets.length} markets selected`);
     }
 
-    // If we have less than maxTotal, fill with remaining high-volume markets
+    // Step 4: fill remaining slots with the next best by blended rank.
     if (selected.length < maxTotal) {
       const selectedIds = new Set(selected.map(m => m.id));
-      const remaining = allMarkets
-        .filter(m => !selectedIds.has(m.id))
-        .sort((a, b) => b.volume - a.volume);
+      const remaining = ranked
+        .map(r => r.market)
+        .filter(m => !selectedIds.has(m.id));
 
       const needed = maxTotal - selected.length;
       selected.push(...remaining.slice(0, needed));
 
       if (remaining.length > 0) {
-        console.log(`[PolymarketService] Added ${Math.min(needed, remaining.length)} additional high-volume markets`);
+        console.log(`[PolymarketService] Added ${Math.min(needed, remaining.length)} additional ranked markets (volumeWeight=${volumeWeight})`);
       }
     }
 
-    // If we have more than maxTotal, trim (shouldn't happen with proper config)
+    // Step 5: trim if we overshoot. Force-included markets are preserved;
+    // non-forced trimming preserves blended-rank order.
     if (selected.length > maxTotal) {
-      // Sort by volume and keep top N
-      selected.sort((a, b) => b.volume - a.volume);
-      selected.length = maxTotal;
+      const forcedKeep = selected.filter(m => forceIds.has(m.id));
+      const nonForced = selected
+        .filter(m => !forceIds.has(m.id))
+        .sort((a, b) => (rankMap.get(a.id) ?? Infinity) - (rankMap.get(b.id) ?? Infinity));
+      const overflow = selected.length - maxTotal;
+      console.log(`[PolymarketService] Trimming ${overflow} markets to enforce maxMarketsToTrack=${maxTotal}`);
+      return [...forcedKeep, ...nonForced.slice(0, Math.max(0, maxTotal - forcedKeep.length))];
     }
 
     return selected;
@@ -430,6 +454,7 @@ export class PolymarketService extends EventEmitter {
         is_active: boolean;
         market_type: string | null;
         tracking_status: string | null;
+        market_score: string | null;
       }>(`
         SELECT
           m.id, m.condition_id, m.question, m.category,
@@ -437,7 +462,8 @@ export class PolymarketService extends EventEmitter {
           m.current_price_yes, m.current_price_no,
           m.volume_24h, m.liquidity, m.end_date, m.is_active,
           m.market_type,
-          m.tracking_status
+          m.tracking_status,
+          m.market_score
         FROM markets m
         WHERE m.is_active = true
           AND m.is_resolved = false
@@ -495,6 +521,7 @@ export class PolymarketService extends EventEmitter {
           category: m.category || category,
           marketType: m.market_type || undefined,
           trackingStatus: m.tracking_status || undefined,
+          marketScore: m.market_score != null ? parseFloat(m.market_score) : undefined,
         };
 
         candidateMarkets.push(market);
