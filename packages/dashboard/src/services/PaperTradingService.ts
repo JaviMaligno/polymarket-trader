@@ -260,6 +260,10 @@ export class PaperTradingService {
       // Calculate drawdown from peak
       const actualPeak = Math.max(peakEquity, equity);
       const currentDrawdown = actualPeak > 0 ? ((actualPeak - equity) / actualPeak) * 100 : 0;
+      const storedMaxDrawdown = parseFloat(account.max_drawdown || '0');
+      // DB stores max_drawdown as fraction (0–1); currentDrawdown is percentage (0–100)
+      const currentDrawdownFraction = currentDrawdown / 100;
+      const newMaxDrawdown = Math.max(storedMaxDrawdown, currentDrawdownFraction);
 
       const snapshot: PortfolioSnapshot = {
         time: new Date(),
@@ -268,7 +272,7 @@ export class PaperTradingService {
         available_capital: availableCapital,
         total_pnl: totalPnl,
         total_pnl_pct: totalPnlPct,
-        max_drawdown: parseFloat(account.max_drawdown || '0'),
+        max_drawdown: newMaxDrawdown,
         current_drawdown: currentDrawdown,
         total_trades: account.total_trades || 0,
         winning_trades: account.winning_trades || 0,
@@ -287,6 +291,11 @@ export class PaperTradingService {
       // Update peak equity in account if current equity is higher
       if (equity > peakEquity) {
         await query('UPDATE paper_account SET peak_equity = $1 WHERE id = 1', [equity]);
+      }
+
+      // Update max_drawdown if current drawdown exceeds stored max
+      if (currentDrawdownFraction > storedMaxDrawdown) {
+        await query('UPDATE paper_account SET max_drawdown = $1 WHERE id = 1', [currentDrawdownFraction]);
       }
     } catch (error) {
       console.error('Failed to record portfolio snapshot:', error);
