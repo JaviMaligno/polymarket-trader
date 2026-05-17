@@ -575,6 +575,18 @@ async function main(): Promise<void> {
       `);
       console.log('[server] signal_weights.resolution_prior row ensured');
 
+      // favorite_longshot_bias bootstrap (Sprint 2, 2026-05-17). Starts at
+      // weight 0.0 so the generator emits signals (visible in
+      // generator_predictions for Pilar 1 measurement) but does not influence
+      // the combiner until the optimizer ratchets it up from cost-aware
+      // t-stat evidence.
+      await query(`
+        INSERT INTO signal_weights (signal_type, weight, market_type, direction, is_enabled, min_confidence, updated_at)
+        VALUES ('favorite_longshot_bias', 0.0, '__global__', '__all__', true, 0.0, NOW())
+        ON CONFLICT (signal_type, market_type, direction) DO NOTHING;
+      `);
+      console.log('[server] signal_weights.favorite_longshot_bias row ensured');
+
       // direction_multiplier per-(market_type) bootstrap. Mirror init/028_*.sql
       // for existing VMs whose volume already initialized (so 028 won't re-run).
       // See docs/plans/2026-04-30-direction-multiplier-per-type-design.md.

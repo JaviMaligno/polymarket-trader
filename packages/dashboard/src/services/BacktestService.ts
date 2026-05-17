@@ -30,6 +30,7 @@ import {
   MultiLevelOFISignal,
   SpreadCompressionGenerator,
   ResolutionPriorGenerator,
+  FavoriteLongshotBiasGenerator,
   PriceRangeWeightModifier,
   type ISignal,
   type OrderBookSnapshot,
@@ -680,6 +681,9 @@ export class BacktestService extends EventEmitter {
           break;
         case 'resolution_prior':
           signals.push(new ResolutionPriorGenerator());
+          break;
+        case 'favorite_longshot_bias':
+          signals.push(new FavoriteLongshotBiasGenerator());
           break;
         default:
           console.warn(`[BacktestService] Unknown signal type: ${type}`);
