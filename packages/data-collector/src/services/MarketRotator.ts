@@ -19,6 +19,23 @@ export function parseAllowedMarketTypes(raw: string | undefined): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Parse the FORCE_INCLUDE_MARKET_IDS env value into a clean array of market IDs.
+ * Empty / undefined / whitespace-only entries are dropped.
+ * These IDs are pinned to `active` tracking regardless of score/volume — a
+ * measurement instrument for generators whose target markets (tail-band,
+ * near-resolution) the merit-based rotator would never surface on its own.
+ * Same env var the dashboard's MarketSelector reads, so a single compose entry
+ * drives both data collection (here) and signal inclusion (dashboard).
+ */
+export function parseForceIncludeIds(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map(id => id.trim())
+    .filter(Boolean);
+}
+
 export interface RotationConfig {
   maxTracked: number;              // 40 (from MAX_TRACKED_MARKETS env)
   maxRotationsPerHour: number;     // 5
@@ -69,6 +86,9 @@ export class MarketRotator {
   private liveConfig: RotationConfig;
   private shadowConfig: RotationConfig;
   private allowedTypes: string[];
+  // Curated market IDs pinned to `active` regardless of score/volume.
+  // Exempt from all demotion paths; promoted by applyForceInclude().
+  private forceIncludeIds: Set<string>;
   // The "active" config used by helper methods that read this.config.
   // Mutated by rotate(lane) — safe because rotateAll runs lanes sequentially.
   private config: RotationConfig;
@@ -84,6 +104,7 @@ export class MarketRotator {
       ...shadowConfig,
     };
     this.allowedTypes = parseAllowedMarketTypes(process.env.ALLOWED_MARKET_TYPES);
+    this.forceIncludeIds = new Set(parseForceIncludeIds(process.env.FORCE_INCLUDE_MARKET_IDS));
     // Default to live config so any helper called without going through rotate()
     // (e.g. existing tests of selectDemotions/selectPromotions) keep behaving as
     // they did pre-refactor.
@@ -96,6 +117,10 @@ export class MarketRotator {
 
   getShadowMaxTracked(): number {
     return this.shadowConfig.maxTracked;
+  }
+
+  getForceIncludeIds(): string[] {
+    return [...this.forceIncludeIds];
   }
 
   /**
@@ -145,8 +170,12 @@ export class MarketRotator {
    * capped at maxRotationsPerHour.
    */
   selectDemotions(active: MarketRow[], candidates: MarketRow[]): MarketRow[] {
+    // Force-included markets are pinned to active — never demote them, even
+    // when extreme-priced (their whole purpose is tail-band measurement).
     // Extreme-price markets are force-demoted even without candidates
-    const extremeEligible = active.filter(m => !m.has_open_positions && this.isExtremePrice(m));
+    const extremeEligible = active.filter(
+      m => !m.has_open_positions && !this.forceIncludeIds.has(m.id) && this.isExtremePrice(m),
+    );
 
     if (candidates.length === 0) {
       return extremeEligible
@@ -159,7 +188,12 @@ export class MarketRotator {
     const threshold = bestCandidateScore * this.config.hysteresisRatio;
 
     const eligible = active
-      .filter(m => !m.has_open_positions && (this.isExtremePrice(m) || m.market_score < threshold))
+      .filter(
+        m =>
+          !m.has_open_positions &&
+          !this.forceIncludeIds.has(m.id) &&
+          (this.isExtremePrice(m) || m.market_score < threshold),
+      )
       .sort((a, b) => a.market_score - b.market_score); // worst first
 
     return eligible.slice(0, this.config.maxRotationsPerHour);
@@ -193,6 +227,8 @@ export class MarketRotator {
 
     return warming.filter(m => {
       if (m.has_open_positions) return false;
+      // Force-included markets are pinned — never demote, even if stale/extreme.
+      if (this.forceIncludeIds.has(m.id)) return false;
 
       // Criterion 1: extreme price
       if (this.isExtremePrice(m)) return true;
@@ -414,6 +450,42 @@ export class MarketRotator {
   }
 
   /**
+   * Promote the FORCE_INCLUDE_MARKET_IDS cohort to `active` tracking.
+   *
+   * The merit-based rotator ranks cold candidates by market_score, which is
+   * volume/tradeability-biased: tail-band and near-resolution markets score low
+   * and are never promoted. That starves the Sprint 2 generators
+   * (favorite_longshot_bias, resolution_prior_v2) of their target markets, so
+   * they cannot accumulate the sample size needed for cost-aware edge
+   * measurement. This bypass pins a curated cohort to `active` directly.
+   *
+   * Only valid markets are promoted — active, not resolved, not past end_date.
+   * Already-active markets and the eviction step keep resolved cohort markets
+   * from being re-promoted. No-op when the env var is unset.
+   *
+   * @returns number of markets transitioned to `active`.
+   */
+  async applyForceInclude(): Promise<number> {
+    if (this.forceIncludeIds.size === 0) return 0;
+
+    const ids = [...this.forceIncludeIds];
+    const res = await query(
+      `UPDATE markets SET tracking_status = 'active', tracking_status_changed_at = NOW()
+       WHERE id = ANY($1::text[])
+         AND tracking_status <> 'active'
+         AND is_active = true AND is_resolved = false
+         AND (end_date IS NULL OR end_date > NOW())`,
+      [ids],
+    );
+
+    const promoted = res.rowCount ?? 0;
+    if (promoted > 0) {
+      logger.info({ promoted, forceIncludeIds: ids }, 'Force-included markets promoted to active');
+    }
+    return promoted;
+  }
+
+  /**
    * Run rotation for both lanes sequentially. Live lane operates on
    * ALLOWED_MARKET_TYPES; shadow lane operates on the complement (plus NULL).
    * Sequential because parallelism here yields no measurable benefit and would
@@ -443,6 +515,10 @@ export class MarketRotator {
              AND ph.time > NOW() - INTERVAL '24 hours'
          )`,
     );
+    // Pin the force-include cohort to `active` after eviction (so resolved
+    // cohort markets are not re-promoted) and before the lanes run (so the
+    // demotion logic sees them as active and the exemption applies).
+    await this.applyForceInclude();
     const live = await this.rotate('live');
     const shadow = await this.rotate('shadow');
     return { live, shadow };

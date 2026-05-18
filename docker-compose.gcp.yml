@@ -74,9 +74,18 @@ services:
       GAMMA_API_URL: https://gamma-api.polymarket.com
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
-      MAX_TRACKED_MARKETS: "35"
+      MAX_TRACKED_MARKETS: "45"
       ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial,event_short"
       MAX_SHADOW_MARKETS: "10"
+      # Force-tracked experiment cohort (Sprint 2 measurement, 2026-05-18).
+      # The volume/score-biased rotator never promotes tail-band markets, so
+      # favorite_longshot_bias / resolution_prior_v2 are starved of their target
+      # markets and cannot accumulate cost-aware edge measurement. These 12
+      # liquid tail-band markets (Yes price 0.03–0.09) are pinned to `active`
+      # tracking. MarketRotator.applyForceInclude() reads this var. Curate /
+      # prune as cohort markets resolve. Same var the dashboard reads for
+      # signal inclusion. Remove when Sprint 2 measurement concludes.
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -124,7 +133,14 @@ services:
       DB_IDLE_TIMEOUT_MS: "10000"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "300000"
-      MAX_SIGNAL_MARKETS: "35"
+      # Raised 35→45 (2026-05-18) so the 12-market force-include cohort and the
+      # ~33 merit-selected markets both fit a signal cycle without the cohort
+      # squeezing trading-market coverage.
+      MAX_SIGNAL_MARKETS: "45"
+      # Force-tracked experiment cohort — same list as the data-collector.
+      # MarketSelector pins these to the signal-selection pool so the Sprint 2
+      # generators receive predictions on their target tail-band markets.
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
       ENABLE_OPTIMIZATION: "true"
       OPTIMIZER_URL: "https://polymarket-optimizer-server.onrender.com"
       # Min Sharpe lift required to flip direction_multiplier per market_type.

@@ -6,6 +6,7 @@ import {
   type RotationConfig,
   type MarketRow,
   parseAllowedMarketTypes,
+  parseForceIncludeIds,
 } from './MarketRotator.js';
 
 vi.mock('../database/connection.js', () => ({
@@ -47,6 +48,20 @@ describe('parseAllowedMarketTypes', () => {
       'crypto_intraday',
       'event_short',
     ]);
+  });
+});
+
+describe('parseForceIncludeIds', () => {
+  it('returns empty array when env is undefined', () => {
+    expect(parseForceIncludeIds(undefined)).toEqual([]);
+  });
+
+  it('returns empty array when env is empty string', () => {
+    expect(parseForceIncludeIds('')).toEqual([]);
+  });
+
+  it('parses comma-separated ids, trimming whitespace and dropping empties', () => {
+    expect(parseForceIncludeIds(' 906973, 1652691 ,,')).toEqual(['906973', '1652691']);
   });
 });
 
@@ -774,5 +789,120 @@ describe('MarketRotator', () => {
       expect(updateSqlsSeen[1]).toMatch(/price_history/);
       expect(updateSqlsSeen[1]).toMatch(/INTERVAL '6 hours'/);
     });
+  });
+});
+
+// ── FORCE_INCLUDE_MARKET_IDS — force-tracked experiment cohort ──────
+//
+// The data-collector's volume/score-biased rotation never promotes
+// tail-band or near-resolution markets (low market_score, low volume),
+// so the Sprint 2 generators (favorite_longshot_bias, resolution_prior_v2)
+// are starved of their target markets and cannot accumulate the sample
+// size needed for cost-aware edge measurement. FORCE_INCLUDE_MARKET_IDS
+// pins a curated cohort to `active` regardless of score — a measurement
+// instrument, decoupled from the merit-based rotator.
+describe('FORCE_INCLUDE_MARKET_IDS — force-tracked experiment cohort', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it('constructor reads FORCE_INCLUDE_MARKET_IDS env into the force-include set', () => {
+    vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', '906973,1652691');
+    const r = new MarketRotator();
+    expect(r.getForceIncludeIds().sort()).toEqual(['1652691', '906973']);
+  });
+
+  it('getForceIncludeIds is empty when env unset', () => {
+    const r = new MarketRotator();
+    expect(r.getForceIncludeIds()).toEqual([]);
+  });
+
+  describe('demotion exemption', () => {
+    it('does NOT demote a force-included active market even with extreme price', () => {
+      vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', 'cohort-1');
+      const r = new MarketRotator(DEFAULT_CONFIG);
+      const active = [
+        makeMarket({ id: 'cohort-1', market_score: 0.10, tracking_status: 'active', current_price_yes: 0.03, has_open_positions: false }),
+        makeMarket({ id: 'normal-extreme', market_score: 0.10, tracking_status: 'active', current_price_yes: 0.03, has_open_positions: false }),
+      ];
+      const result = r.selectDemotions(active, []);
+      const ids = result.map(m => m.id);
+      expect(ids).not.toContain('cohort-1');
+      expect(ids).toContain('normal-extreme');
+    });
+
+    it('does NOT demote a force-included active market with low score below hysteresis', () => {
+      vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', 'cohort-1');
+      const r = new MarketRotator(DEFAULT_CONFIG);
+      const active = [
+        makeMarket({ id: 'cohort-1', market_score: 0.05, tracking_status: 'active', current_price_yes: 0.50, has_open_positions: false }),
+      ];
+      const candidates = [makeMarket({ id: 'cand', market_score: 0.90, tracking_status: 'cold' })];
+      const result = r.selectDemotions(active, candidates);
+      expect(result).toHaveLength(0);
+    });
+
+    it('does NOT demote a force-included warming market even if stale and extreme', () => {
+      vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', 'cohort-1');
+      const r = new MarketRotator(DEFAULT_CONFIG);
+      const warming = [
+        makeMarket({ id: 'cohort-1', tracking_status: 'warming', current_price_yes: 0.02, bars_24h: 0, tracking_status_changed_at: new Date(Date.now() - 12 * 3600_000) }),
+      ];
+      const result = r.selectWarmingDemotions(warming);
+      expect(result).toHaveLength(0);
+    });
+  });
+
+  describe('applyForceInclude', () => {
+    it('issues an UPDATE promoting non-active, valid force-included markets to active', async () => {
+      vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', '906973,1652691');
+      const r = new MarketRotator(DEFAULT_CONFIG);
+
+      let sql: string | null = null;
+      let params: unknown[] | null = null;
+      mockedQuery.mockImplementation(async (q: string, p?: unknown[]) => {
+        sql = q;
+        params = p ?? null;
+        return { rows: [], command: 'UPDATE', rowCount: 2, oid: 0, fields: [] };
+      });
+
+      const promoted = await r.applyForceInclude();
+
+      expect(promoted).toBe(2);
+      expect(sql).toMatch(/UPDATE markets/);
+      expect(sql).toMatch(/tracking_status = 'active'/);
+      expect(sql).toMatch(/id = ANY\(\$1::text\[\]\)/);
+      expect(sql).toMatch(/is_resolved = false/);
+      expect(sql).toMatch(/end_date IS NULL OR end_date > NOW/);
+      expect(params).toEqual([['906973', '1652691']]);
+    });
+
+    it('issues NO query when the force-include set is empty', async () => {
+      const r = new MarketRotator(DEFAULT_CONFIG);
+      const promoted = await r.applyForceInclude();
+      expect(promoted).toBe(0);
+      expect(mockedQuery).not.toHaveBeenCalled();
+    });
+  });
+
+  it('rotateAll runs applyForceInclude — force-include UPDATE present after the two evictions', async () => {
+    vi.stubEnv('FORCE_INCLUDE_MARKET_IDS', '906973');
+    const r = new MarketRotator();
+    const updateSqls: string[] = [];
+    mockedQuery.mockImplementation(async (sql: string) => {
+      if (typeof sql === 'string' && sql.trimStart().startsWith('UPDATE')) {
+        updateSqls.push(sql.trim());
+      }
+      return { rows: [], command: 'SELECT', rowCount: 0, oid: 0, fields: [] };
+    });
+
+    await r.rotateAll();
+
+    // 2 evictions + 1 force-include
+    expect(updateSqls).toHaveLength(3);
+    expect(
+      updateSqls.some(s => /id = ANY\(\$1::text\[\]\)/.test(s) && /tracking_status = 'active'/.test(s))
+    ).toBe(true);
   });
 });
