@@ -195,20 +195,68 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # Claude's session occasionally exits without creating the daily issue
-          # (judgment call when system seems healthy). Step 3 of the prompt is
-          # mandatory but not workflow-enforced. This step surfaces those misses
-          # so the audit trail stays complete.
+          # (judgment call when system seems healthy, or a gather_failed stub left
+          # it with nothing to analyze). Step 3 of the prompt is mandatory but not
+          # workflow-enforced. When the issue is missing this step files an
+          # auto-stub carrying the gathered data + Claude's analysis tail, so the
+          # daily audit trail is never broken (it was missing on 2026-05-16 and
+          # 2026-05-18, both times Claude simply skipped issue creation).
           TODAY=$(date -u +%Y-%m-%d)
           # Use --search created:>=TODAY so the count is unambiguous even if the
           # daily issue title is unconventional.
           COUNT=$(gh issue list --label daily-review --state all \
             --search "created:>=$TODAY" --json number --jq 'length' || echo "0")
           echo "Daily-review issues created today ($TODAY): $COUNT"
-          if [ "$COUNT" = "0" ]; then
-            echo "::warning::Claude completed analysis but did NOT create a daily-review issue today. Step 3 was skipped. Check claude-output.log for the reasoning."
-            echo "issue_created=false" >> $GITHUB_OUTPUT
-          else
+          if [ "$COUNT" != "0" ]; then
             echo "issue_created=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "::warning::Claude completed analysis but did NOT create a daily-review issue today. Filing an auto-stub to preserve the audit trail."
+          echo "issue_created=false" >> $GITHUB_OUTPUT
+
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          # Build the stub body. review-data.json is capped at 30k chars and the
+          # Claude log at 120 lines to stay well under GitHub's 65536-char issue
+          # body limit.
+          {
+            echo "## Auto-stub — daily review issue not filed"
+            echo ""
+            echo "The daily auto-review ran but did **not** create a daily-review issue (step 3 of the prompt was skipped, or the data gather failed). This stub preserves the audit trail — review the data below and close the issue if the system looks healthy."
+            echo ""
+            echo "**Workflow run:** $RUN_URL"
+            echo ""
+            echo "### Review data gathered"
+            echo "<details><summary>review-data.json</summary>"
+            echo ""
+            echo '```json'
+            head -c 30000 review-data.json 2>/dev/null || echo "(review-data.json missing)"
+            echo ""
+            echo '```'
+            echo "</details>"
+            echo ""
+            echo "### Claude analysis output (tail)"
+            echo "<details><summary>claude-output.log — last 120 lines</summary>"
+            echo ""
+            echo '```'
+            tail -n 120 claude-output.log 2>/dev/null || echo "(claude-output.log missing)"
+            echo '```'
+            echo "</details>"
+            echo ""
+            echo "---"
+            echo "_Filed automatically by the daily-review workflow safety-net._"
+          } > stub-issue.md
+
+          # The daily-review label normally exists already; create defensively.
+          gh label create daily-review --description "Automated daily trade review" --color "0075ca" 2>/dev/null || true
+          if gh issue create \
+            --title "Daily Trade Review $TODAY — auto-stub (analysis not filed)" \
+            --body-file stub-issue.md \
+            --label daily-review; then
+            echo "Auto-stub issue created"
+          else
+            echo "::warning::Failed to create the auto-stub daily-review issue"
           fi
 
       - name: Send notifications
