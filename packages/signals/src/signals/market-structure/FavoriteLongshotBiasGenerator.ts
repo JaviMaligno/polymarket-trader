@@ -35,25 +35,32 @@ export const DEFAULT_FAVORITE_LONGSHOT_BIAS_PARAMS: FavoriteLongshotBiasParams =
  * FavoriteLongshotBiasGenerator
  *
  * Codifies the favorite-longshot bias documented in prediction-market
- * literature (Wolfers/Zitzewitz 2004, Manski 2006). Two regimes:
+ * literature (Wolfers/Zitzewitz 2004, Manski 2006). The bias: bettors
+ * systematically OVER-pay for longshots and UNDER-pay for favorites, so
+ * longshots resolve YES *less* often than their price implies and favorites
+ * resolve YES *more* often. The generator exploits the bias by trading
+ * against it. Two regimes:
  *
- *   1. Longshot band (price < longshotThreshold): YES outcomes priced below
- *      ~0.10 historically resolve YES more often than the price implies.
- *      Empirical mispricing is 3–8%. The generator emits LONG.
+ *   1. Longshot band (price < longshotThreshold): the YES outcome is
+ *      over-priced. The generator emits SHORT (fade the longshot).
  *
- *   2. Favorite band (price > favoriteThreshold): YES outcomes priced above
- *      ~0.90 historically resolve YES less often than the price implies
- *      (lottery-aversion + supply imbalance). The generator emits SHORT.
+ *   2. Favorite band (price > favoriteThreshold): the YES outcome is
+ *      under-priced. The generator emits LONG (back the favorite).
  *
  * In the mid-range no clear directional bias exists in the literature, so
  * the generator returns null.
  *
+ * NOTE: until 2026-05-19 this generator emitted the inverted directions
+ * (LONG on longshots, SHORT on favorites) — i.e. it traded *into* the bias.
+ * The cohort-measurement deploy (PR #241) surfaced it: crypto_daily LONG
+ * scored gross −0.78% / t_net −22.70 on n=438. Corrected here.
+ *
  * Mathematical structure:
  *
  *   longshot: magnitude = (longshotThreshold - price) / longshotThreshold
- *             direction = LONG, strength = +magnitude
- *   favorite: magnitude = (price - favoriteThreshold) / (1 - favoriteThreshold)
  *             direction = SHORT, strength = -magnitude
+ *   favorite: magnitude = (price - favoriteThreshold) / (1 - favoriteThreshold)
+ *             direction = LONG, strength = +magnitude
  *   confidence = 0.4 + 0.5 × magnitude  (clamped to [0, 1] by BaseSignal)
  *
  * Output is bounded by `createOutput` to strength ∈ [-1, 1] and
@@ -64,7 +71,7 @@ export class FavoriteLongshotBiasGenerator extends BaseSignal<FavoriteLongshotBi
   readonly signalId = 'favorite_longshot_bias';
   readonly name = 'Favorite-Longshot Bias';
   readonly description =
-    'Exploits the empirical under-pricing of longshots (price < 0.10) and over-pricing of favorites (price > 0.90) in binary prediction markets';
+    'Exploits the empirical over-pricing of longshots (price < 0.10) and under-pricing of favorites (price > 0.90) in binary prediction markets: SHORT longshots, LONG favorites';
 
   protected parameters: FavoriteLongshotBiasParams;
 
@@ -98,12 +105,14 @@ export class FavoriteLongshotBiasGenerator extends BaseSignal<FavoriteLongshotBi
     let band: 'longshot' | 'favorite';
 
     if (currentPrice < longshotThreshold) {
+      // Longshot is over-priced — fade it.
       magnitude = (longshotThreshold - currentPrice) / longshotThreshold;
-      direction = 'LONG';
+      direction = 'SHORT';
       band = 'longshot';
     } else if (currentPrice > favoriteThreshold) {
+      // Favorite is under-priced — back it.
       magnitude = (currentPrice - favoriteThreshold) / (1 - favoriteThreshold);
-      direction = 'SHORT';
+      direction = 'LONG';
       band = 'favorite';
     } else {
       return null;
