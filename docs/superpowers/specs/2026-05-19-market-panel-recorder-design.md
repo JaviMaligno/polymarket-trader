@@ -41,10 +41,36 @@ Rejected alternatives:
 - **Daily panel of all markets** — ~1.8M rows / 6 months; daily granularity is
   overkill for resolution-scale analysis; mostly redundant correlated rows.
 
-The weekly panel serves all three vías: horizon (rows at TTR ≈ 8w, 7w, … 1w per
-market), calibration (any row's price vs outcome, conditionable on TTR /
-category / liquidity), model (each row a training example with TTR a feature;
-price-path features derived from consecutive rows).
+## How the panel serves each vía
+
+This is the acceptance test for the design — the collector is correct only if
+each vía can be run from `market_panel` alone (plus derivation, no re-collection).
+
+**Vía 1 — Calibration.** `yes_price` paired with `outcome_yes` gives the
+(price, outcome) observations. `market_type`, `category`, `liquidity` and
+especially `ttr_days` are the conditioning axes — because every market
+contributes a row at each weekly `ttr_days`, the panel yields the
+calibration-vs-time-to-resolution curve, the slice a once-per-market snapshot
+cannot give. For the basic curve, dedup to one row per market (independent
+Bernoulli observations) or weight; for conditioned curves, use the rows directly.
+
+**Vía 2 — Supervised model.** Each row is one training example: the static and
+time-varying columns plus `ttr_days` and `market_age_days` are the features,
+`outcome_yes` is the label. Price-path features (week-over-week change, trend,
+path volatility) are derived from consecutive rows of the same `market_id` — the
+panel structure is what makes that possible. Rows of one market are correlated,
+so model evaluation must use market-grouped cross-validation (split by
+`market_id`, never by row). The trade signal is `model_prob` vs `yes_price`.
+
+**Vía 3 — Holding horizon.** Weekly rows give `yes_price` at `ttr_days` ≈ 7, 14,
+21 … for each market. Hold-to-resolution PnL is computable from any entry row
+plus `outcome_yes`; hold-from-t-to-t′ from any pair of rows of the same market.
+The sweep is over the entry `ttr_days` bucket — which entry horizon maximises
+net edge.
+
+If a future analysis needs something not derivable from `market_panel`, that is
+a gap in this design — revisit it rather than bolting collection onto an
+analysis script.
 
 ## Architecture
 
