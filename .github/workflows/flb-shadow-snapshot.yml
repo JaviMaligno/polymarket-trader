@@ -51,7 +51,7 @@ jobs:
           fi
           rm -f "$tmp"
 
-      - name: Run shadow snapshot on VM
+      - name: Run shadow + panel snapshots on VM
         run: |
           ZONE=us-east1-b
           SSH="gcloud compute ssh Usuario@polymarket-vm --zone=$ZONE --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=60"
@@ -72,4 +72,5 @@ jobs:
           # drift) and run it inside the dashboard container — it has pg and
           # DATABASE_URL. The script is idempotent.
           gcloud compute scp scripts/flb-shadow-snapshot.js polymarket-vm:/tmp/flb-shadow.js --zone=$ZONE
-          $SSH --command="docker cp /tmp/flb-shadow.js polymarket-dashboard-api:/app/flb-shadow.js && docker exec polymarket-dashboard-api node /app/flb-shadow.js"
+          gcloud compute scp scripts/market-panel-snapshot.js polymarket-vm:/tmp/market-panel.js --zone=$ZONE
+          $SSH --command="docker cp /tmp/flb-shadow.js polymarket-dashboard-api:/app/flb-shadow.js && docker cp /tmp/market-panel.js polymarket-dashboard-api:/app/market-panel.js && docker exec polymarket-dashboard-api node /app/flb-shadow.js && docker exec polymarket-dashboard-api node /app/market-panel.js"
