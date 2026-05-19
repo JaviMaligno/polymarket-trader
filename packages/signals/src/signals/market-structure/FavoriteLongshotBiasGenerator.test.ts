@@ -58,22 +58,22 @@ describe('FavoriteLongshotBiasGenerator', () => {
     });
   });
 
-  describe('longshot band (price < longshotThreshold)', () => {
-    it('emits LONG when price is well below longshotThreshold', async () => {
+  describe('longshot band (price < longshotThreshold) — fade the overpriced longshot', () => {
+    it('emits SHORT when price is well below longshotThreshold', async () => {
       const gen = new FavoriteLongshotBiasGenerator();
       const out = await gen.compute(context([0.03]));
       expect(out).not.toBeNull();
-      expect(out!.direction).toBe('LONG');
-      expect(out!.strength).toBeGreaterThan(0);
+      expect(out!.direction).toBe('SHORT');
+      expect(out!.strength).toBeLessThan(0);
     });
 
-    it('strength scales with distance from boundary (deeper longshot = stronger)', async () => {
+    it('strength magnitude scales with distance from boundary (deeper longshot = stronger)', async () => {
       const gen = new FavoriteLongshotBiasGenerator();
       const out01 = await gen.compute(context([0.01]));
       const out08 = await gen.compute(context([0.08]));
       expect(out01).not.toBeNull();
       expect(out08).not.toBeNull();
-      expect(out01!.strength).toBeGreaterThan(out08!.strength);
+      expect(Math.abs(out01!.strength)).toBeGreaterThan(Math.abs(out08!.strength));
     });
 
     it('returns null near the boundary (strength below minStrength)', async () => {
@@ -84,13 +84,13 @@ describe('FavoriteLongshotBiasGenerator', () => {
     });
   });
 
-  describe('favorite band (price > favoriteThreshold)', () => {
-    it('emits SHORT when price is well above favoriteThreshold', async () => {
+  describe('favorite band (price > favoriteThreshold) — back the underpriced favorite', () => {
+    it('emits LONG when price is well above favoriteThreshold', async () => {
       const gen = new FavoriteLongshotBiasGenerator();
       const out = await gen.compute(context([0.97]));
       expect(out).not.toBeNull();
-      expect(out!.direction).toBe('SHORT');
-      expect(out!.strength).toBeLessThan(0);
+      expect(out!.direction).toBe('LONG');
+      expect(out!.strength).toBeGreaterThan(0);
     });
 
     it('strength magnitude scales with distance from boundary (deeper favorite = stronger)', async () => {
@@ -190,14 +190,14 @@ describe('FavoriteLongshotBiasGenerator', () => {
       const gen = new FavoriteLongshotBiasGenerator({ longshotThreshold: 0.20 });
       const out = await gen.compute(context([0.15])); // would be null under default
       expect(out).not.toBeNull();
-      expect(out!.direction).toBe('LONG');
+      expect(out!.direction).toBe('SHORT');
     });
 
     it('respects custom favoriteThreshold', async () => {
       const gen = new FavoriteLongshotBiasGenerator({ favoriteThreshold: 0.80 });
       const out = await gen.compute(context([0.85])); // would be null under default
       expect(out).not.toBeNull();
-      expect(out!.direction).toBe('SHORT');
+      expect(out!.direction).toBe('LONG');
     });
 
     it('respects custom minStrength gate', async () => {
