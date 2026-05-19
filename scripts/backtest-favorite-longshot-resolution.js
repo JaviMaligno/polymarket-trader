@@ -54,6 +54,11 @@ const ENTRY_COST = parseFloat(arg('entry-cost', '0.0054')); // half of ~1.08% RT
 // Price source: 'backtest' = flb_backtest_prices (API backfill, large sample);
 // 'collector' = price_history (only the ~28 markets tracked live).
 const SOURCE = arg('source', 'backtest');
+// TTR gate anchor (OQ#5): 'resolved_at' uses the actual resolution time (has
+// lookahead — fine for an existence test); 'end_date' is the ex-ante known
+// time a live strategy would gate on. PnL/hold are always measured to the
+// real resolved_at regardless.
+const TTR_ANCHOR = arg('ttr-anchor', 'resolved_at') === 'end_date' ? 'end_date' : 'resolved_at';
 
 function stats(xs) {
   const n = xs.length;
@@ -124,8 +129,12 @@ function report(label, rows) {
 async function main() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   console.log('=== Favorite-Longshot Bias — Hold-to-Resolution Backtest ===');
-  console.log(`params: longshot∈[${LONGSHOT_FLOOR},${LONGSHOT})  favorite>${FAVORITE}  minTtrHours=${MIN_TTR_HOURS}  entryCost=${fmtPct(ENTRY_COST)}  source=${SOURCE}`);
+  console.log(`params: longshot∈[${LONGSHOT_FLOOR},${LONGSHOT})  favorite>${FAVORITE}  minTtrHours=${MIN_TTR_HOURS}  entryCost=${fmtPct(ENTRY_COST)}  source=${SOURCE}  ttrAnchor=${TTR_ANCHOR}`);
   console.log('');
+
+  // The TTR gate excludes entries within MIN_TTR_HOURS of the anchor. When the
+  // anchor is end_date, that column must be non-null.
+  const anchorNotNull = TTR_ANCHOR === 'end_date' ? 'AND end_date IS NOT NULL' : '';
 
   // 'backtest' source: flb_backtest_prices (API backfill, keyed by market_id,
   // yes_price already oriented). 'collector' source: price_history (keyed by
@@ -133,10 +142,10 @@ async function main() {
   const sql = SOURCE === 'collector'
     ? `WITH resolved AS (
          SELECT id, market_type, lower(resolution_outcome) AS outcome,
-                resolved_at, clob_token_id_yes
+                resolved_at, end_date, clob_token_id_yes
          FROM markets
          WHERE is_resolved = true AND lower(resolution_outcome) IN ('yes','no')
-           AND resolved_at IS NOT NULL
+           AND resolved_at IS NOT NULL ${anchorNotNull}
            AND clob_token_id_yes IS NOT NULL AND clob_token_id_yes <> ''
        ),
        entry AS (
@@ -145,17 +154,17 @@ async function main() {
            ph.time AS entry_time, ph.close AS entry_price
          FROM resolved r
          JOIN price_history ph ON ph.token_id = r.clob_token_id_yes
-         WHERE ph.time <= r.resolved_at - ($1 || ' hours')::interval
+         WHERE ph.time <= r.${TTR_ANCHOR} - ($1 || ' hours')::interval
            AND ph.close > 0 AND ph.close < 1
            AND ((ph.close >= $4 AND ph.close < $2) OR ph.close > $3)
          ORDER BY r.id, ph.time ASC
        )
        SELECT * FROM entry`
     : `WITH resolved AS (
-         SELECT id, market_type, lower(resolution_outcome) AS outcome, resolved_at
+         SELECT id, market_type, lower(resolution_outcome) AS outcome, resolved_at, end_date
          FROM markets
          WHERE is_resolved = true AND lower(resolution_outcome) IN ('yes','no')
-           AND resolved_at IS NOT NULL
+           AND resolved_at IS NOT NULL ${anchorNotNull}
        ),
        entry AS (
          SELECT DISTINCT ON (r.id)
@@ -163,7 +172,7 @@ async function main() {
            p.ts AS entry_time, p.yes_price AS entry_price
          FROM resolved r
          JOIN flb_backtest_prices p ON p.market_id = r.id
-         WHERE p.ts <= r.resolved_at - ($1 || ' hours')::interval
+         WHERE p.ts <= r.${TTR_ANCHOR} - ($1 || ' hours')::interval
            AND p.yes_price > 0 AND p.yes_price < 1
            AND ((p.yes_price >= $4 AND p.yes_price < $2) OR p.yes_price > $3)
          ORDER BY r.id, p.ts ASC
@@ -196,6 +205,23 @@ async function main() {
     report(mt || '(null)', longshot.filter(r => r.market_type === mt));
   }
   console.log('');
+
+  // --- Flow (OQ#2): is there enough trade flow to keep capital deployed? ---
+  if (longshot.length > 0) {
+    const times = longshot.map(r => new Date(r.entry_time).getTime()).sort((a, b) => a - b);
+    const spanDays = (times[times.length - 1] - times[0]) / 86400000;
+    const totalHold = longshot.reduce((a, r) => a + r._holdDays, 0);
+    // Average simultaneously-open positions = integral of holds / calendar span.
+    const avgConcurrent = spanDays > 0 ? totalHold / spanDays : 0;
+    const perMonth = spanDays > 0 ? longshot.length / (spanDays / 30.4) : 0;
+    console.log('--- Flow (longshot band) ---');
+    console.log(`  ${longshot.length} trades over ${spanDays.toFixed(0)}d ` +
+      `(${new Date(times[0]).toISOString().slice(0, 10)} → ${new Date(times[times.length - 1]).toISOString().slice(0, 10)})`);
+    console.log(`  entries/month≈${perMonth.toFixed(0)}  avg concurrent open positions≈${avgConcurrent.toFixed(0)}`);
+    console.log(`  → capital can be spread across ≈${avgConcurrent.toFixed(0)} positions on average; ` +
+      `that is the diversification the negative skew gets.`);
+    console.log('');
+  }
 
   console.log('--- Calibration: entry price vs actual YES-resolution rate ---');
   console.log('  (bias confirmed if, for longshots, actualYes < meanEntry; for favorites, actualYes > meanEntry)');
