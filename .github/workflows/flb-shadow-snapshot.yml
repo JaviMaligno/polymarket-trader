@@ -1,0 +1,75 @@
+name: FLB Shadow Snapshot
+
+# Forward out-of-sample recorder for the favorite-longshot-bias
+# hold-to-resolution strategy. The historical backtest covers only a single
+# ~5-week window (Polymarket's CLOB price API serves no history older than
+# ~6 weeks), so the +2.24%/trade edge can only be validated by recording
+# entry signals forward and scoring them as markets resolve.
+# See the project_flb_strategy_design memo.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'    # 06:00 UTC daily — before the 08:00 daily-review
+  workflow_dispatch:
+
+concurrency:
+  group: flb-shadow
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/992492426638/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-deploy@project-94e9f6f2-aba7-4cb6-afc.iam.gserviceaccount.com'
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cleanup stale SSH keys in project metadata
+        # Each `gcloud compute ssh` uploads a key; without cleanup the project
+        # metadata grows unbounded and delays key propagation past the connect
+        # timeout. Same step the deploy and daily-review workflows carry.
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          gcloud compute project-info describe --format=json \
+            | jq -r '.commonInstanceMetadata.items[]? | select(.key == "ssh-keys") | .value' \
+            | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' > "$tmp"
+          if [ -s "$tmp" ]; then
+            gcloud compute project-info add-metadata --metadata-from-file=ssh-keys="$tmp"
+          fi
+          rm -f "$tmp"
+
+      - name: Run shadow snapshot on VM
+        run: |
+          ZONE=us-east1-b
+          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=$ZONE --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=60"
+
+          # Retry — VM SSH key propagation can take ~60s after the metadata update.
+          OK=false
+          for attempt in 1 2 3; do
+            if $SSH --command="echo ssh_ok" > /dev/null 2>&1; then OK=true; break; fi
+            echo "::warning::SSH attempt $attempt/3 failed — waiting 20s"
+            sleep 20
+          done
+          if [ "$OK" != "true" ]; then
+            echo "::error::VM unreachable — shadow snapshot skipped"
+            exit 1
+          fi
+
+          # Copy the script from the checked-out repo (not the VM's, which can
+          # drift) and run it inside the dashboard container — it has pg and
+          # DATABASE_URL. The script is idempotent.
+          gcloud compute scp scripts/flb-shadow-snapshot.js polymarket-vm:/tmp/flb-shadow.js --zone=$ZONE
+          $SSH --command="docker cp /tmp/flb-shadow.js polymarket-dashboard-api:/app/flb-shadow.js && docker exec polymarket-dashboard-api node /app/flb-shadow.js"
