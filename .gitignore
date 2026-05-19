@@ -53,5 +53,31 @@ timescaledb_data/
 
 # Claude Code local settings (may contain credentials)
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
 .worktrees/
-.worktrees/
+
+# Compiled TypeScript artifacts — source is .ts; tsc emits these in place
+*.js.map
+*.d.ts.map
+packages/**/src/**/*.js
+packages/**/src/**/*.d.ts
+tests/**/*.js
+tests/**/*.d.ts
+scripts/**/*.d.ts
+scripts/train-rl-model.js
+scripts/trigger-scorer-optimization.js
+vitest.config.js
+vitest.config.d.ts
+
+# Playwright artifacts
+test-results/
+playwright-report/
+
+# Scratch / throwaway files
+tmp-*
+*.stackdump
+review-history.json
+vercel-check.png
+
+# Wrong package manager — this project uses pnpm (pnpm-lock.yaml)
+package-lock.json
