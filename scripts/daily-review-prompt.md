@@ -311,6 +311,18 @@ Cross-check with `optimization_runs` and dashboard logs to confirm the EdgeCapac
 
 ### 3a. GitHub Issue
 
+**This step is NON-NEGOTIABLE. Every run MUST create exactly one daily-review issue, no exceptions.**
+
+Creating the issue is NOT conditional on findings. Do NOT skip it because:
+- the system looks healthy ("all containers up, no alerts") — a healthy run still gets a healthy issue;
+- there is "nothing actionable" or "no PR to open" — the issue is the audit trail, not a bug report;
+- a prior issue covers the same problem — note that in the new issue, do not skip it;
+- the analysis was short — a short issue is fine, a missing one is a failed run.
+
+A run that ends without a `gh issue create` call is a **FAILED run** — the workflow's
+verify step will file a degraded auto-stub in its place and emit a `::warning::`.
+The issue is the FIRST output: create it before opening any PR.
+
 Create a GitHub Issue with label "daily-review". Do NOT close it afterward:
 
 ```bash
@@ -318,6 +330,9 @@ ISSUE_URL=$(gh issue create --title "TITLE" --body-file report.md --label "daily
 ISSUE_NUMBER=${ISSUE_URL##*/}
 echo "Created issue #$ISSUE_NUMBER"
 ```
+
+If `gh issue create` fails (label missing, transient error), fix the cause and retry —
+do not proceed to Step 4 or exit until the issue exists.
 
 The issue should have:
 - **Executive Summary** (1 paragraph): Overall health assessment
