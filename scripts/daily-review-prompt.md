@@ -228,6 +228,73 @@ ORDER BY t_net DESC;
   cell on borderline `n` can be noise; recommend it be confirmed across two
   nightly measurements before action.)
 
+## 3c. The mirror alarm — confirmed anti-edge cohort
+
+Symmetric to 3b: when a (market_type, side) cell has *both* shadow and live
+agreeing the cohort is anti-edge, surface it as a candidate to block. Watchdog
+files no PR — the human decides — but the alarm must fire.
+
+The qualifying combination (both arms must hold, joined on `m.market_type`, NOT
+on `s.market_type` — see the misattribution caveat below):
+
+- **Shadow arm**: `n_resolved ≥ 100`, `wins ≤ 5%`, `avg_pnl < 0` over the last
+  30 days for that (market_type, direction).
+- **Live arm**: `n_closed ≥ 5` post `last_reset_at`, `win_rate < 20%`,
+  `total_pnl < 0` on the same (market_type, side), and the side is currently
+  **not** in `EXECUTOR_BLOCKED_TYPE_DIRECTIONS`.
+
+```sql
+-- Shadow arm — group by m.market_type (current type), not s.market_type
+WITH shadow AS (
+  SELECT m.market_type, s.direction,
+         COUNT(*) n_shadow,
+         COUNT(*) FILTER (WHERE s.theoretical_pnl > 0) wins_shadow,
+         ROUND(AVG(s.theoretical_pnl)::numeric, 4) avg_shadow_pnl
+  FROM shadow_trades s JOIN markets m ON m.id = s.market_id
+  WHERE s.resolved_at IS NOT NULL AND s.time >= NOW() - INTERVAL '30 days'
+  GROUP BY m.market_type, s.direction
+),
+live AS (
+  SELECT m.market_type, p.side AS direction,
+         COUNT(*) n_live,
+         COUNT(*) FILTER (WHERE p.realized_pnl > 0) wins_live,
+         ROUND(SUM(p.realized_pnl)::numeric, 2) live_total_pnl
+  FROM paper_positions p JOIN markets m ON m.id = p.market_id
+  WHERE p.closed_at >= (SELECT last_reset_at FROM paper_account ORDER BY id LIMIT 1)
+    AND p.realized_pnl IS NOT NULL
+  GROUP BY m.market_type, p.side
+)
+SELECT s.market_type, s.direction,
+       s.n_shadow, s.wins_shadow, s.avg_shadow_pnl,
+       l.n_live, l.wins_live, l.live_total_pnl
+FROM shadow s JOIN live l USING (market_type, direction)
+WHERE s.n_shadow >= 100
+  AND s.wins_shadow * 1.0 / s.n_shadow <= 0.05
+  AND s.avg_shadow_pnl < 0
+  AND l.n_live >= 5
+  AND l.wins_live * 1.0 / l.n_live < 0.20
+  AND l.live_total_pnl < 0;
+```
+
+- **Empty result is the expected steady state** — state in one line, no alert.
+- **Any row returned** → flag **prominently** under a `## ANTI-EDGE CANDIDATE`
+  heading: the `(market_type, direction)`, the shadow n/wins/avg, the live
+  n/WR/total_pnl, and the one-line recommendation **"Consider adding
+  `<type>:<direction>` to `EXECUTOR_BLOCKED_TYPE_DIRECTIONS` — human decision"**.
+  Do NOT file the PR yourself. Cross-check that the cohort is not already
+  blocked before alarming (read the dashboard-api env or the docker-compose).
+
+**Misattribution caveat**: shadow_trades' `s.market_type` is frozen at the
+trade time. Markets get reclassified (WTI Oil moved from `event_short` →
+`event_financial` on 2026-05-12). Always join on `m.market_type` for both arms;
+otherwise you'll alarm on a phantom cohort (see `project_event_short_supply.md`).
+
+**SHORT-resolves-NO bias caveat**: shadow SHORT win rates near 100% on
+prediction markets that mostly resolve to NO are a structural sampling
+artifact, **not** edge. 3b's threshold (`t_net > 2`, cost-aware) already
+filters this out, but if you ever consider weakening it, remember the bias
+shows up as shadow SHORT looking great while live SHORT cannot recreate it.
+
 ---
 
 # Step 1: Create the GitHub issue — NON-NEGOTIABLE
@@ -245,7 +312,8 @@ ISSUE_URL=$(gh issue create --title "TITLE" --body-file report.md --label "daily
 Issue structure (keep it lean):
 - **Status line**: containers / invariants / FLB recorder / edge sentinel — one
   line each: OK or the finding.
-- **Findings**: only real bugs or the edge alarm. If none — say "no action".
+- **Findings**: only real bugs, a `## CANDIDATE EDGE` row (3b), or an
+  `## ANTI-EDGE CANDIDATE` row (3c). If none — say "no action".
 - **Verification of recent fixes**, if any `daily-review` PRs merged in 48h.
 - Capital/PnL as a single factual line, not an alert.
 
