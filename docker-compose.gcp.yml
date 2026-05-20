@@ -77,15 +77,21 @@ services:
       MAX_TRACKED_MARKETS: "45"
       ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial,event_short"
       MAX_SHADOW_MARKETS: "10"
-      # Force-tracked experiment cohort (Sprint 2 measurement, 2026-05-18).
-      # The volume/score-biased rotator never promotes tail-band markets, so
-      # favorite_longshot_bias / resolution_prior_v2 are starved of their target
-      # markets and cannot accumulate cost-aware edge measurement. These 12
-      # liquid tail-band markets (Yes price 0.03–0.09) are pinned to `active`
-      # tracking. MarketRotator.applyForceInclude() reads this var. Curate /
-      # prune as cohort markets resolve. Same var the dashboard reads for
-      # signal inclusion. Remove when Sprint 2 measurement concludes.
-      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
+      # Force-tracked experiment cohort. Two sub-cohorts, same var (data-collector
+      # + dashboard both read it), curated manually:
+      #
+      # 1) Tail-band cohort (FLB target, 2026-05-18) — 12 liquid tail-band markets
+      #    (Yes price 0.03–0.09) pinned to `active` so `favorite_longshot_bias`
+      #    accumulates cost-aware measurement. TTRs range 41–590d (hold-to-resolution
+      #    horizon). Prune as markets resolve.
+      # 2) TTR-≤7d cohort (RPv2 target, 2026-05-20) — 6 near-resolution markets with
+      #    volume_24h ≥ 2k, TTR 2.5–6.5 days, mixed types. `resolution_prior_v2`
+      #    only fires within cutoffDays=7, so without this slice the generator
+      #    has zero supply (3-week observation: 50 predictions / 1 market in 7d,
+      #    that market resolved 2026-05-19). These rotate fast (resolve within
+      #    days) — REFRESH WEEKLY (or whenever a market in this slice resolves).
+      #    Selection 2026-05-20: 566188, 578530, 1835896, 572847, 1004371, 1004373.
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270,566188,578530,1835896,572847,1004371,1004373"
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -133,14 +139,16 @@ services:
       DB_IDLE_TIMEOUT_MS: "10000"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "300000"
-      # Raised 35→45 (2026-05-18) so the 12-market force-include cohort and the
-      # ~33 merit-selected markets both fit a signal cycle without the cohort
-      # squeezing trading-market coverage.
+      # Raised 35→45 (2026-05-18), kept at 45 with the 18-market force-include
+      # cohort (12 tail-band + 6 TTR-≤7d added 2026-05-20). Leaves ~27 slots for
+      # merit-selected markets per signal cycle. Bump if the FLB or RPv2 cohorts
+      # grow further.
       MAX_SIGNAL_MARKETS: "45"
       # Force-tracked experiment cohort — same list as the data-collector.
-      # MarketSelector pins these to the signal-selection pool so the Sprint 2
-      # generators receive predictions on their target tail-band markets.
-      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
+      # MarketSelector pins these to the signal-selection pool so the
+      # FLB tail-band markets + the TTR-≤7d RPv2 markets both receive
+      # predictions. See the data-collector comment for the cohort breakdown.
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270,566188,578530,1835896,572847,1004371,1004373"
       ENABLE_OPTIMIZATION: "true"
       OPTIMIZER_URL: "https://polymarket-optimizer-server.onrender.com"
       # Min Sharpe lift required to flip direction_multiplier per market_type.
@@ -179,13 +187,11 @@ services:
       # materialize. Re-tighten only if post-flip live SHORT WR underperforms.
       EXECUTOR_SHORT_MAX_YES_PRICE: "1.0"
       EXECUTOR_SHORT_SIZE_MULT: "1.0"
-      # Loss-gate regime epoch: per-market consecutive-loss block (24h) and
-      # long-term persistent-loser ban (7d) ignore trades closed before this
-      # timestamp. Set to the dm=-1 → +1 flip (PR #178, 2026-05-04 09:55 UTC)
-      # so the post-flip SHORT cohort isn't blocked by its own pre-flip
-      # losses, which were structurally inverse signals (counter-WR=93.9%).
-      # Remove once the rolling 7-day window has cleared (after 2026-05-11).
-      EXECUTOR_LOSS_GATE_EPOCH: "2026-05-04T09:55:00Z"
+      # EXECUTOR_LOSS_GATE_EPOCH removed 2026-05-20. The 7-day rolling window of
+      # the per-market consecutive-loss block + persistent-loser ban cleared
+      # past the 2026-05-04 dm-flip on 2026-05-11; the epoch filter no longer
+      # excludes any current trades. Re-add only if a future regression
+      # requires excluding a known anomalous training window.
       # OPTIMIZER_EPOCH_START — DISABLED 2026-05-06.
       # Originally set to floor training/OOS windows to the dm flip boundary
       # (PR #188). Made redundant by the SQL reset of signal_weights to
