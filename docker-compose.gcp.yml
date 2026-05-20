@@ -232,8 +232,16 @@ services:
       #   crypto_intraday markets are multi-month binary price targets (end date
       #   Jul 2026 – Jan 2027); 4h MAX_HOLD_TIME_HOURS causes 7/7 time exits
       #   with 0% WR. Structural mismatch, not a signal quality issue.
+      # Configured 2026-05-20: event_financial LONG blocked — anti-edge
+      #   confirmed by both live and shadow. Live since 2026-05-11 reset:
+      #   n=69, WR 18.8%, -$203.46 (~91% of total -$222 drawdown). Shadow
+      #   30d: n=390, 0 wins, avg -$92.62, sharpe -3.64. With SHORT already
+      #   blocked (SHORT-resolves-NO shadow bias), event_financial is now
+      #   shadow-only live. Continues to be measured in shadow_trades and
+      #   generator_edge — re-enable only when a cohort shows positive
+      #   t_net in P2 cost-aware analysis.
       # Closes of existing positions are never blocked (unwind path).
-      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,crypto_intraday:long"
+      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,event_financial:long,crypto_intraday:long"
       # Per-market consecutive-loss block threshold (default 3).
       # Lowered to 2 on 2026-05-15: CL futures markets accumulated 10 and 8 losses
       # respectively (1652677, 1652685) in 4 days — each 24h ban cycle absorbed 3
