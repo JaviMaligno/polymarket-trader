@@ -163,7 +163,7 @@ const worstPositions = Array.isArray(data.worst_positions) ? data.worst_position
 const recentlyClosed = Array.isArray(data.recently_closed) ? data.recently_closed : [];
 const zombiePositions = data.zombie_positions || null;
 const orphanedBuys = data.orphaned_buys || null;
-const accountConsistency = data.account_consistency || null;
+const invariantChecks = data.invariant_checks || null;
 const priceFreshness = data.price_freshness || null;
 const signalFreshness = data.signal_freshness || null;
 const optimizationRuns = Array.isArray(data.optimization_runs) ? data.optimization_runs : [];
@@ -551,10 +551,11 @@ function buildMarkdown() {
   ln(`|-------|-------|`);
   ln(`| Zombie Positions | ${zombieCount} |`);
   ln(`| Orphaned Buys | ${orphanedBuys ? fmt(orphanedBuys.count, 0) : 'N/A'} (${orphanedBuys ? fmtUsd(orphanedBuys.total_value) : 'N/A'}) |`);
-  ln(`| Unexplained Capital Diff | ${accountConsistency ? fmtUsd(accountConsistency.unexplained_diff) : 'N/A'} |`);
+  ln(`| Capital Reconciliation (cashflow) | ${invariantChecks ? (invariantChecks.capital_matches_cashflows ? 'OK' : 'MISMATCH') + ` (gap ${fmtUsd(invariantChecks.cashflow_gap)})` : 'N/A'} |`);
+  ln(`| Fees Match | ${invariantChecks ? (invariantChecks.fees_match ? 'OK' : 'MISMATCH') : 'N/A'} |`);
   ln();
-  if (accountConsistency) {
-    ln(`> Capital: ${fmtUsd(accountConsistency.capital)} = Initial ${fmtUsd(accountConsistency.initial)} + PnL ${fmtUsd(accountConsistency.realized_pnl)} - Fees ${fmtUsd(accountConsistency.total_fees)} + unexplained ${fmtUsd(accountConsistency.unexplained_diff)}`);
+  if (invariantChecks) {
+    ln(`> Capital change ${fmtUsd(invariantChecks.capital_change)} vs net cash flow ${fmtUsd(invariantChecks.net_cash_flow)} (leg-by-leg from paper_trades; convention-independent).`);
     ln();
   }
 
