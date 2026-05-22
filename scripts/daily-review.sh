@@ -226,29 +226,18 @@ orphaned_buys=$(query_one "
   ) t;
 ")
 
-# 11. Account consistency check
-# Formula: current_capital + open_positions_cost = initial_capital + realized_pnl - fees
-# (capital is reduced when positions are opened; we must add position costs back to balance)
-account_consistency=$(query_one "
-  SELECT row_to_json(t) FROM (
-    SELECT
-      a.current_capital::float AS capital,
-      a.initial_capital::float AS initial,
-      a.total_realized_pnl::float AS realized_pnl,
-      a.total_fees_paid::float AS total_fees,
-      COALESCE(pos.open_cost, 0)::float AS open_positions_cost,
-      (a.current_capital + COALESCE(pos.open_cost, 0) - (a.initial_capital + a.total_realized_pnl - a.total_fees_paid))::float AS unexplained_diff
-    FROM paper_account a
-    LEFT JOIN (
-      SELECT SUM(size * avg_entry_price) AS open_cost
-      FROM paper_positions
-      WHERE closed_at IS NULL
-    ) pos ON true
-    LIMIT 1
-  ) t;
-")
-
-# 11b. Generalized invariant checks (PASS/FAIL)
+# 11. Generalized invariant checks (PASS/FAIL)
+#
+# NOTE: a prior `account_consistency` check (an `unexplained_diff` formula:
+# current_capital + open_cost - (initial + realized_pnl - total_fees_paid)) was
+# removed here. It used an inconsistent fee convention: `realized_pnl` is stored
+# net of the EXIT fee only (PositionClosingService computes netPnl = grossPnl -
+# exit_fee), while `total_fees_paid` accumulates BOTH entry and exit fees. The
+# formula therefore double-subtracted the exit fee and reported a spurious
+# positive `unexplained_diff == +SUM(exit_fee)` (~half of total_fees_paid) that
+# grew with trade volume but represented no real capital loss. The
+# `capital_matches_cashflows` check below reconstructs net cash leg-by-leg from
+# paper_trades and is convention-independent — it fully supersedes that check.
 # Uses last_reset_at from paper_account as the epoch so that pre-reset trades
 # (e.g. from the 2026-03-30 No-token corruption incident) are excluded from the
 # cashflow and fee cross-checks, preventing false-positive CRITICAL alerts.
@@ -728,7 +717,6 @@ jq -n \
   --argjson recently_closed "$recently_closed" \
   --argjson zombie_positions "$zombie_positions" \
   --argjson orphaned_buys "$orphaned_buys" \
-  --argjson account_consistency "$account_consistency" \
   --argjson invariant_checks "$invariant_checks" \
   --argjson price_freshness "$price_freshness" \
   --argjson signal_freshness "$signal_freshness" \
@@ -764,7 +752,6 @@ jq -n \
     recently_closed: $recently_closed,
     zombie_positions: $zombie_positions,
     orphaned_buys: $orphaned_buys,
-    account_consistency: $account_consistency,
     invariant_checks: $invariant_checks,
     price_freshness: $price_freshness,
     signal_freshness: $signal_freshness,
