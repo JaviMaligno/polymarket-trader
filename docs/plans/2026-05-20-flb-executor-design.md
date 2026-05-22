@@ -18,16 +18,39 @@ The favorite-longshot-bias hold-to-resolution backtest produced the only proven 
 
 In-sample period spans only ~25 days (2026-04-19 → 05-14). Historical OOS is impossible (Polymarket CLOB serves at most ~40d of price history). Forward validation is therefore the only verdict path — `flb-shadow-snapshot.yml` runs daily, records every market entering the qualifying band, and scores each signal on resolution.
 
+> **⚠️ Censored-hold caveat (added 2026-05-22).** The `6.2d median hold` above — and the `≈+131% annualised` ceiling it produced — is a **data-censoring artifact**. The backtest only saw markets that resolved *inside* its ~25-day window, and the CLOB API serves only ~40d of price path, so entries were truncated to short holds (in-sample `p95 hold 24.6d ≈ the window span itself` — the signature of the truncation). Live `flb_shadow_signals` (2026-05-22) shows the **uncensored** expected hold is **median 164–222 days** per cohort. The per-trade edge (+2.24%, monotonic calibration) may survive, but **annualised capital efficiency is ~25–35× worse than the headline**: +2.24% over ~6 months with capital locked and a −100% tail is low-single-digit annualised, not +131%. This makes the **TTR ceiling (OQ#7) and the cohort/hold segmentation of the verdict (below) load-bearing**, not optional. The short-hold subset that produced the headline cannot be re-derived in-sample (long holds are censored) — only forward data answers the long-hold economics.
+
 This doc specifies the **live executor** that follows if forward shadow confirms. It does NOT specify forward measurement (already built).
 
 ## Decision gate (read first)
 
-Build IFF, by 2026-07-15 (60 days after 2026-05-19):
+Build IFF the verdict criteria below hold **on the tradeable cohort** (`crypto_daily` +
+`event_financial` + `event_short` — the live-eligible types per decision #5), NOT on the
+pooled sample:
 
-- `flb_shadow_signals` has `resolved` count ≥ 100.
+- tradeable-cohort `resolved` count ≥ 100.
 - Net-of-entry-cost avg PnL ≥ +1.0% per trade.
 - `t = avg_net / (sd / √n)` ≥ 2 with the same sign as the in-sample reference (+2.24%).
 - Bootstrapped t (on net_pnl) confirms — the parametric t over-states confidence on a −100%-tailed distribution.
+- **Annualised return after the realised hold** (not the censored 6.2d) clears a hurdle to
+  be set once OQ#7 is answered — a +2.24%/trade edge held ~6 months is not, by itself,
+  worth the −100% tail and the capital lockup.
+
+> **⚠️ Timeline correction (2026-05-22).** The original "by 2026-07-15" target is
+> **unreachable on the tradeable cohort**. Live `flb_shadow_signals` composition: 92% is
+> `event_long` (1,922 of 2,085) — which is **shadow-only by policy and never traded live**.
+> The tradeable cohort is only 163 signals, of which ≤44 resolve before 2026-07-15. By
+> `end_date` month, cumulative tradeable resolutions don't reach ~100 until **~Dec 2026 /
+> Jan 2027**. So:
+> - **2026-07-15 gate** can only be an **`event_long` forward read** (its in-sample t=2.60
+>   was the strongest type) — scientifically useful, but a verdict about markets the executor
+>   won't trade. Do NOT let a healthy *pooled* number greenlight a build (same false-confidence
+>   trap as the shadow `event_short`/WTI-Oil misattribution in the daily-review skill).
+> - **Tradeable-cohort verdict** realistically lands **~Dec 2026**.
+> - If `event_long` forward-confirms strongly, that is a reason to revisit its shadow-only
+>   status for FLB specifically (the execution-realism haircut that justified shadow-only was
+>   set for the 4h-trading paradigm; FLB settles at par with no spread-crossing exit — see
+>   Out of scope note). That re-scope is its own analysis, not an automatic promotion.
 
 If any criterion fails: do not build. Re-evaluate the edge thesis or kill the track. The exact decision query lives at the bottom of this doc under "Verdict query".
 
@@ -53,6 +76,7 @@ If any criterion fails: do not build. Re-evaluate the edge thesis or kill the tr
 | OQ#3 | Correlation structure of outcomes | Need realised correlation of same-week resolutions to compute book Sharpe honestly. The annualised +131% ceiling assumes independence; clusters of same-week wipeouts reduce this dramatically. | Forward `flb_shadow_signals` has ≥30 resolutions clustered in same calendar weeks. Estimate: 2026-07-01. |
 | OQ#4 | Sizing for ruin-avoidance | Fixed-fraction vs fractional-Kelly given the −100% tail. Cap per-position and total-locked exposure so a wipeout cluster is survivable. Depends on OQ#3 (correlation drives realised cluster sizes). | After OQ#3. Estimate: 2026-07-10. |
 | OQ#6 | Resolution-week concentration cap | How many concurrent positions resolving in the same week are tolerable. Tied to OQ#3 + OQ#4. | After OQ#3 + OQ#4. |
+| OQ#7 | TTR ceiling / capital efficiency | Forward holds are ~164–222d median, not the censored in-sample 6.2d. Does a **TTR ceiling at entry** (e.g. enter only when TTR ≤ N weeks) recover a short-hold, capital-efficient regime while preserving net/trade? Or is the band's tradeable population structurally long-hold (then FLB is a low-turnover play and the annualised hurdle decides)? Needs forward resolutions bucketed by entry-TTR. Add a `--max-ttr-hours` flag to the backtest only as a hypothesis generator — it cannot answer this in-sample (long holds are censored). | Forward resolutions span ≥3 entry-TTR buckets. Estimate: 2026-09. |
 
 Do not pretend to answer OQ#3/#4 with current data. The backtest's 1,015 trades are 25 days of resolutions — a single cluster. OQ#3 needs ≥3 distinct resolution weeks. Premature answers freeze the wrong sizing into production.
 
@@ -210,21 +234,36 @@ FROM paper_account ORDER BY id LIMIT 1;
 
 ## Verdict query (run on 2026-07-15)
 
+**Segment by cohort — the tradeable cohort is the gate; `event_long` is reported separately
+(forward science, not a build trigger). Never read the pooled row as the verdict.**
+
 ```sql
 WITH resolved AS (
-  SELECT net_pnl, market_type
+  SELECT net_pnl, hold_days,
+         CASE WHEN market_type = 'event_long' THEN 'event_long (shadow-only)'
+              ELSE 'TRADEABLE (cd/ef/es)' END AS cohort
   FROM flb_shadow_signals
   WHERE resolved_at IS NOT NULL
 )
 SELECT
+  cohort,
   COUNT(*) AS n,
   ROUND(AVG(net_pnl)::numeric, 4) AS avg_net_pnl,
   ROUND(STDDEV_SAMP(net_pnl)::numeric, 4) AS sd,
   ROUND((AVG(net_pnl) / NULLIF(STDDEV_SAMP(net_pnl) / SQRT(COUNT(*)), 0))::numeric, 2) AS t_parametric,
   COUNT(*) FILTER (WHERE net_pnl > 0) AS wins,
-  ROUND(100.0 * COUNT(*) FILTER (WHERE net_pnl > 0) / NULLIF(COUNT(*), 0), 1) AS win_rate_pct
-FROM resolved;
+  ROUND(100.0 * COUNT(*) FILTER (WHERE net_pnl > 0) / NULLIF(COUNT(*), 0), 1) AS win_rate_pct,
+  ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY hold_days)::numeric, 1) AS median_hold_days,
+  ROUND((AVG(net_pnl) * 365.0 / NULLIF(AVG(hold_days), 0))::numeric, 2) AS naive_annualised_pct
+FROM resolved
+GROUP BY cohort
+ORDER BY cohort;
 ```
+
+`median_hold_days` and `naive_annualised_pct` are mandatory: a healthy per-trade `t` over a
+6-month hold is a low-turnover play, not a +131% strategy (see censored-hold caveat). The
+`naive_annualised_pct` ignores correlation (OQ#3) and assumes full redeployment — treat it
+as an upper bound, not a forecast.
 
 Also run a bootstrap on `net_pnl` (~10,000 resamples, t-stat distribution) — parametric t over-states on −100%-tailed data. If parametric t ≥ 3 but bootstrap p > 0.05, do NOT build.
 
