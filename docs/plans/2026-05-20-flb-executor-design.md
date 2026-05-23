@@ -59,12 +59,15 @@ pooled sample:
 > The decisive finding is **promoting does not accelerate the verdict** — markets must
 > physically resolve, and the shadow recorder already captures the same outcome at zero capital
 > risk. So promotion swaps "wait" for "expose," not "wait" for "learn." Combined with bond-like
-> annualised return (+1.69%/trade × 365/167d ≈ **+3.7%/yr per position**) against a −100% tail
-> and OQ#3/OQ#4 still open, this is not an attractive trade. Wait for Lever 2 to verdict on the
-> event_long shadow at ~mid-July 2026 (n_pooled ≥ 100 reachable at current ~1.75/day forward
-> resolution rate). Promote only if Lever 2 = HOLDING **and** OQ#3 quantified across ≥3 distinct
-> calendar weeks **and** OQ#4 sizing derived from (3). Full analysis: see memory
-> `project_flb_event_long_promotion_2026-05-23.md`.
+> annualised return (+1.69%/trade × 365/167d ≈ **+3.7%/yr per position**) against a −100% tail,
+> this is not an attractive trade. Wait for Lever 2 to verdict on the event_long shadow at
+> ~mid-July 2026 (n_pooled ≥ 100 reachable at current ~1.75/day forward resolution rate).
+> Promote only if Lever 2 = HOLDING **and** OQ#7 has a partial answer (forward resolutions
+> across ≥ 3 entry-TTR buckets — estimate ~2026-09). Full analysis: see memories
+> `project_flb_event_long_promotion_2026-05-23.md` and
+> `project_flb_oq_preliminary_answers_2026-05-23.md`. The latter shows OQ#3/#4/#6 now have
+> preliminary in-sample answers (1/4 Kelly ≈ $20/position, 10% total exposure, 50-position
+> per-week cap) — so they no longer block the promotion gate, only OQ#7 does.
 
 If any criterion fails: do not build. Re-evaluate the edge thesis or kill the track. The exact decision query lives at the bottom of this doc under "Verdict query".
 
@@ -179,16 +182,22 @@ proceed to build until either (a) a clean re-test passes after a stated paramete
 | 7 | Integration boundary | New service `FLBExecutor` parallel to `AutoSignalExecutor` | Different signal source (a daily scan, not a 60s tick), different exit semantics, different accounting. Mixing them entangles two strategy classes. |
 | 8 | Deployment posture | Phase 1: dry-run alongside shadow recorder (logs intent, no fills). Phase 2: live with cap on total locked capital. | Pre-build forward shadow is the only OOS. Phase 1 confirms the executor's plumbing matches the recorder. Phase 2 starts small. |
 
-### Blocked on forward data
+### Open questions — preliminary answers + remaining blocks
 
-| # | Open question | Why blocked | Resolves when |
+> **⚠️ Re-classification 2026-05-23.** The original "single-cluster" framing was too strict. The in-sample dataset has **5 calendar weeks** (not 1), so heteroskedasticity can be measured. The forward `flb_shadow_signals` end_date distribution already exposes cluster sizes. Three of the four OQs have preliminary in-sample answers; only OQ#7 remains genuinely blocked. Full numbers in memory `project_flb_oq_preliminary_answers_2026-05-23.md`.
+
+| # | Open question | Status (2026-05-23) | Preliminary number / when refines |
 |---|---|---|---|
-| OQ#3 | Correlation structure of outcomes | Need realised correlation of same-week resolutions to compute book Sharpe honestly. The annualised +131% ceiling assumes independence; clusters of same-week wipeouts reduce this dramatically. | Forward `flb_shadow_signals` has ≥30 resolutions clustered in same calendar weeks. Estimate: 2026-07-01. |
-| OQ#4 | Sizing for ruin-avoidance | Fixed-fraction vs fractional-Kelly given the −100% tail. Cap per-position and total-locked exposure so a wipeout cluster is survivable. Depends on OQ#3 (correlation drives realised cluster sizes). | After OQ#3. Estimate: 2026-07-10. |
-| OQ#6 | Resolution-week concentration cap | How many concurrent positions resolving in the same week are tolerable. Tied to OQ#3 + OQ#4. | After OQ#3 + OQ#4. |
-| OQ#7 | TTR ceiling / capital efficiency | Forward holds are ~164–222d median, not the censored in-sample 6.2d. Does a **TTR ceiling at entry** (e.g. enter only when TTR ≤ N weeks) recover a short-hold, capital-efficient regime while preserving net/trade? Or is the band's tradeable population structurally long-hold (then FLB is a low-turnover play and the annualised hurdle decides)? Needs forward resolutions bucketed by entry-TTR. Add a `--max-ttr-hours` flag to the backtest only as a hypothesis generator — it cannot answer this in-sample (long holds are censored). | Forward resolutions span ≥3 entry-TTR buckets. Estimate: 2026-09. |
+| OQ#3 | Correlation structure of outcomes | **PRELIMINARY** | In-sample wipeout rate by week: 2.2%–6.7% across 5 weeks (worst ≈ 1.8× pooled mean of 3.74%). Election-regime weeks unmeasured; forward refines. |
+| OQ#4 | Sizing for ruin-avoidance | **PRELIMINARY ANSWER** | Bernoulli Kelly = 41.3% total. **1/4 Kelly recommended**: 10.3% total exposure, ≈$20 per position on $9,751 (50 concurrent target). 1/8 Kelly is the floor if forward weeks show realized rate > 10%. |
+| OQ#6 | Resolution-week concentration cap | **PRELIMINARY ANSWER** | Falls out of OQ#3 + OQ#4: 50 positions OR 10% capital resolving in any one ISO week (whichever binds first). Worst forward cluster identified: 2026-11-02 with 294 unresolved event_long signals. |
+| OQ#7 | TTR ceiling / capital efficiency | **STILL BLOCKED** | In-sample is uniformly censored: even entries with ≥90d TTR observed avg realized hold ≤21d (window was 25 days). Forward resolutions across ≥3 entry-TTR buckets, each n≥30. Estimate: ~2026-09. |
 
-Do not pretend to answer OQ#3/#4 with current data. The backtest's 1,015 trades are 25 days of resolutions — a single cluster. OQ#3 needs ≥3 distinct resolution weeks. Premature answers freeze the wrong sizing into production.
+The preliminary sizing numbers are **inputs** when the executor is built, with two caveats:
+- The 6.7% in-sample worst week is a single observation. Election-correlated weeks could be materially worse. Treat 1/4 Kelly as the upper sizing; 1/8 Kelly as the conservative floor until forward weekly realized rate has ≥ 3 weeks of n ≥ 30.
+- Per-position cap assumes ~50 concurrent positions for diversification; with fewer positions, scale per-position size up proportionally.
+
+Do not pretend OQ#7 is answered. It alone now blocks the executor's TTR-ceiling decision — a structural strategy parameter.
 
 ## Architecture
 
