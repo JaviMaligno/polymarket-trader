@@ -75,15 +75,21 @@ jobs:
             exit 1
           fi
 
-          gcloud compute scp scripts/flb-cost-realism-check.js polymarket-vm:/tmp/flb-cost.js --zone=$ZONE
-          gcloud compute scp scripts/flb-calibration-monitor.js polymarket-vm:/tmp/flb-cal.js --zone=$ZONE
+          # Use workflow-unique paths and rm -f defensively. The GH Actions
+          # SSH identity differs from the operator's interactive identity, so
+          # a /tmp/ file written by hand would block the scp with "Permission
+          # denied".
+          $SSH --command="rm -f /tmp/flb-monitor-cost.js /tmp/flb-monitor-cal.js" > /dev/null
 
-          $SSH --command="docker cp /tmp/flb-cost.js polymarket-dashboard-api:/app/flb-cost.js && docker cp /tmp/flb-cal.js polymarket-dashboard-api:/app/flb-cal.js" > /dev/null
+          gcloud compute scp scripts/flb-cost-realism-check.js polymarket-vm:/tmp/flb-monitor-cost.js --zone=$ZONE
+          gcloud compute scp scripts/flb-calibration-monitor.js polymarket-vm:/tmp/flb-monitor-cal.js --zone=$ZONE
+
+          $SSH --command="docker cp /tmp/flb-monitor-cost.js polymarket-dashboard-api:/app/flb-monitor-cost.js && docker cp /tmp/flb-monitor-cal.js polymarket-dashboard-api:/app/flb-monitor-cal.js" > /dev/null
 
           # Capture outputs to files so we can both echo them and write the summary.
-          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-cost.js" | tee cost.txt
+          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-monitor-cost.js" | tee cost.txt
           echo
-          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-cal.js" | tee cal.txt
+          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-monitor-cal.js" | tee cal.txt
 
           {
             echo "## FLB Early-Failure Monitor — $(date -u +%Y-%m-%d)"
