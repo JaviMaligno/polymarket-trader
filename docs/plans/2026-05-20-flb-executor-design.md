@@ -52,6 +52,20 @@ pooled sample:
 >   set for the 4h-trading paradigm; FLB settles at par with no spread-crossing exit — see
 >   Out of scope note). That re-scope is its own analysis, not an automatic promotion.
 
+> **⚠️ event_long promotion analysis (2026-05-23).** Done. **Verdict: NO promotion now.** The
+> structural haircut argument is sound — the 0.33 live/shadow ratio was a 4h-trading artefact
+> (entry+exit spreads, stop-loss, timing) and FLB hold-to-resolution erases 3 of the 4 factors;
+> the entry cost is already captured by Lever 1. But that argument is necessary, not sufficient.
+> The decisive finding is **promoting does not accelerate the verdict** — markets must
+> physically resolve, and the shadow recorder already captures the same outcome at zero capital
+> risk. So promotion swaps "wait" for "expose," not "wait" for "learn." Combined with bond-like
+> annualised return (+1.69%/trade × 365/167d ≈ **+3.7%/yr per position**) against a −100% tail
+> and OQ#3/OQ#4 still open, this is not an attractive trade. Wait for Lever 2 to verdict on the
+> event_long shadow at ~mid-July 2026 (n_pooled ≥ 100 reachable at current ~1.75/day forward
+> resolution rate). Promote only if Lever 2 = HOLDING **and** OQ#3 quantified across ≥3 distinct
+> calendar weeks **and** OQ#4 sizing derived from (3). Full analysis: see memory
+> `project_flb_event_long_promotion_2026-05-23.md`.
+
 If any criterion fails: do not build. Re-evaluate the edge thesis or kill the track. The exact decision query lives at the bottom of this doc under "Verdict query".
 
 ## Pre-registered early-failure kill criteria
