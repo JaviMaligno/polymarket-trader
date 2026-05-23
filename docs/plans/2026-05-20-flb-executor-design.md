@@ -54,6 +54,102 @@ pooled sample:
 
 If any criterion fails: do not build. Re-evaluate the edge thesis or kill the track. The exact decision query lives at the bottom of this doc under "Verdict query".
 
+## Pre-registered early-failure kill criteria
+
+The verdict gate above is the *confirmation* test (~Dec 2026 on tradeable cohort). The
+criteria below are *falsification* tests — pre-registered checks that can kill the strategy
+**weeks earlier** without waiting for resolutions to accumulate. Added 2026-05-23 in response
+to "feedback as early as possible". Each has a script that can be cron'd or run on demand.
+
+The discipline matters: pre-registering the kill thresholds avoids the post-hoc rationalisation
+trap ("well, it failed but actually the threshold should have been …"). If any of these
+fires, the track is dead. No re-litigation.
+
+### Lever 1 — Cost-realism
+
+**Script**: `scripts/flb-cost-realism-check.js` (built 2026-05-23).
+
+**What it tests**: whether the in-sample backtest's 0.54% entry-cost assumption holds against
+the forward distribution of live bid-ask spreads. Recomputes per-market_type net/trade at
+the p25/p50/p75/p95 percentiles of the forward effective entry cost
+`(entry_spread / 2) / (1 − entry_yes_price)`.
+
+**Run cadence**: on demand. The forward sample of spreads is already large (n=2,086) — no
+need for time-series build-up.
+
+**Kill rules** (pooled tradeable cohort, fired):
+- `cost_p50 ≥ in_sample_gross` → DEAD. Median forward signal is uneconomic.
+- `cost_p75 ≥ in_sample_gross` → MARGINAL. ≥25% of forward signals are uneconomic; a
+  mandatory spread filter at entry becomes load-bearing, not optional.
+
+**Current state (2026-05-23)**: tradeable cohort verdict **MARGINAL** (gross +2.79%,
+cost_p50 = 2.00%, net@p50 = +0.80%, net@p75 = −1.40%). Strategy NOT killed but
+[design decision #4 (spread filter)](#settled) is confirmed as load-bearing — without it,
+≥25% of signals lose money. event_financial is the worst offender (cost_p50 = 2.24% vs
+gross +4.26%). event_long forward (n=1,922) is also MARGINAL at p75. Crypto_daily and
+event_short remain comfortably ALIVE.
+
+### Lever 2 — Calibration monotonicity
+
+**Script**: `scripts/flb-calibration-monitor.js` (built 2026-05-23).
+
+**What it tests**: whether the forward resolved signals reproduce the in-sample monotonic
+calibration gap — gap shifts from ≈−1.9% (bin 0.02-0.04) to ≈−2.9% (bin 0.08-0.10) as
+the longshot becomes a "less-deep" longshot. Monotonicity is the structural signature of
+the favorite-longshot bias; if it breaks, the regime is gone.
+
+**Run cadence**: daily after `flb-shadow-snapshot.yml` posts new resolutions.
+
+**Kill rules** (verdict on the pooled forward sample, n_pooled_resolved ≥ 100, with
+≥ 3 bins each containing ≥ 10 resolutions):
+- All bins have `gap ≥ −0.5%` → `BROKEN_NO_BIAS`. The bias has disappeared.
+- Slope of `gap` vs bin midpoint is positive → `BROKEN_SLOPE_REVERSED`. Higher-priced
+  longshots resolve YES MORE often than lower-priced ones — the inverse of the bias.
+- Otherwise → `HOLDING`. Continue.
+
+Below the n thresholds the verdict is `INSUFFICIENT`; no action either way.
+
+**Earliest fire date**: depends on resolution flow. event_long is currently 92% of
+signals and provides 245 resolutions in 30d / 503 in 60d (see forward-flow table in
+[[project_per_direction_weights_gap]] discussion). Pooled `n ≥ 100` is reachable
+**~mid-June 2026** if event_long inflow continues. This is **3-7 months earlier**
+than the tradeable-cohort net/trade verdict gate.
+
+**Current state (2026-05-23)**: n_resolved = 7 (all event_long). Verdict `INSUFFICIENT`.
+
+### Lever 3 — Forward PnL t-stat (deep-negative falsification)
+
+**Script**: not yet a dedicated script — derivable from `flb_shadow_signals` directly
+(the snapshot script's Step 3 report). Will be wrapped into the daily monitor in a
+follow-up.
+
+**What it tests**: a one-sided floor on the forward per-trade PnL. The full confirmation
+gate requires n ≥ 100 with t ≥ 2; this falsification version is the symmetric one-sided
+counterpart for early kill.
+
+**Kill rule**: at n ≥ 30 pooled, if `avg_net < −2.0%` **and** `t < −2.0`. Bayesianally
+weak as confirmation but adequate as a falsification stop — a strategy that loses 2%
+per trade with two standard deviations of confidence at n=30 is not going to recover
+to +2.24% at n=100.
+
+**Earliest fire date**: ~end of June 2026 (n=30 reachable from event_long inflow plus
+early tradeable resolutions).
+
+**Current state**: n_resolved = 7. Below threshold.
+
+### Decision matrix summary
+
+| Lever | Test | Pre-registered kill | Earliest fire | Today's state |
+|---|---|---|---|---|
+| 1 | Cost-realism | cost_p50 ≥ gross | NOW (already measurable) | MARGINAL (not killed) |
+| 2 | Calibration monotonicity | slope > 0 or all gaps ≥ −0.5% (n_pooled ≥ 100) | ~mid-June 2026 | INSUFFICIENT (n=7) |
+| 3 | Forward PnL floor | net < −2% AND t < −2 (n ≥ 30) | ~end-June 2026 | INSUFFICIENT (n=7) |
+| Confirmation gate | tradeable net ≥ +1%, t ≥ 2 (n ≥ 100) | ~Dec 2026 / Jan 2027 | far below n |
+
+**Operator note**: if any of Levers 1-3 fires, halt the design work immediately. Do not
+proceed to build until either (a) a clean re-test passes after a stated parameter change
+(e.g. tighter spread filter), or (b) the FLB track is officially closed.
+
 ## Design Decisions
 
 ### Settled
