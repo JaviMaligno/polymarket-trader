@@ -1,0 +1,112 @@
+name: FLB Early-Failure Monitor
+
+# Runs the two pre-registered FLB falsification scripts daily and emits their
+# output to the GitHub Actions run summary so the user can see the verdict
+# without SSH'ing into the VM.
+#
+#   - scripts/flb-cost-realism-check.js: recomputes per-type net/trade against
+#     the forward distribution of live bid-ask spreads. Fires NOW if median
+#     forward cost ≥ in-sample gross.
+#   - scripts/flb-calibration-monitor.js: checks if the in-sample monotonic
+#     calibration gap holds forward. Fires once n_pooled_resolved ≥ 100.
+#
+# Kill criteria + earliest-fire dates are documented in
+# docs/plans/2026-05-20-flb-executor-design.md, "Pre-registered early-failure
+# kill criteria".
+#
+# Scheduling: 07:00 UTC — after flb-shadow-snapshot.yml (06:00 UTC, which
+# records new resolutions) and before daily-trade-review.yml (08:00 UTC).
+
+on:
+  schedule:
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: flb-monitor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/992492426638/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-deploy@project-94e9f6f2-aba7-4cb6-afc.iam.gserviceaccount.com'
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cleanup stale SSH keys in project metadata
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          gcloud compute project-info describe --format=json \
+            | jq -r '.commonInstanceMetadata.items[]? | select(.key == "ssh-keys") | .value' \
+            | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' > "$tmp"
+          if [ -s "$tmp" ]; then
+            gcloud compute project-info add-metadata --metadata-from-file=ssh-keys="$tmp"
+          fi
+          rm -f "$tmp"
+
+      - name: Run cost-realism + calibration monitors on VM
+        id: monitors
+        run: |
+          ZONE=us-east1-b
+          SSH="gcloud compute ssh Usuario@polymarket-vm --zone=$ZONE --ssh-flag=-o --ssh-flag=StrictHostKeyChecking=no --ssh-flag=-o --ssh-flag=ConnectTimeout=60"
+
+          OK=false
+          for attempt in 1 2 3; do
+            if $SSH --command="echo ssh_ok" > /dev/null 2>&1; then OK=true; break; fi
+            echo "::warning::SSH attempt $attempt/3 failed — waiting 20s"
+            sleep 20
+          done
+          if [ "$OK" != "true" ]; then
+            echo "::error::VM unreachable — FLB monitors skipped"
+            exit 1
+          fi
+
+          gcloud compute scp scripts/flb-cost-realism-check.js polymarket-vm:/tmp/flb-cost.js --zone=$ZONE
+          gcloud compute scp scripts/flb-calibration-monitor.js polymarket-vm:/tmp/flb-cal.js --zone=$ZONE
+
+          $SSH --command="docker cp /tmp/flb-cost.js polymarket-dashboard-api:/app/flb-cost.js && docker cp /tmp/flb-cal.js polymarket-dashboard-api:/app/flb-cal.js" > /dev/null
+
+          # Capture outputs to files so we can both echo them and write the summary.
+          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-cost.js" | tee cost.txt
+          echo
+          $SSH --command="docker exec polymarket-dashboard-api node /app/flb-cal.js" | tee cal.txt
+
+          {
+            echo "## FLB Early-Failure Monitor — $(date -u +%Y-%m-%d)"
+            echo
+            echo "### Lever 1 — Cost realism"
+            echo
+            echo '```'
+            cat cost.txt
+            echo '```'
+            echo
+            echo "### Lever 2 — Calibration monotonicity"
+            echo
+            echo '```'
+            cat cal.txt
+            echo '```'
+            echo
+            echo "Kill thresholds: see \`docs/plans/2026-05-20-flb-executor-design.md\` → Pre-registered early-failure kill criteria."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Surface kill verdicts in the workflow log so a failed run is loud.
+          if grep -E "DEAD\s*$" cost.txt > /dev/null; then
+            echo "::warning::Lever 1 fired DEAD on at least one cohort — review run summary"
+          fi
+          if grep -E "VERDICT.*BROKEN" cal.txt > /dev/null; then
+            echo "::warning::Lever 2 fired BROKEN — bias regime may be gone, review run summary"
+          fi
