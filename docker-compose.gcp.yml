@@ -189,6 +189,18 @@ services:
       # materialize. Re-tighten only if post-flip live SHORT WR underperforms.
       EXECUTOR_SHORT_MAX_YES_PRICE: "1.0"
       EXECUTOR_SHORT_SIZE_MULT: "1.0"
+      # Gate 0g — OTMLongshotGate. Block crypto-class LONG opens below
+      # the price threshold. Empirical 2026-05-26: crypto_daily:long
+      # n=8 lifetime, 1 win, total -$61.15, avg entry 0.206 — daily-
+      # review #266 identified this as the active bleed. RT cost (~1%)
+      # dominates typical 4h price moves at these prices. Surgical
+      # price-band block (NOT a full type-direction block in
+      # EXECUTOR_BLOCKED_TYPE_DIRECTIONS) preserves balanced-price
+      # crypto_daily:long entries that remain viable. Re-evaluate
+      # threshold if shadow_trades with `signal_type='otm_longshot_blocked'`
+      # show different cost-aware edge in a future P2 t-stat run.
+      EXECUTOR_OTM_LONGSHOT_TYPES: "crypto_daily"
+      EXECUTOR_OTM_LONGSHOT_PRICE_LO: "0.30"
       # EXECUTOR_LOSS_GATE_EPOCH removed 2026-05-20. The 7-day rolling window of
       # the per-market consecutive-loss block + persistent-loser ban cleared
       # past the 2026-05-04 dm-flip on 2026-05-11; the epoch filter no longer
