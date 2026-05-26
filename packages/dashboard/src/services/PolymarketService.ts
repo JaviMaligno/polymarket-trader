@@ -300,10 +300,12 @@ export function buildFetchSQL(
     `);
   }
   // Always append a force-include branch (skips volume + price-history filters).
+  // $3 is the force-include array — minVolume ($3 in legacy) is omitted from the
+  // per-type path entirely (per-type LIMIT bounds the result set instead).
   branches.push(`
     (SELECT ${selectCols}
      FROM markets m
-     WHERE m.id = ANY($4::varchar[])
+     WHERE m.id = ANY($3::varchar[])
        AND m.is_active = true
        AND m.is_resolved = false
        AND m.clob_token_id_yes IS NOT NULL)
@@ -668,7 +670,7 @@ export class PolymarketService extends EventEmitter {
       const { sql: fetchSQL, perTypeMode } = buildFetchSQL(fetchBudgets);
 
       const fetchParams = perTypeMode
-        ? [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, forceIds]
+        ? [MIN_PRICE, MAX_PRICE, forceIds]
         : [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch, forceIds];
 
       const marketsResult = await query<{

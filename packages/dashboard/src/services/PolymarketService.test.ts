@@ -122,7 +122,7 @@ describe('buildFetchSQL', () => {
     expect(sql).toContain("m.market_type = 'event_short'");
     expect(sql).toContain('LIMIT 8');
     expect(sql).toContain('LIMIT 12');
-    expect(sql).toContain('m.id = ANY($4::varchar[])');
+    expect(sql).toContain('m.id = ANY($3::varchar[])');
     // 3 branches (2 types + 1 force-include) → 2 UNION ALL joins.
     expect(sql.split('UNION ALL').length).toBe(3);
     // Per-type path DROPS the volume filter — point of per-type allocation
