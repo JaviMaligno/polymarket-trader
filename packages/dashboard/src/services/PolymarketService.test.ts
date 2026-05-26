@@ -110,6 +110,8 @@ describe('buildFetchSQL', () => {
     expect(sql).toContain('LIMIT $4');
     expect(sql).toContain('m.id = ANY($5::varchar[])');
     expect(sql).not.toContain('UNION ALL');
+    // Legacy path KEEPS the volume filter (preserves prior behaviour).
+    expect(sql).toContain('m.volume_24h >= $3');
   });
 
   it('builds one sub-query per type plus a force-include branch', () => {
@@ -123,6 +125,10 @@ describe('buildFetchSQL', () => {
     expect(sql).toContain('m.id = ANY($4::varchar[])');
     // 3 branches (2 types + 1 force-include) → 2 UNION ALL joins.
     expect(sql.split('UNION ALL').length).toBe(3);
+    // Per-type path DROPS the volume filter — point of per-type allocation
+    // is to surface low-volume types (event_short) the legacy MIN_VOLUME
+    // filter excludes. Per-type LIMIT caps the result set instead.
+    expect(sql).not.toContain('m.volume_24h >= $3');
   });
 
   it('drops types with unsafe characters from the SQL (defence in depth)', () => {

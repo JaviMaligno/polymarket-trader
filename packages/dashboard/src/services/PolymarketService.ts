@@ -235,14 +235,15 @@ export function selectByTypeBudget<T extends SelectableMarket>(
 export function buildFetchSQL(
   fetchBudgets: Map<string, number>,
 ): { sql: string; perTypeMode: boolean } {
-  const baseFilters = `
+  // Filters always applied (both paths). The volume filter is intentionally
+  // NOT here — see per-type vs legacy split below.
+  const sharedFilters = `
         m.is_active = true
     AND m.is_resolved = false
     AND COALESCE(m.tracking_status, 'active') != 'cold'
     AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
     AND m.current_price_yes > $1
     AND m.current_price_yes < $2
-    AND m.volume_24h >= $3
     AND EXISTS (
       SELECT 1 FROM price_history ph
       WHERE ph.token_id = m.clob_token_id_yes
@@ -260,11 +261,13 @@ export function buildFetchSQL(
     m.market_score`;
 
   if (fetchBudgets.size === 0) {
-    // Legacy single-query path.
+    // Legacy single-query path — keeps the volume filter (preserves prior
+    // behaviour for callers that have not opted into per-type allocation).
     const sql = `
       SELECT ${selectCols}
       FROM markets m
-      WHERE ${baseFilters}
+      WHERE (${sharedFilters}
+        AND m.volume_24h >= $3)
         OR m.id = ANY($5::varchar[])
       ORDER BY m.volume_24h DESC NULLS LAST
       LIMIT $4
@@ -272,7 +275,13 @@ export function buildFetchSQL(
     return { sql, perTypeMode: false };
   }
 
-  // Per-type UNION ALL path.
+  // Per-type UNION ALL path. The volume filter is dropped because the whole
+  // point of per-type allocation is to ensure low-volume types (event_short)
+  // get representation; requiring volume_24h >= MIN_VOLUME re-introduces the
+  // exact starvation we are trying to fix (verified 2026-05-26 #271 post-
+  // deploy: event_short had 18 tracked but only 1 met MIN_VOLUME=500). The
+  // per-type LIMIT already caps the candidate pool, so dropping the filter
+  // does not blow up the result-set size.
   const TYPE_SAFE_RE = /^[a-z_]+$/;
   const branches: string[] = [];
   for (const [type, budget] of fetchBudgets) {
@@ -284,7 +293,7 @@ export function buildFetchSQL(
     branches.push(`
       (SELECT ${selectCols}
        FROM markets m
-       WHERE ${baseFilters}
+       WHERE ${sharedFilters}
          AND m.market_type = '${type}'
        ORDER BY m.volume_24h DESC NULLS LAST
        LIMIT ${safeBudget})
