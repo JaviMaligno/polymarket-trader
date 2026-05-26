@@ -233,6 +233,29 @@ const ALLOWED_MARKET_TYPES: Set<string> | null = process.env.ALLOWED_MARKET_TYPE
   ? new Set(process.env.ALLOWED_MARKET_TYPES.split(',').map(t => t.trim()))
   : null;
 
+// Gate 0g: OTM-longshot block. Crypto-class markets at low prices are
+// structurally cost-dominated for LONG opens — a market entered at 0.20
+// needs the YES price to move from 0.20 → 0.21 just to break even on a
+// 1% round-trip fee, but most 4h moves are smaller than that. Empirical
+// 2026-05-26 cohort: crypto_daily:long n=8, 1 win, total -$61.15, avg
+// entry 0.206 (daily-review #266 forensic). Block LONG opens below the
+// price threshold for the listed market types. SHORT opens are NOT
+// blocked here (different risk geometry) — use Gate 0f if a SHORT cohort
+// turns anti-edge. Closes are always allowed (legacy unwind path).
+//
+// Why not Gate 0f for the whole crypto_daily:long cohort: empirically the
+// long-tail is the cost-dominated subset; balanced-price entries (0.30-0.70)
+// are still strategically viable. Gate 0f is type-wide; this is band-wide.
+const OTM_LONGSHOT_TYPES: Set<string> = new Set(
+  (process.env.EXECUTOR_OTM_LONGSHOT_TYPES || 'crypto_daily')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+);
+// Tunable: block LONG below this YES price (strict <, so 0.30 means
+// 0.299 blocked but 0.300 allowed). Default 0.30.
+const OTM_LONGSHOT_PRICE_LO = parseFiniteEnvNumber('EXECUTOR_OTM_LONGSHOT_PRICE_LO', 0.30);
+
 /**
  * Per-(market_type, direction) blocklist. Surgically blocks (type, side)
  * combinations that empirical generator_predictions analysis identifies as
@@ -576,6 +599,41 @@ export class AutoSignalExecutor extends EventEmitter {
           );
           return { executed: false, reason: 'event_otm_near_expiry: position check failed' };
         }
+      }
+    }
+
+    // 0g. OTMLongshotGate: block LONG opens at low YES price in crypto-class
+    // markets where round-trip cost dominates the typical 4h price move.
+    // Empirical 2026-05-26: crypto_daily:long n=8 lifetime, 1 win, total
+    // -$61.15, avg entry 0.206 — daily-review #266 forensic identified this
+    // as the active bleed. Surgical price-band block (not full type-direction
+    // block) preserves balanced-price entries that remain viable.
+    if (
+      signal.direction === 'long' &&
+      signal.marketType &&
+      OTM_LONGSHOT_TYPES.has(signal.marketType) &&
+      signal.price < OTM_LONGSHOT_PRICE_LO
+    ) {
+      try {
+        const openPositions = await paperPositionsRepo.getAll();
+        const hasOpenPosition = openPositions.some((p) => p.market_id === signal.marketId);
+        if (!hasOpenPosition) {
+          console.log(
+            `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+              `otm_longshot_blocked (${signal.marketType}, price=${signal.price.toFixed(4)} < ${OTM_LONGSHOT_PRICE_LO})`
+          );
+          this.insertShadowTrade(signal, 'otm_longshot_blocked').catch(() => {});
+          return {
+            executed: false,
+            reason: `otm_longshot_blocked: ${signal.marketType} long@${signal.price.toFixed(4)}`,
+          };
+        }
+      } catch {
+        console.log(
+          `[AutoExecutor] REJECTED ${signal.marketId.substring(0, 12)}... : ` +
+            `otm_longshot_blocked (position check failed)`
+        );
+        return { executed: false, reason: 'otm_longshot_blocked: position check failed' };
       }
     }
 
