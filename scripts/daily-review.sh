@@ -421,6 +421,52 @@ edge_gap=$(query_json "
   ) t
 ")
 
+# 15c2. Today's open distribution by (type, side) — distinct from rolling 7d
+# in 15b. Surfaces the bleed cohort BEFORE it accumulates into the 7d window.
+# Use this to distinguish "X opens today" from "X in rolling 7d", a framing
+# trap surfaced 2026-05-26 (#266 misread event_financial:long).
+opens_today=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      m.market_type,
+      p.side AS direction,
+      COUNT(*)::float AS n_opens_today,
+      ROUND(AVG(p.avg_entry_price)::numeric, 3)::float AS avg_entry,
+      ROUND(COALESCE(SUM(p.realized_pnl), 0)::numeric, 2)::float AS pnl_so_far,
+      COUNT(*) FILTER (WHERE p.realized_pnl > 0)::float AS wins,
+      COUNT(*) FILTER (WHERE p.closed_at IS NOT NULL)::float AS closed
+    FROM paper_positions p
+    JOIN markets m ON m.id = p.market_id
+    WHERE p.opened_at >= DATE_TRUNC('day', NOW())
+    GROUP BY 1, 2
+    ORDER BY n_opens_today DESC
+  ) t
+")
+
+# 15c3. Market coverage by type — tracked vs priced vs producing predictions.
+# Surfaces SignalEngine feed bugs (a type can be tracked + priced but produce
+# zero predictions if the feed slice excludes it — the bug that caused
+# event_short edge stale 201h alarm on 2026-05-26 #266).
+coverage_by_type=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      m.market_type,
+      COUNT(DISTINCT m.id) FILTER (WHERE m.tracking_status='active')::float AS tracked,
+      COUNT(DISTINCT m.id) FILTER (WHERE m.tracking_status='active' AND EXISTS (
+        SELECT 1 FROM price_history ph
+        WHERE ph.token_id = m.clob_token_id_yes
+          AND ph.time > NOW() - INTERVAL '24 hours'
+      ))::float AS priced_24h,
+      COUNT(DISTINCT g.market_id) FILTER (WHERE g.time > NOW() - INTERVAL '24 hours')::float AS with_preds_24h,
+      COUNT(DISTINCT m.id) FILTER (WHERE m.is_active = true)::float AS active_in_db
+    FROM markets m
+    LEFT JOIN generator_predictions g ON g.market_id::text = m.id::text
+    WHERE m.market_type IS NOT NULL
+    GROUP BY 1
+    ORDER BY 1
+  ) t
+")
+
 # 15d. Measurement freshness — when was each market_type last measured?
 # Stale (> 48h) means the nightly cron isn't running or is timing out for
 # that type. The daily-review should alert when hours_since > 48.
@@ -737,6 +783,8 @@ jq -n \
   --argjson shadow_summary_by_direction "$shadow_summary_by_direction" \
   --argjson edge_cohorts_positive "$edge_cohorts_positive" \
   --argjson edge_cohorts_traded "$edge_cohorts_traded" \
+  --argjson opens_today "$opens_today" \
+  --argjson coverage_by_type "$coverage_by_type" \
   --argjson edge_gap "$edge_gap" \
   --argjson edge_measurement_freshness "$edge_measurement_freshness" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
@@ -772,6 +820,8 @@ jq -n \
     shadow_summary_by_direction: $shadow_summary_by_direction,
     edge_cohorts_positive: $edge_cohorts_positive,
     edge_cohorts_traded: $edge_cohorts_traded,
+    opens_today: $opens_today,
+    coverage_by_type: $coverage_by_type,
     edge_gap: $edge_gap,
     edge_measurement_freshness: $edge_measurement_freshness,
     review_history: $review_history

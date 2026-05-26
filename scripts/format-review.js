@@ -180,6 +180,10 @@ const edgeCohortsPositive = Array.isArray(data.edge_cohorts_positive) ? data.edg
 const edgeCohortsTraded = Array.isArray(data.edge_cohorts_traded) ? data.edge_cohorts_traded : [];
 const edgeGap = Array.isArray(data.edge_gap) ? data.edge_gap : [];
 const edgeMeasurementFreshness = Array.isArray(data.edge_measurement_freshness) ? data.edge_measurement_freshness : [];
+// 2026-05-26 #266: added to surface SignalEngine feed coverage gaps and
+// current-day open distribution (distinct from rolling 7d edge_cohorts_traded).
+const opensToday = Array.isArray(data.opens_today) ? data.opens_today : [];
+const coverageByType = Array.isArray(data.coverage_by_type) ? data.coverage_by_type : [];
 const generatedAt = data.generated_at || new Date().toISOString();
 
 // ── Trading-state derived signals ───────────────────────────────────────────
@@ -217,10 +221,35 @@ if (edgeGap.length > 0) {
 // Phase 5 Pilar 4-A: measurement infra. Stale edge measurement (>48h) means
 // the nightly EdgeCapacityRefresher cron is failing for some types.
 const staleMeasurements = edgeMeasurementFreshness.filter((r) => Number(r.hours_since) > 48);
-if (staleMeasurements.length > 0) {
+// 2026-05-26 #266: classify stale-measurement alarms — a type that is also
+// starved at the feed (with_preds_24h = 0) is a downstream symptom, not a
+// cron failure. Suppress the cron-failure alert for those types so it doesn't
+// drown out the actual feed bug.
+const coverageByMarketType = new Map(coverageByType.map((r) => [r.market_type, r]));
+const trueCronStales = staleMeasurements.filter((r) => {
+  const cov = coverageByMarketType.get(r.market_type);
+  return !cov || Number(cov.with_preds_24h) > 0;
+});
+if (trueCronStales.length > 0) {
   alerts.push({
     level: 'warning',
-    message: `Edge measurement stale (>48h) for ${staleMeasurements.length} market_type(s): ${staleMeasurements.map((r) => r.market_type).join(', ')}`,
+    message: `Edge measurement stale (>48h) for ${trueCronStales.length} market_type(s): ${trueCronStales.map((r) => r.market_type).join(', ')}`,
+  });
+}
+
+// 2026-05-26 #266: SignalEngine feed coverage. A type tracked + priced but
+// with 0 predictions in 24h is starved by the signal feed slice (the
+// SignalEngine per-type allocation bug). This is the root cause behind
+// many "edge stale Xh" downstream alarms.
+const feedStarvedTypes = coverageByType.filter((r) => {
+  return Number(r.tracked) > 0
+    && Number(r.priced_24h) > 0
+    && Number(r.with_preds_24h) === 0;
+});
+if (feedStarvedTypes.length > 0) {
+  alerts.push({
+    level: 'critical',
+    message: `SignalEngine feed starved for ${feedStarvedTypes.length} type(s) (tracked + priced but 0 predictions/24h): ${feedStarvedTypes.map((r) => `${r.market_type} (${r.tracked} tracked)`).join(', ')}`,
   });
 }
 
