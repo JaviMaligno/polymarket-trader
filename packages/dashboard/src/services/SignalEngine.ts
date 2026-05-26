@@ -157,6 +157,61 @@ interface ActiveMarket {
   trackingStatus?: string; // active, hot, cold — cold markets have stale prices
 }
 
+/**
+ * Structural alias for `pickMarketsForCycle`. The picker only reads `id` and
+ * `marketType`, so tests can pass minimal synthetic objects. Production callers
+ * pass the full `ActiveMarket` (which extends this).
+ */
+export interface ActiveMarketLike {
+  id: string;
+  marketType?: string;
+}
+
+/**
+ * Round-robin pick across `market_type` buckets up to `maxMarketsPerCycle`.
+ *
+ * Why: the legacy `activeMarkets.slice(0, N)` preserves whatever order the
+ * pipeline upstream produced — typically volume-sorted, which biases the pick
+ * toward `event_long` (high volume) and starves low-volume types like
+ * `event_short` (which currently produce 0 predictions despite being tracked).
+ *
+ * Per-type round-robin guarantees fair coverage per cycle regardless of upstream
+ * order. Markets without `marketType` are bucketed together under the `__unknown__`
+ * key and round-robined like any other type.
+ *
+ * Bucket-internal order is preserved (no sort) so callers retain control over
+ * within-type prioritisation (e.g. by score, recent activity).
+ */
+export function pickMarketsForCycle<T extends ActiveMarketLike>(
+  activeMarkets: T[],
+  maxMarketsPerCycle: number,
+): T[] {
+  if (maxMarketsPerCycle <= 0 || activeMarkets.length === 0) return [];
+
+  // Group preserving insertion order — Map iteration order = insertion order.
+  const buckets = new Map<string, T[]>();
+  for (const market of activeMarkets) {
+    const key = market.marketType ?? '__unknown__';
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(market);
+  }
+
+  const result: T[] = [];
+  // Round-robin: keep iterating until result is full or every bucket is empty.
+  // No sort — bucket iteration order is the order types first appeared.
+  while (result.length < maxMarketsPerCycle) {
+    let pickedThisRound = false;
+    for (const bucket of buckets.values()) {
+      if (bucket.length === 0) continue;
+      result.push(bucket.shift()!);
+      pickedThisRound = true;
+      if (result.length >= maxMarketsPerCycle) break;
+    }
+    if (!pickedThisRound) break; // all buckets exhausted
+  }
+  return result;
+}
+
 export class SignalEngine extends EventEmitter {
   private config: SignalEngineConfig;
   private signals: Map<string, ISignal> = new Map();
@@ -504,7 +559,7 @@ export class SignalEngine extends EventEmitter {
 
     const startTime = Date.now();
     const results: SignalResult[] = [];
-    const marketsToProcess = this.activeMarkets.slice(0, this.config.maxMarketsPerCycle);
+    const marketsToProcess = pickMarketsForCycle(this.activeMarkets, this.config.maxMarketsPerCycle);
 
     // console.log(`[SignalEngine] Computing signals for ${marketsToProcess.length} markets`);
 

@@ -141,11 +141,24 @@ services:
       DB_CONNECTION_TIMEOUT_MS: "30000"
       ENABLE_SIGNAL_ENGINE: "true"
       SIGNAL_INTERVAL_MS: "300000"
-      # Raised 35→45 (2026-05-18), kept at 45 with the 18-market force-include
-      # cohort (12 tail-band + 6 TTR-≤7d added 2026-05-20). Leaves ~27 slots for
-      # merit-selected markets per signal cycle. Bump if the FLB or RPv2 cohorts
-      # grow further.
-      MAX_SIGNAL_MARKETS: "45"
+      # Raised 35→45 (2026-05-18), then 45→50 (2026-05-26) to match the sum
+      # of SIGNAL_SLOTS_PER_TYPE below. Leaves ~32 slots for merit-selected
+      # markets per signal cycle after the 18-market force-include cohort.
+      MAX_SIGNAL_MARKETS: "50"
+      # Per-`market_type` allocation for the SignalEngine feed pipeline.
+      # Spec: docs/superpowers/specs/2026-05-26-signalengine-per-type-allocation-design.md
+      # SIGNAL_FETCH_BUDGET_PER_TYPE: per-type LIMIT in the candidate fetch
+      #   UNION ALL — guarantees event_short candidates enter the pool even
+      #   though their volume_24h is lower than event_long.
+      # SIGNAL_SLOTS_PER_TYPE: per-type slot allocation in selectDiversifiedMarkets
+      #   — guarantees each market_type gets its share of MAX_SIGNAL_MARKETS.
+      # Unset both vars to fall back to legacy volume-sorted single-query
+      # behaviour (backward-compatible default).
+      # Defaults sized for ALLOWED_MARKET_TYPES (crypto_intraday + crypto_daily +
+      # event_financial + event_short) + a smaller event_long share for FLB
+      # shadow measurement. Sum of slots = 50, matches MAX_SIGNAL_MARKETS.
+      SIGNAL_FETCH_BUDGET_PER_TYPE: "crypto_intraday:30,crypto_daily:30,event_financial:40,event_short:40,event_long:60"
+      SIGNAL_SLOTS_PER_TYPE: "crypto_intraday:8,crypto_daily:8,event_financial:12,event_short:12,event_long:10"
       # Force-tracked experiment cohort — same list as the data-collector.
       # MarketSelector pins these to the signal-selection pool so the
       # FLB tail-band markets + the TTR-≤7d RPv2 markets both receive

@@ -12,6 +12,7 @@ import { getDataCollectorService, type PriceData } from './DataCollectorService.
 import { applyLiquidityFilter } from './MarketLiquidityFilterBridge.js';
 import {
   parseForceIncludeIds,
+  parsePerTypeBudget,
   parseVolumeWeight,
   rankMarketsByVolumeScoreBlend,
 } from './MarketSelector.js';
@@ -81,6 +82,18 @@ export interface PolymarketMarket {
   marketScore?: number;
 }
 
+/**
+ * Structural alias for `selectByTypeBudget`. The selector only reads the fields
+ * listed here; full `PolymarketMarket` extends this. Exported so tests can pass
+ * minimal synthetic objects without constructing the full shape.
+ */
+export interface SelectableMarket {
+  id: string;
+  marketType?: string;
+  volume: number;
+  marketScore?: number;
+}
+
 export interface PolymarketPrice {
   marketId: string;
   tokenId: string;
@@ -111,6 +124,184 @@ interface ClobMarketResponse {
 interface ClobMarketsResponse {
   data?: ClobMarketResponse[];
   next_cursor?: string;
+}
+
+/**
+ * Select markets up to a per-`market_type` budget, with underfill
+ * redistribution to ALLOWED_MARKET_TYPES (live-traded) first.
+ *
+ * Why standalone (not a method): pure function with no DB / state access, so
+ * it can be unit-tested with synthetic inputs covering all edge cases.
+ *
+ * Algorithm:
+ *   1. Filter out force-included IDs — the caller pins those separately.
+ *   2. Bucket remaining markets by `marketType`. Within each bucket, sort by
+ *      volume DESC (within-bucket priority is volume-blend; the caller can
+ *      pre-sort by score-blend if a different priority is desired).
+ *   3. First pass: take min(budget[type], bucket.length) from each type.
+ *   4. Compute leftover = maxTotal - selected_so_far - sum(unused budget).
+ *      Wait — simpler: while selected < maxTotal AND any type with surplus
+ *      candidates still exists, pull one more from the type with the highest
+ *      original budget that has surplus. Prefer ALLOWED_MARKET_TYPES.
+ *   5. Final cap at maxTotal.
+ */
+export function selectByTypeBudget<T extends SelectableMarket>(
+  markets: T[],
+  budgets: Map<string, number>,
+  maxTotal: number,
+  forceIds: Set<string>,
+): T[] {
+  if (budgets.size === 0 || maxTotal <= 0) return [];
+
+  // 1. Drop force-included; caller pins those.
+  const candidates = markets.filter((m) => !forceIds.has(m.id));
+
+  // 2. Bucket by marketType + sort within bucket by volume DESC.
+  const buckets = new Map<string, T[]>();
+  for (const m of candidates) {
+    const key = m.marketType ?? '__unknown__';
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(m);
+  }
+  for (const bucket of buckets.values()) {
+    bucket.sort((a, b) => b.volume - a.volume);
+  }
+
+  // 3. First pass: take min(budget, supply) from each type. Track any
+  //    leftover (unused budget) — those slots can be redistributed below.
+  const selected: T[] = [];
+  const remainingByType = new Map<string, T[]>();
+  let leftover = 0;
+  for (const [type, budget] of budgets) {
+    const bucket = buckets.get(type) ?? [];
+    const take = Math.min(budget, bucket.length);
+    selected.push(...bucket.slice(0, take));
+    remainingByType.set(type, bucket.slice(take));
+    leftover += Math.max(0, budget - take);
+  }
+
+  // 4. Underfill: redistribute unused budget to types with surplus supply.
+  //    Priority: ALLOWED_MARKET_TYPES first, then non-allowed; within each
+  //    priority, the type with the largest original budget wins ties.
+  //    Cap at `leftover` slots — we never expand a type beyond its own budget
+  //    unless other types under-supplied.
+  const allowed = new Set(
+    (process.env.ALLOWED_MARKET_TYPES ?? '')
+      .split(',').map((s) => s.trim()).filter(Boolean)
+  );
+  while (leftover > 0 && selected.length < maxTotal) {
+    // Build the prioritised list of types that still have surplus.
+    const surplus = [...remainingByType.entries()]
+      .filter(([, rem]) => rem.length > 0)
+      .map(([type, rem]) => ({
+        type,
+        budget: budgets.get(type) ?? 0,
+        rem,
+        priority: allowed.size === 0 || allowed.has(type) ? 0 : 1, // 0 = allowed/no-allowlist, 1 = non-allowed
+      }))
+      .sort((a, b) => a.priority - b.priority || b.budget - a.budget);
+    if (surplus.length === 0) break;
+    selected.push(surplus[0].rem.shift()!);
+    leftover--;
+  }
+
+  // 5. Hard cap.
+  return selected.slice(0, maxTotal);
+}
+
+/**
+ * Build the candidate-fetch SQL for the markets table.
+ *
+ * Two modes:
+ * - When `fetchBudgets` is empty → single ORDER BY volume_24h DESC LIMIT $4
+ *   (legacy behaviour, backward-compatible default).
+ * - When `fetchBudgets` is non-empty → one sub-query per type each with its
+ *   own LIMIT, joined by UNION ALL. The total candidate pool size is
+ *   sum(budgets) + |forceIds|. Force-included IDs are always appended as a
+ *   final sub-query with minimal filters so they never get excluded.
+ *
+ * Returns { sql, params } — caller spreads `params` into pg's query().
+ *
+ * Parameter layout (legacy path):
+ *   $1 = MIN_PRICE, $2 = MAX_PRICE, $3 = MIN_VOLUME, $4 = LIMIT, $5 = forceIds
+ *
+ * Parameter layout (per-type path):
+ *   $1 = MIN_PRICE, $2 = MAX_PRICE, $3 = MIN_VOLUME, $4 = forceIds.
+ *   The per-type LIMITs and type names are interpolated into the SQL string
+ *   directly because pg does not bind LIMIT or table names. Both are
+ *   operator-controlled (env var) so SQL injection is not a concern — but
+ *   defensively, type names are sanitised to ^[a-z_]+$ before interpolation.
+ */
+export function buildFetchSQL(
+  fetchBudgets: Map<string, number>,
+): { sql: string; perTypeMode: boolean } {
+  const baseFilters = `
+        m.is_active = true
+    AND m.is_resolved = false
+    AND COALESCE(m.tracking_status, 'active') != 'cold'
+    AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
+    AND m.current_price_yes > $1
+    AND m.current_price_yes < $2
+    AND m.volume_24h >= $3
+    AND EXISTS (
+      SELECT 1 FROM price_history ph
+      WHERE ph.token_id = m.clob_token_id_yes
+        AND ph.time > NOW() - INTERVAL '24 hours'
+      LIMIT 1
+    )`;
+
+  const selectCols = `
+    m.id, m.condition_id, m.question, m.category,
+    m.clob_token_id_yes, m.clob_token_id_no,
+    m.current_price_yes, m.current_price_no,
+    m.volume_24h, m.liquidity, m.end_date, m.is_active,
+    m.market_type,
+    m.tracking_status,
+    m.market_score`;
+
+  if (fetchBudgets.size === 0) {
+    // Legacy single-query path.
+    const sql = `
+      SELECT ${selectCols}
+      FROM markets m
+      WHERE ${baseFilters}
+        OR m.id = ANY($5::varchar[])
+      ORDER BY m.volume_24h DESC NULLS LAST
+      LIMIT $4
+    `;
+    return { sql, perTypeMode: false };
+  }
+
+  // Per-type UNION ALL path.
+  const TYPE_SAFE_RE = /^[a-z_]+$/;
+  const branches: string[] = [];
+  for (const [type, budget] of fetchBudgets) {
+    if (!TYPE_SAFE_RE.test(type)) {
+      console.warn(`[PolymarketService] Skipping unsafe market_type in budget: '${type}'`);
+      continue;
+    }
+    const safeBudget = Math.max(1, Math.floor(budget));
+    branches.push(`
+      (SELECT ${selectCols}
+       FROM markets m
+       WHERE ${baseFilters}
+         AND m.market_type = '${type}'
+       ORDER BY m.volume_24h DESC NULLS LAST
+       LIMIT ${safeBudget})
+    `);
+  }
+  // Always append a force-include branch (skips volume + price-history filters).
+  branches.push(`
+    (SELECT ${selectCols}
+     FROM markets m
+     WHERE m.id = ANY($4::varchar[])
+       AND m.is_active = true
+       AND m.is_resolved = false
+       AND m.clob_token_id_yes IS NOT NULL)
+  `);
+
+  const sql = branches.join('\n      UNION ALL\n');
+  return { sql, perTypeMode: true };
 }
 
 export class PolymarketService extends EventEmitter {
@@ -366,6 +557,7 @@ export class PolymarketService extends EventEmitter {
 
     const forceIds = parseForceIncludeIds(process.env.FORCE_INCLUDE_MARKET_IDS);
     const volumeWeight = parseVolumeWeight(process.env.MARKET_SELECTION_VOLUME_WEIGHT);
+    const perTypeBudget = parsePerTypeBudget(process.env.SIGNAL_SLOTS_PER_TYPE);
 
     // Step 1: pin force-included markets at the top, regardless of volume/score.
     const forced = allMarkets.filter(m => forceIds.has(m.id));
@@ -377,12 +569,24 @@ export class PolymarketService extends EventEmitter {
       console.log(`[PolymarketService] Force-include IDs not in candidate set (skipped): ${missingForced.join(',')}`);
     }
 
-    // Step 2: rank the non-forced pool by blended volume + market_score.
+    // Step 2: NEW — if SIGNAL_SLOTS_PER_TYPE is configured, use per-type budgets
+    // as the primary diversification axis. This guarantees low-volume types
+    // (event_short) get representation. Otherwise fall back to the legacy
+    // byCategory path for full backward compatibility.
+    if (perTypeBudget.size > 0) {
+      const remainingSlots = Math.max(0, maxTotal - forced.length);
+      const byType = selectByTypeBudget(allMarkets, perTypeBudget, remainingSlots, forceIds);
+      const selected = [...forced, ...byType];
+      console.log(`[PolymarketService] Per-type selection: forced=${forced.length}, byType=${byType.length}, total=${selected.length}`);
+      return selected;
+    }
+
+    // Step 3 (legacy path): rank the non-forced pool by blended volume + market_score.
     const candidates = allMarkets.filter(m => !forceIds.has(m.id));
     const ranked = rankMarketsByVolumeScoreBlend(candidates, volumeWeight);
     const rankMap = new Map(ranked.map(r => [r.market.id, r.blendedRank]));
 
-    // Step 3: diversify by category, taking the highest-ranked first.
+    // Step 4: diversify by category, taking the highest-ranked first.
     const byCategory = new Map<string, PolymarketMarket[]>();
     for (const { market } of ranked) {
       const cat = market.category;
@@ -399,7 +603,7 @@ export class PolymarketService extends EventEmitter {
       console.log(`[PolymarketService] Category '${category}': ${toTake}/${markets.length} markets selected`);
     }
 
-    // Step 4: fill remaining slots with the next best by blended rank.
+    // Step 5: fill remaining slots with the next best by blended rank.
     if (selected.length < maxTotal) {
       const selectedIds = new Set(selected.map(m => m.id));
       const remaining = ranked
@@ -414,7 +618,7 @@ export class PolymarketService extends EventEmitter {
       }
     }
 
-    // Step 5: trim if we overshoot. Force-included markets are preserved;
+    // Step 6: trim if we overshoot. Force-included markets are preserved;
     // non-forced trimming preserves blended-rank order.
     if (selected.length > maxTotal) {
       const forcedKeep = selected.filter(m => forceIds.has(m.id));
@@ -451,6 +655,13 @@ export class PolymarketService extends EventEmitter {
       // and a sane price range — those are correctness preconditions for the
       // downstream engine, not selection filters.
       const forceIds = Array.from(parseForceIncludeIds(process.env.FORCE_INCLUDE_MARKET_IDS));
+      const fetchBudgets = parsePerTypeBudget(process.env.SIGNAL_FETCH_BUDGET_PER_TYPE);
+      const { sql: fetchSQL, perTypeMode } = buildFetchSQL(fetchBudgets);
+
+      const fetchParams = perTypeMode
+        ? [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, forceIds]
+        : [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch, forceIds];
+
       const marketsResult = await query<{
         id: string;
         condition_id: string;
@@ -467,41 +678,9 @@ export class PolymarketService extends EventEmitter {
         market_type: string | null;
         tracking_status: string | null;
         market_score: string | null;
-      }>(`
-        SELECT
-          m.id, m.condition_id, m.question, m.category,
-          m.clob_token_id_yes, m.clob_token_id_no,
-          m.current_price_yes, m.current_price_no,
-          m.volume_24h, m.liquidity, m.end_date, m.is_active,
-          m.market_type,
-          m.tracking_status,
-          m.market_score
-        FROM markets m
-        WHERE m.is_active = true
-          AND m.is_resolved = false
-          AND COALESCE(m.tracking_status, 'active') != 'cold'
-          AND m.clob_token_id_yes IS NOT NULL AND m.clob_token_id_yes != ''
-          AND m.current_price_yes > $1
-          AND m.current_price_yes < $2
-          AND (
-            -- Normal path: above volume threshold AND has recent price history
-            (m.volume_24h >= $3
-              AND EXISTS (
-                SELECT 1 FROM price_history ph
-                WHERE ph.token_id = m.clob_token_id_yes
-                  AND ph.time > NOW() - INTERVAL '24 hours'
-                LIMIT 1
-              ))
-            OR
-            -- Force-include bypass: explicitly allow-listed markets skip the
-            -- volume + price-history filters above.
-            m.id = ANY($5::varchar[])
-          )
-        ORDER BY m.volume_24h DESC NULLS LAST
-        LIMIT $4
-      `, [MIN_PRICE, MAX_PRICE, this.config.minVolume24h, this.config.marketsToFetch, forceIds]);
+      }>(fetchSQL, fetchParams);
 
-      console.log(`[PolymarketService] Found ${marketsResult.rows.length} markets with recent price data (filtered by price_history)`);
+      console.log(`[PolymarketService] Found ${marketsResult.rows.length} markets with recent price data (filtered by price_history, perTypeMode=${perTypeMode})`);
 
       const candidateMarkets: PolymarketMarket[] = [];
 

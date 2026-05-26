@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseForceIncludeIds,
+  parsePerTypeBudget,
   parseVolumeWeight,
   rankMarketsByVolumeScoreBlend,
   DEFAULT_VOLUME_WEIGHT,
@@ -135,5 +136,58 @@ describe('rankMarketsByVolumeScoreBlend', () => {
     expect(ranked[0].market.id).toBe('b');
     expect(ranked[1].market.id).toBe('a');
     expect(ranked[2].market.id).toBe('c');
+  });
+});
+
+describe('parsePerTypeBudget', () => {
+  it('returns empty Map for undefined input', () => {
+    expect(parsePerTypeBudget(undefined)).toEqual(new Map());
+  });
+
+  it('returns empty Map for empty string', () => {
+    expect(parsePerTypeBudget('')).toEqual(new Map());
+  });
+
+  it('parses a single type:budget pair', () => {
+    expect(parsePerTypeBudget('event_short:15')).toEqual(new Map([['event_short', 15]]));
+  });
+
+  it('parses multiple pairs separated by commas', () => {
+    const result = parsePerTypeBudget('crypto_daily:8,event_financial:12,event_short:12');
+    expect(result).toEqual(new Map([
+      ['crypto_daily', 8],
+      ['event_financial', 12],
+      ['event_short', 12],
+    ]));
+  });
+
+  it('tolerates whitespace around tokens', () => {
+    const result = parsePerTypeBudget(' crypto_daily : 8 , event_short : 12 ');
+    expect(result).toEqual(new Map([['crypto_daily', 8], ['event_short', 12]]));
+  });
+
+  it('drops entries with non-numeric budgets', () => {
+    const result = parsePerTypeBudget('event_short:abc,crypto_daily:5');
+    expect(result).toEqual(new Map([['crypto_daily', 5]]));
+  });
+
+  it('drops entries with missing colon', () => {
+    const result = parsePerTypeBudget('event_short15,crypto_daily:5');
+    expect(result).toEqual(new Map([['crypto_daily', 5]]));
+  });
+
+  it('drops entries with empty type name', () => {
+    const result = parsePerTypeBudget(':15,crypto_daily:5');
+    expect(result).toEqual(new Map([['crypto_daily', 5]]));
+  });
+
+  it('drops entries with negative or zero budget', () => {
+    const result = parsePerTypeBudget('event_short:-5,crypto_daily:0,event_long:10');
+    expect(result).toEqual(new Map([['event_long', 10]]));
+  });
+
+  it('floors fractional budgets to integers', () => {
+    const result = parsePerTypeBudget('event_short:12.7,crypto_daily:5');
+    expect(result).toEqual(new Map([['event_short', 12], ['crypto_daily', 5]]));
   });
 });
