@@ -46,6 +46,60 @@ For each PR created by the auto-review today:
 - Evaluate: correct fix? tests included? edge cases covered?
 - Check CI status
 
+### Step 3b: Coverage + Freshness checks (MANDATORY)
+
+The auto-review can miss structural problems because its alarms only fire on threshold crosses. Run these checks every session — they surface silent breakages.
+
+**Market coverage by type** (catches data-collector / SignalEngine feed bugs):
+```sql
+-- Tracked vs priced vs with-predictions per type, all in one
+SELECT m.market_type,
+       COUNT(DISTINCT m.id) FILTER (WHERE m.tracking_status='active') tracked,
+       COUNT(DISTINCT m.id) FILTER (WHERE m.tracking_status='active' AND EXISTS (
+         SELECT 1 FROM price_history ph
+         WHERE ph.token_id = m.clob_token_id_yes AND ph.time > NOW() - INTERVAL '24h'
+       )) priced_24h,
+       COUNT(DISTINCT g.market_id) FILTER (WHERE g.time > NOW() - INTERVAL '24h') with_preds_24h,
+       COUNT(*) FILTER (WHERE m.is_active = true) active_in_db
+FROM markets m
+LEFT JOIN generator_predictions g ON g.market_id::text = m.id::text
+WHERE m.market_type IS NOT NULL
+GROUP BY 1 ORDER BY 1;
+```
+
+Flag when:
+- `with_preds_24h = 0` for a type that has `tracked > 0` → SignalEngine feed bug (the bug discovered 2026-05-26 for event_short: 18 tracked + priced, 0 predictions). The "edge stale Xh" alarm is a downstream symptom of this, not a separate issue.
+- `priced_24h << tracked` (less than 50%) → data-collector pricing failure on tracked markets.
+- `tracked` is 0 for a type in `ALLOWED_MARKET_TYPES` → MarketRotator failure or supply collapse for that type.
+
+**generator_edge freshness** (catches Refresher cron failures):
+```sql
+SELECT market_type, MAX(measured_at) latest, NOW() - MAX(measured_at) staleness, COUNT(*) n_meas
+FROM generator_edge
+GROUP BY 1 ORDER BY 2 DESC;
+```
+
+The EdgeCapacityRefresher cron runs at 02:30 UTC daily. If the latest measurement for ANY type is >48h old, the cron either failed or skipped that type (no measurable cells). Cross-check against the coverage query — if `with_preds_24h = 0` for that type, the skip is expected; if `with_preds_24h > 100`, the cron itself broke.
+
+**Risk gate fire log** (catches "trades happening" stories that miss "trades blocked" stories):
+```bash
+# All gate rejections in last 24h, grouped by reason
+docker logs polymarket-dashboard-api --since 24h 2>&1 \
+  | grep "REJECTED" | grep -oE "(market_type_not_allowed|event_otm_near_expiry|otm_longshot_blocked|direction_blocked_for_type|stop_loss_cooldown|near_resolved)[^ ]*" \
+  | sort | uniq -c | sort -rn
+```
+
+A spike in any one reason hints at upstream change (signal regime shift) or a misconfigured gate. The absence of expected rejections also matters — if you JUST shipped a block PR yesterday and see 0 rejections of that type today, the deploy didn't reach the VM (verify via Step 6).
+
+**Optimizer freshness** (catches stalled Optuna):
+```sql
+-- Use whatever table tracks optimizer runs — adjust if schema differs
+SELECT key, value, updated_at FROM trading_config
+WHERE key LIKE '%optimizer%' OR key LIKE '%optuna%' ORDER BY updated_at DESC LIMIT 10;
+```
+
+If signal_weights haven't been updated in >24h, the Optuna scheduler on Render is stalled. (Distinct from "results are bad" — even bad results should be written daily.)
+
 ### Step 4: Evaluate Quality
 
 Present to user concisely (NOT as a GitHub issue):
@@ -54,6 +108,20 @@ Present to user concisely (NOT as a GitHub issue):
 - Did it find real problems or false positives?
 - Did it investigate root causes or just report symptoms?
 - Did it correctly classify pre-reset artifacts?
+
+**Narrativa cuestionada** (MANDATORY for every substantive claim):
+
+The auto-review tells stories. For each substantive claim (especially "X is depleted", "Y is being actively traded", "Z is expected behavior"), formulate the alternative hypothesis and verify it by SQL. The bar: a claim with no verifying query is not a finding, it's a narrative.
+
+Worked examples from 2026-05-26 (#266 session):
+- Claim: "event_short edge stale 201h — category depleted by reclassification."
+  - Alternative: maybe event_short markets still exist but the refresher skipped them.
+  - SQL: `SELECT COUNT(*) FROM markets WHERE market_type='event_short' AND is_active=true` → 549. Alternative wins; the "depleted" framing was false.
+- Claim: "event_financial:long still being actively traded (17 trades in edge_cohorts_traded)."
+  - Alternative: maybe those 17 are historical, last open predates the block deploy.
+  - SQL: `SELECT MAX(opened_at) FROM paper_positions p JOIN markets m ON m.id=p.market_id WHERE m.market_type='event_financial' AND p.side='long'` → 2026-05-20, before PR #255 deploy 2026-05-24. Block IS working; framing was misleading.
+
+Pattern: words like "still being traded", "category depleted", "expected behavior" warrant suspicion. Any rolling-window aggregate (`edge_cohorts_traded`, `shadow_summary` 30d) can read as current activity when it's historical. Distinguish in your report: "X opens today" vs "X in rolling 7d/30d".
 
 **PR verdict** (per PR):
 - Mergeable? Why/why not?
@@ -217,6 +285,8 @@ gcloud compute ssh polymarket-vm --zone=us-east1-b -- "docker stats --no-stream 
 - **Over-classification of pre-reset artifacts**: Spends issue space on known gaps
 - **Phantom PnL blindness**: Reports headline PnL without checking for price inversions
 - **Direct VM edits (deploy footgun)**: Edits `/home/Usuario/polymarket-trader/docker-compose.gcp.yml` directly on the VM instead of via PR + CI. This leaves uncommitted changes that make the next CI `git pull --ff-only` fail. Always check `git status` on VM as part of the analysis.
+- **Rolling-window aggregate sold as current activity**: Tables like `edge_cohorts_traded` show a rolling-window slice; the review describes them as "still being traded". Always cross-check with `MAX(opened_at)` per cohort to distinguish historical from active. Pattern surfaced 2026-05-26 (event_financial:long).
+- **Symptom-as-root-cause for downstream alarms**: When an alarm fires perpetually with the same explanation, suspect the explanation. "event_short depleted" alarm for 200h turned out to be a SignalEngine feed bug, not category death. Run the Step 3b coverage check before accepting "expected behavior" framing.
 
 ## Historical Context: Price Inversion Bug
 
