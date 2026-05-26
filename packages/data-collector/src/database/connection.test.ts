@@ -7,6 +7,66 @@ describe('data-collector database query resilience', () => {
     delete process.env.DATABASE_URL;
     delete process.env.DB_POOL_MAX;
     delete process.env.DB_IDLE_TIMEOUT_MS;
+    delete process.env.DB_CONNECTION_TIMEOUT_MS;
+  });
+
+  it('passes DB_IDLE_TIMEOUT_MS and DB_CONNECTION_TIMEOUT_MS env vars to the Pool', async () => {
+    process.env.DATABASE_URL = 'postgres://example';
+    process.env.DB_IDLE_TIMEOUT_MS = '45000';
+    process.env.DB_CONNECTION_TIMEOUT_MS = '25000';
+
+    const poolInstance = {
+      query: vi.fn(),
+      connect: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+    let capturedConfig: Record<string, unknown> | null = null;
+    const Pool = vi.fn(class MockPool {
+      constructor(cfg: Record<string, unknown>) {
+        capturedConfig = cfg;
+        return poolInstance;
+      }
+    } as any);
+
+    vi.doMock('pg', () => ({ Pool }));
+
+    const db = await import('./connection.js');
+    db.getPool();
+
+    expect(capturedConfig).toMatchObject({
+      idleTimeoutMillis: 45000,
+      connectionTimeoutMillis: 25000,
+      keepAlive: true,
+    });
+  });
+
+  it('falls back to safe defaults when env vars are unset', async () => {
+    process.env.DATABASE_URL = 'postgres://example';
+
+    const poolInstance = {
+      query: vi.fn(),
+      connect: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+    let capturedConfig: Record<string, unknown> | null = null;
+    const Pool = vi.fn(class MockPool {
+      constructor(cfg: Record<string, unknown>) {
+        capturedConfig = cfg;
+        return poolInstance;
+      }
+    } as any);
+
+    vi.doMock('pg', () => ({ Pool }));
+
+    const db = await import('./connection.js');
+    db.getPool();
+
+    expect(capturedConfig).toMatchObject({
+      idleTimeoutMillis: 60000,
+      connectionTimeoutMillis: 30000,
+    });
   });
 
   it('recreates the pool and retries once on transient connection timeout', async () => {
