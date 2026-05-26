@@ -95,6 +95,18 @@ persisted 2+ days, prefix it `[PERSISTENT - N days]` and escalate severity.
   ```
   If everything is `cold` → the rotator is not running.
 
+## 1d. SignalEngine feed coverage — catches downstream feed bugs
+
+Use `coverage_by_type` from `review-data.json`. It has, per `market_type`:
+`tracked` (rotator active), `priced_24h` (data-collector pricing), `with_preds_24h` (SignalEngine produced predictions), `active_in_db` (raw supply).
+
+Flag and investigate:
+- `with_preds_24h = 0` while `tracked > 0` and `priced_24h > 0` → **HIGH, INFRA** — SignalEngine feed bug; the market data exists but the engine is not generating predictions on this type. This was the 2026-05-26 root cause of the chronic "event_short edge stale" alarm — the feed pipeline excluded event_short. Do NOT classify the resulting downstream `edge_measurement_freshness` alarm as the problem; it's a symptom.
+- `priced_24h < 0.5 × tracked` → MEDIUM, INFRA — data-collector is failing to price half of what it tracks; investigate ClobCollector or rate limits.
+- `tracked = 0` for a type listed in `ALLOWED_MARKET_TYPES` → HIGH — supply collapse or rotator misconfiguration.
+
+A "stale edge measurement" alarm WITHOUT a coverage-side anomaly = the cron broke. A "stale edge measurement" alarm WITH `with_preds_24h = 0` = feed bug. Distinguish before classifying.
+
 ## 1b. System invariants — a violation here is a real bug
 
 - **Position lifecycle**: all closes go through `PositionClosingService`. Rows
@@ -148,6 +160,17 @@ Report one line: `Real PnL $X (Y% of reported $Z), inverted N`. If
 back; investigate the responsible collector code path immediately.
 
 ---
+
+## 1e. Rolling-window vs today distinction (anti-framing)
+
+`edge_cohorts_traded` is a rolling 7-day window — it persists historical activity even after a cohort has been blocked. Treating it as "current activity" misclassifies an already-mitigated bleed as an open problem (2026-05-26 #266: framed event_financial:long as "still being traded" when last open predated the block deploy by 4 days).
+
+Use `opens_today` from `review-data.json` for current-day activity, and separately reference `edge_cohorts_traded` only as a 7-day cumulative. When reporting any cohort as a concern:
+- Phrase as "X opens today" if drawn from `opens_today`.
+- Phrase as "X in rolling 7d" if drawn from `edge_cohorts_traded`.
+- Cross-check `MAX(opened_at)` for the cohort against any block deploy date (see PR history) before classifying as "actively trading".
+
+A cohort in `edge_cohorts_traded` with zero `opens_today` and a block deploy in the last 7d = block is working; report "block effective, rolling window will decay".
 
 # Role 2 — FLB shadow-recorder guardian
 
