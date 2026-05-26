@@ -62,6 +62,44 @@ export function parseVolumeWeight(raw: string | undefined): number {
   return Math.max(0, Math.min(1, parsed));
 }
 
+/**
+ * Parse a per-`market_type` budget map from an env var string.
+ *
+ * Format: `type:budget,type:budget,...` — e.g. `"crypto_daily:8,event_short:12"`.
+ *
+ * Used by SignalEngine feed allocation: each `market_type` gets a fixed share of
+ * the total processing slots, so low-volume types (event_short) are not starved
+ * by the volume-sorted candidate pool. See spec
+ * `docs/superpowers/specs/2026-05-26-signalengine-per-type-allocation-design.md`.
+ *
+ * Tolerant of malformed entries: invalid entries are silently dropped (logged is
+ * not necessary — env vars are operator-controlled). Empty / undefined input
+ * returns an empty Map, signalling "no per-type allocation; fall back to legacy
+ * behaviour".
+ *
+ * Rules:
+ * - Both type and budget must be present (entry must contain `:`).
+ * - Type name must be non-empty after trim.
+ * - Budget must parse to a finite positive integer (fractional values are floored).
+ *
+ * @returns Map<market_type, budget>. Empty when input is unset/malformed.
+ */
+export function parsePerTypeBudget(raw: string | undefined): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!raw) return out;
+  for (const entry of raw.split(',')) {
+    const colonIdx = entry.indexOf(':');
+    if (colonIdx < 0) continue;
+    const type = entry.slice(0, colonIdx).trim();
+    const budgetRaw = entry.slice(colonIdx + 1).trim();
+    if (type.length === 0) continue;
+    const budget = Number(budgetRaw);
+    if (!Number.isFinite(budget) || budget <= 0) continue;
+    out.set(type, Math.floor(budget));
+  }
+  return out;
+}
+
 export interface RankedMarket<T extends RankableMarket> {
   market: T;
   /** Normalised rank in `[1/N, 1]`; lower is better. */
