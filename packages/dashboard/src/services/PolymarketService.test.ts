@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { selectByTypeBudget, type SelectableMarket } from './PolymarketService.js';
+import { buildFetchSQL, selectByTypeBudget, type SelectableMarket } from './PolymarketService.js';
 
 const m = (id: string, marketType: string, volume = 100, marketScore = 0.5): SelectableMarket => ({
   id, marketType, volume, marketScore,
@@ -101,3 +101,44 @@ function countByPrefix(ids: string[]): Record<string, number> {
   }
   return counts;
 }
+
+describe('buildFetchSQL', () => {
+  it('returns the legacy single-query SQL when budgets is empty', () => {
+    const { sql, perTypeMode } = buildFetchSQL(new Map());
+    expect(perTypeMode).toBe(false);
+    expect(sql).toContain('ORDER BY m.volume_24h DESC NULLS LAST');
+    expect(sql).toContain('LIMIT $4');
+    expect(sql).toContain('m.id = ANY($5::varchar[])');
+    expect(sql).not.toContain('UNION ALL');
+  });
+
+  it('builds one sub-query per type plus a force-include branch', () => {
+    const budgets = new Map([['crypto_daily', 8], ['event_short', 12]]);
+    const { sql, perTypeMode } = buildFetchSQL(budgets);
+    expect(perTypeMode).toBe(true);
+    expect(sql).toContain("m.market_type = 'crypto_daily'");
+    expect(sql).toContain("m.market_type = 'event_short'");
+    expect(sql).toContain('LIMIT 8');
+    expect(sql).toContain('LIMIT 12');
+    expect(sql).toContain('m.id = ANY($4::varchar[])');
+    // 3 branches (2 types + 1 force-include) → 2 UNION ALL joins.
+    expect(sql.split('UNION ALL').length).toBe(3);
+  });
+
+  it('drops types with unsafe characters from the SQL (defence in depth)', () => {
+    const budgets = new Map([
+      ['crypto_daily', 5],
+      ["bobby'; DROP TABLE--", 5],  // SQL injection attempt
+    ]);
+    const { sql } = buildFetchSQL(budgets);
+    expect(sql).toContain("m.market_type = 'crypto_daily'");
+    expect(sql).not.toContain('DROP TABLE');
+    expect(sql).not.toContain('bobby');
+  });
+
+  it('floors fractional budgets and clamps to a minimum of 1', () => {
+    const budgets = new Map([['event_short', 0.5]]);
+    const { sql } = buildFetchSQL(budgets);
+    expect(sql).toContain('LIMIT 1');
+  });
+});
