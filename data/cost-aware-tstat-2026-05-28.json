@@ -1,0 +1,430 @@
+{
+  "_meta": {
+    "generated_at": "2026-05-28",
+    "source": "scripts/export-tstat-from-edge.js — latest measurement per cell from generator_edge",
+    "lookback_hours": 48,
+    "windows_horizons_observed": [
+      "7d/4h"
+    ],
+    "rt_cost_assumption_pct": 1,
+    "rt_cost_source": "generator_edge.rt_cost_pct (per-row); aggregated to per-type means in companion rt-cost JSON. Pass --rt-cost <file> to the seed script for per-type cost.",
+    "types": [
+      "crypto_daily",
+      "event_financial",
+      "event_long",
+      "event_short"
+    ],
+    "cell_count": 51,
+    "note": "For cells where gross_pct == 0 (static-midpoint markets, e.g. event_short at long horizons), the seed script writes no per-direction row (zero information). The combiner falls back to __all__."
+  },
+  "cells": [
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "crypto_daily",
+      "direction": "long",
+      "n": 380,
+      "gross_pct": 0.002631578947368421,
+      "t_gross": 0.534019498408261
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 406,
+      "gross_pct": -0.04310344827586207,
+      "t_gross": -3.3033680062562674
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 701,
+      "gross_pct": -0.42368045649072755,
+      "t_gross": -3.810024088942486
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 795,
+      "gross_pct": 0.2350314465408805,
+      "t_gross": 2.3752000210983657
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 209,
+      "gross_pct": -0.03588516746411483,
+      "t_gross": -0.45110102385673523
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 213,
+      "gross_pct": 0.2868544600938967,
+      "t_gross": 1.5355801343501256
+    },
+    {
+      "signal_id": "cross_market_corr",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 76,
+      "gross_pct": -0.006578947368421052,
+      "t_gross": -1.0000000000000002
+    },
+    {
+      "signal_id": "favorite_longshot_bias",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 1221,
+      "gross_pct": 0.01506961506961507,
+      "t_gross": 3.615221881936927
+    },
+    {
+      "signal_id": "favorite_longshot_bias",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 75,
+      "gross_pct": 0,
+      "t_gross": 0
+    },
+    {
+      "signal_id": "favorite_longshot_bias",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 386,
+      "gross_pct": 0.09235751295336787,
+      "t_gross": 3.1200207094547676
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "crypto_daily",
+      "direction": "long",
+      "n": 858,
+      "gross_pct": 0.01520979020979021,
+      "t_gross": 0.5611933890599082
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 181,
+      "gross_pct": -0.5220994475138122,
+      "t_gross": -3.3809828674112947
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 666,
+      "gross_pct": -0.5453453453453454,
+      "t_gross": -6.005856365141477
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 397,
+      "gross_pct": -0.18110831234256927,
+      "t_gross": -1.2229793419228967
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 518,
+      "gross_pct": -0.03986486486486487,
+      "t_gross": -0.4793251469340649
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 363,
+      "gross_pct": 0.05509641873278237,
+      "t_gross": 0.3746165764263193
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 931,
+      "gross_pct": -0.05692803437164339,
+      "t_gross": -2.6322322539389713
+    },
+    {
+      "signal_id": "mean_reversion",
+      "market_type": "event_short",
+      "direction": "short",
+      "n": 695,
+      "gross_pct": -0.025179856115107913,
+      "t_gross": -0.6582360702321214
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "crypto_daily",
+      "direction": "long",
+      "n": 858,
+      "gross_pct": -0.11538461538461539,
+      "t_gross": -3.27873077506613
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 1353,
+      "gross_pct": -0.11056910569105691,
+      "t_gross": -5.272268600294613
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 1115,
+      "gross_pct": -0.4732286995515695,
+      "t_gross": -6.249243618966554
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 1000,
+      "gross_pct": -0.043,
+      "t_gross": -0.5369947892927756
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 905,
+      "gross_pct": -0.27497237569060773,
+      "t_gross": -4.213943315431977
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 1038,
+      "gross_pct": -0.16965317919075146,
+      "t_gross": -3.0702755473642585
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 1327,
+      "gross_pct": -0.03240391861341371,
+      "t_gross": -2.4233760964530124
+    },
+    {
+      "signal_id": "mlofi",
+      "market_type": "event_short",
+      "direction": "short",
+      "n": 396,
+      "gross_pct": -0.09974747474747475,
+      "t_gross": -3.3304565893625417
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "crypto_daily",
+      "direction": "long",
+      "n": 2277,
+      "gross_pct": 0.031796223100570925,
+      "t_gross": 1.9707114849944198
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 170,
+      "gross_pct": 0.09676470588235295,
+      "t_gross": 1.0492475936109877
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 1607,
+      "gross_pct": -0.23257622899813316,
+      "t_gross": -4.2985471620486155
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 579,
+      "gross_pct": 0.6642487046632124,
+      "t_gross": 4.282280968579027
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 2663,
+      "gross_pct": -0.012279384153210665,
+      "t_gross": -0.40473956009820977
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 352,
+      "gross_pct": 0.17017045454545454,
+      "t_gross": 1.2948692140962474
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 1769,
+      "gross_pct": 0.004804974561899378,
+      "t_gross": 0.4600296249631078
+    },
+    {
+      "signal_id": "momentum",
+      "market_type": "event_short",
+      "direction": "short",
+      "n": 159,
+      "gross_pct": 0.059748427672955975,
+      "t_gross": 0.9021889269251927
+    },
+    {
+      "signal_id": "news_sentiment",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 88,
+      "gross_pct": 0.004545454545454545,
+      "t_gross": 0.018379482356362296
+    },
+    {
+      "signal_id": "news_sentiment",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 116,
+      "gross_pct": -0.009482758620689655,
+      "t_gross": -0.5065727509959814
+    },
+    {
+      "signal_id": "news_sentiment",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 87,
+      "gross_pct": 0.11666666666666667,
+      "t_gross": 0.6760369529023484
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "crypto_daily",
+      "direction": "long",
+      "n": 1382,
+      "gross_pct": 0.059117221418234445,
+      "t_gross": 2.285191749813542
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "crypto_daily",
+      "direction": "short",
+      "n": 476,
+      "gross_pct": 0.09170168067226891,
+      "t_gross": 2.8532068019879997
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 1724,
+      "gross_pct": -0.20414733178654293,
+      "t_gross": -3.1399829215488757
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 397,
+      "gross_pct": 0.24848866498740554,
+      "t_gross": 2.2563006099896588
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 2439,
+      "gross_pct": -0.017179171791717917,
+      "t_gross": -0.5221630697491859
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 383,
+      "gross_pct": -0.264621409921671,
+      "t_gross": -2.1516805336029132
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 1891,
+      "gross_pct": 0.002908514013749339,
+      "t_gross": 0.2600042335023213
+    },
+    {
+      "signal_id": "ofi",
+      "market_type": "event_short",
+      "direction": "short",
+      "n": 114,
+      "gross_pct": -0.039473684210526314,
+      "t_gross": -0.6907180884535792
+    },
+    {
+      "signal_id": "resolution_prior",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 177,
+      "gross_pct": -0.01694915254237288,
+      "t_gross": -1.7419766814227706
+    },
+    {
+      "signal_id": "resolution_prior",
+      "market_type": "event_long",
+      "direction": "short",
+      "n": 227,
+      "gross_pct": 0.12136563876651982,
+      "t_gross": 1.269892348987391
+    },
+    {
+      "signal_id": "spread_compression",
+      "market_type": "event_financial",
+      "direction": "long",
+      "n": 73,
+      "gross_pct": 0.11506849315068493,
+      "t_gross": 0.18400706994336147
+    },
+    {
+      "signal_id": "spread_compression",
+      "market_type": "event_financial",
+      "direction": "short",
+      "n": 82,
+      "gross_pct": 0.4225609756097561,
+      "t_gross": 0.6350218508856168
+    },
+    {
+      "signal_id": "spread_compression",
+      "market_type": "event_long",
+      "direction": "long",
+      "n": 81,
+      "gross_pct": 0.18024691358024691,
+      "t_gross": 1.5185313707943826
+    },
+    {
+      "signal_id": "spread_compression",
+      "market_type": "event_short",
+      "direction": "long",
+      "n": 73,
+      "gross_pct": 0.2602739726027397,
+      "t_gross": 8.006162854315109
+    }
+  ]
+}
