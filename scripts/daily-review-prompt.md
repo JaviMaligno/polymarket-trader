@@ -159,6 +159,24 @@ Report one line: `Real PnL $X (Y% of reported $Z), inverted N`. If
 `inverted_count > 0` → **CRITICAL regression** — the price-inversion bug is
 back; investigate the responsible collector code path immediately.
 
+**SHORT-side forensic — when NOT to claim phantom PnL.** The inversion query
+above is LONG-asymmetric: it tests `entry + exit ≈ 1.0`. For SHORT positions
+this test never fires because `avg_entry_price` and `current_price` are stored
+in the held-token (NO) frame — both in the same frame, no `entry + exit ≈ 1.0`
+signature. If a SHORT position shows negative `realized_pnl` after an apparently
+favorable YES-frame price move and you suspect a SHORT-side phantom bug, run
+the 3-step recipe before claiming the bug:
+
+1. `SELECT pp.token_id = m.clob_token_id_yes FROM paper_positions pp JOIN markets m ON m.id = pp.market_id WHERE pp.id = <pos>;`
+   Expect `f` for SHORT — confirms held-token is NO.
+2. `SELECT side, executed_size, executed_price, fee FROM paper_trades WHERE market_id = <mkt> AND token_id = <tok> ORDER BY time;`
+   Confirm BUY + SELL legs, both in NO frame.
+3. Compute `(sell_executed_price − buy_executed_price) × size − exit_fee` and
+   confirm it matches `realized_pnl`. If it does, the loss is real, not phantom.
+
+If steps 1-3 are consistent, the price-inversion bug is NOT involved — the
+SHORT just lost because NO dropped (YES rose). See `project_short_pnl_convention`.
+
 ---
 
 ## 1e. Rolling-window vs today distinction (anti-framing)
@@ -306,6 +324,63 @@ WHERE s.n_shadow >= 100
   `<type>:<direction>` to `EXECUTOR_BLOCKED_TYPE_DIRECTIONS` — human decision"**.
   Do NOT file the PR yourself. Cross-check that the cohort is not already
   blocked before alarming (read the dashboard-api env or the docker-compose).
+
+### 3c-bis. Bilateral block check (counter-WR is not a costs defence)
+
+When the alarm in 3c fires on **one** direction of a (market_type, X) cell, run
+the live-side query for the **other** direction of the same cell too, even if
+its shadow arm has `n_resolved < 100`. The auto-review on 2026-05-27 surfaced
+`event_short:long` 0/23, recommended blocking only the LONG side under the
+framing "the SHORT direction is correct (mean +7.44% favorable 4h move), losing
+to costs". 24h later live `event_short:short` was 0/19 — the SHORT side also had
+the direction wrong, the "costs only" framing was a misread. The PR-decision
+cost was an extra day of bleed.
+
+Surface both sides in the issue when:
+- Side A meets the 3c bar (shadow `n≥100` `wins≤5%` `avg_pnl<0` + live `n≥5`
+  `WR<20%` `total<0`), AND
+- Side B has live `n≥10` with `WR<20%` and `total_pnl<0` (regardless of shadow
+  availability for B).
+
+Cost-domination produces a wide PnL distribution; **uniform-sign losses across
+a cohort** (every trade in the same sign) are a directional signature, not a
+cost signature. When a human PR proposes to keep side B enabled with the
+"direction correct, losing to costs" framing, require either (a) `n ≥ 30` on
+side B with the PnL distribution histogram, or (b) flag this section back to
+the human as the basis for the dispute. See `feedback_counterwr_costs_misread`.
+
+### 3c-ter. Shadow temporal-lumpiness sanity check (run before action)
+
+Shadow `win_rate` over 30 days is **temporally lumpy** — event markets share
+resolution dates, so a single tournament/election/expiry calendar can put
+hundreds of correlated outcomes in one day. On 2026-05-27 the auto-review
+quoted `event_long LONG shadow WR = 96.1% (n=791 resolved)`; on 2026-05-28 the
+same SQL gave `WR = 22% (n=5494)` — 3605 LONG resolutions landed on a single
+day. The data was correct in both runs; the 96.1% was a real-but-transient
+peak that one resolution wave wiped out.
+
+Before treating any shadow WR above ~70% or below ~20% as a candidate for
+promotion/demotion (3b alarms are cost-aware and immune to this), check the
+temporal distribution:
+
+```sql
+SELECT m.market_type, s.direction,
+       DATE(s.resolved_at) AS d,
+       COUNT(*) n_resolved,
+       ROUND(AVG(s.theoretical_pnl)::numeric, 4) avg_pnl
+FROM shadow_trades s JOIN markets m ON m.id = s.market_id
+WHERE s.resolved_at IS NOT NULL AND s.time >= NOW() - INTERVAL '30 days'
+  AND m.market_type = '<type>' AND s.direction = '<direction>'
+GROUP BY 1, 2, 3
+ORDER BY 4 DESC
+LIMIT 5;
+```
+
+If any single date contributes >20% of the 30d resolved sample for that cohort,
+flag it in the issue under the shadow line:
+`Shadow <type>:<dir> WR=X% (lumpy: <dominant date> = Y% of n_resolved)`.
+Do **not** recommend action on lumpy shadow alone. The `shadow_summary_by_direction`
+JSON also surfaces `dominant_date_pct` directly — use it as the trigger.
 
 **Misattribution caveat**: shadow_trades' `s.market_type` is frozen at the
 trade time. Markets get reclassified (WTI Oil moved from `event_short` →
