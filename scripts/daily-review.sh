@@ -694,30 +694,58 @@ shadow_summary=$(query_json "
 # (shadow SHORT win rates run very high in prediction markets because most
 # markets resolve NO; not a strategy edge). Promotion logic uses this to
 # decide whether a high overall win_rate is genuine or SHORT-bias-inflated.
+#
+# dominant_date_pct exposes the temporal-lumpiness artifact: event markets share
+# resolution dates and resolve in batches. A single-day wave can flip the
+# 30d win_rate by 70+ percentage points (2026-05-27 → 2026-05-28: event_long
+# LONG WR 96.1% → 22% after 3605 resolutions landed on one day). Acts as a
+# "do not promote on this sample yet" flag — see feedback_shadow_lumpy_resolutions.
 shadow_summary_by_direction=$(query_json "
+  WITH resolved_rows AS (
+    SELECT market_type, direction, theoretical_pnl, DATE(resolved_at) AS resolved_day
+    FROM shadow_trades
+    WHERE time >= NOW() - INTERVAL '30 days' AND resolved_at IS NOT NULL
+  ),
+  per_day AS (
+    SELECT market_type, direction, resolved_day, COUNT(*) AS n
+    FROM resolved_rows GROUP BY market_type, direction, resolved_day
+  ),
+  dominant AS (
+    SELECT market_type, direction,
+           MAX(n) AS top_n,
+           SUM(n) AS total_n,
+           (ARRAY_AGG(resolved_day ORDER BY n DESC))[1] AS top_day
+    FROM per_day GROUP BY market_type, direction
+  )
   SELECT COALESCE(json_agg(row_to_json(t)), '[]') FROM (
-    SELECT market_type,
-           direction,
+    SELECT s.market_type,
+           s.direction,
            COUNT(*) AS total,
-           COUNT(*) FILTER (WHERE resolved_at IS NOT NULL) AS resolved,
-           ROUND(AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS avg_pnl,
+           COUNT(*) FILTER (WHERE s.resolved_at IS NOT NULL) AS resolved,
+           ROUND(AVG(s.theoretical_pnl) FILTER (WHERE s.resolved_at IS NOT NULL)::numeric, 4) AS avg_pnl,
            ROUND(
-             (COUNT(*) FILTER (WHERE resolved_at IS NOT NULL AND theoretical_pnl > 0)::numeric
-               / NULLIF(COUNT(*) FILTER (WHERE resolved_at IS NOT NULL), 0))::numeric,
+             (COUNT(*) FILTER (WHERE s.resolved_at IS NOT NULL AND s.theoretical_pnl > 0)::numeric
+               / NULLIF(COUNT(*) FILTER (WHERE s.resolved_at IS NOT NULL), 0))::numeric,
              3
            ) AS win_rate,
-           ROUND(STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)::numeric, 4) AS pnl_stddev,
+           ROUND(STDDEV(s.theoretical_pnl) FILTER (WHERE s.resolved_at IS NOT NULL)::numeric, 4) AS pnl_stddev,
            ROUND(
-             CASE WHEN STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL) > 0
-               THEN AVG(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
-                    / STDDEV(theoretical_pnl) FILTER (WHERE resolved_at IS NOT NULL)
+             CASE WHEN STDDEV(s.theoretical_pnl) FILTER (WHERE s.resolved_at IS NOT NULL) > 0
+               THEN AVG(s.theoretical_pnl) FILTER (WHERE s.resolved_at IS NOT NULL)
+                    / STDDEV(s.theoretical_pnl) FILTER (WHERE s.resolved_at IS NOT NULL)
                ELSE 0 END::numeric,
              3
-           ) AS sharpe
-    FROM shadow_trades
-    WHERE time >= NOW() - INTERVAL '30 days'
-    GROUP BY market_type, direction
-    ORDER BY market_type, direction
+           ) AS sharpe,
+           d.top_day AS dominant_resolved_date,
+           ROUND(
+             CASE WHEN d.total_n > 0 THEN d.top_n::numeric / d.total_n ELSE 0 END,
+             3
+           ) AS dominant_date_pct
+    FROM shadow_trades s
+    LEFT JOIN dominant d ON d.market_type = s.market_type AND d.direction = s.direction
+    WHERE s.time >= NOW() - INTERVAL '30 days'
+    GROUP BY s.market_type, s.direction, d.top_day, d.top_n, d.total_n
+    ORDER BY s.market_type, s.direction
   ) t;
 ")
 
