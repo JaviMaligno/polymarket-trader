@@ -277,14 +277,21 @@ services:
       #   inversion signature on post-reset cohort. n=23, actual WR 0%,
       #   counter-WR 100%, mean directional move -2.68% (i.e. the wrong
       #   way every time). Entries spanned 0.24-0.50 (mid-band, not OTM),
-      #   so OTM longshot gate (PR #268) does not cover them. SHORT side
-      #   left enabled — direction is correct (mean +7.44% favorable move)
-      #   but bleeds to costs; addressing that requires per-direction weight
-      #   re-seed (Option B in project_per_direction_weights_gap.md), not
-      #   a block. Re-enable LONG when per-direction weights are re-seeded
-      #   including event_short LONG or when P2 t_net flips positive.
+      #   so OTM longshot gate (PR #268) does not cover them.
+      # Configured 2026-05-28: event_short SHORT blocked — empirical
+      #   refutation of the previous "direction correct, losing to costs"
+      #   hypothesis. Live post-reset n=19, 0/19 wins, -$118.30; today
+      #   3/3 opens lost. Forensic on live closes (Belgium/Mexico/Colombia
+      #   World Cup markets): NO-token entry/exit prices and paper_trades
+      #   fills consistent — losses are real (not phantom PnL). In 19/19
+      #   trades the NO-token price dropped (YES rose), i.e. the SHORT
+      #   was always on the wrong side of the move. With every trade
+      #   losing rather than the wide PnL distribution costs alone would
+      #   produce, the direction is wrong for this cohort, not just
+      #   cost-dominated. Containment until per-direction re-seed
+      #   (Option B in project_per_direction_weights_gap.md) lands.
       # Closes of existing positions are never blocked (unwind path).
-      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,event_financial:long,crypto_intraday:long,event_short:long"
+      EXECUTOR_BLOCKED_TYPE_DIRECTIONS: "event_financial:short,event_financial:long,crypto_intraday:long,event_short:long,event_short:short"
       # Per-market consecutive-loss block threshold (default 3).
       # Lowered to 2 on 2026-05-15: CL futures markets accumulated 10 and 8 losses
       # respectively (1652677, 1652685) in 4 days — each 24h ban cycle absorbed 3
