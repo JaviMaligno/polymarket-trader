@@ -1,0 +1,6 @@
+{
+  "crypto_daily": 0.01,
+  "event_financial": 0.01,
+  "event_long": 0.01,
+  "event_short": 0.01
+}
