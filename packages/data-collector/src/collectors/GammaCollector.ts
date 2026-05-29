@@ -61,6 +61,25 @@ interface GammaEventsResponse {
   next_cursor?: string;
 }
 
+/**
+ * Parse Gamma `outcomePrices` (JSON string like '["1","0"]') into a resolution
+ * outcome. YES price ≥0.99 → 'yes', ≤0.01 → 'no', otherwise (50-50, invalid,
+ * malformed) → null. MarketPerformanceTracker treats any non-'yes' as 0.0 PnL,
+ * so we only mark clean yes/no resolutions.
+ */
+export function parseResolutionOutcome(outcomePrices: string | null | undefined): 'yes' | 'no' | null {
+  try {
+    const prices = JSON.parse(outcomePrices || '[]');
+    const yesPrice = prices[0] != null ? parseFloat(prices[0]) : null;
+    if (yesPrice === null || isNaN(yesPrice)) return null;
+    if (yesPrice >= 0.99) return 'yes';
+    if (yesPrice <= 0.01) return 'no';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export class GammaCollector {
   private client: AxiosInstance;
   private rateLimiter = getRateLimiter();
@@ -207,18 +226,7 @@ export class GammaCollector {
         // 'yes' | 'no' | 'invalid'. MarketPerformanceTracker interprets any
         // non-'yes' value as 0.0 in PnL, so invalid markets are skipped here to
         // avoid polluting shadow resolution.
-        let resolutionOutcome: 'yes' | 'no' | null = null;
-        try {
-          const prices = JSON.parse(market.outcomePrices || '[]');
-          const yesPrice = prices[0] ? parseFloat(prices[0]) : null;
-          if (yesPrice !== null && !isNaN(yesPrice)) {
-            if (yesPrice >= 0.99) resolutionOutcome = 'yes';
-            else if (yesPrice <= 0.01) resolutionOutcome = 'no';
-            // Else market resolved partially (invalid/50-50) — skip.
-          }
-        } catch {
-          // Leave null — we won't mark it resolved.
-        }
+        const resolutionOutcome = parseResolutionOutcome(market.outcomePrices);
 
         if (resolutionOutcome === null) continue;
 
