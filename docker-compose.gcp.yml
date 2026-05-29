@@ -154,9 +154,12 @@ services:
       #   — guarantees each market_type gets its share of MAX_SIGNAL_MARKETS.
       # Unset both vars to fall back to legacy volume-sorted single-query
       # behaviour (backward-compatible default).
-      # Defaults sized for ALLOWED_MARKET_TYPES (crypto_intraday + crypto_daily +
-      # event_financial + event_short) + a smaller event_long share for FLB
-      # shadow measurement. Sum of slots = 50, matches MAX_SIGNAL_MARKETS.
+      # Covers the live ALLOWED_MARKET_TYPES (crypto_daily + event_financial +
+      # event_short) plus an event_long share for FLB shadow measurement. The
+      # crypto_intraday entries below are vestigial: the type was dropped from
+      # ALLOWED_MARKET_TYPES (untradeable 5-min markets), so its 8 slots are
+      # never consumed. TODO: reallocate the freed crypto_intraday slots across
+      # the live types (a tuning decision — left for deliberate optimization).
       SIGNAL_FETCH_BUDGET_PER_TYPE: "crypto_intraday:30,crypto_daily:30,event_financial:40,event_short:40,event_long:60"
       SIGNAL_SLOTS_PER_TYPE: "crypto_intraday:8,crypto_daily:8,event_financial:12,event_short:12,event_long:10"
       # Force-tracked experiment cohort — same list as the data-collector.
