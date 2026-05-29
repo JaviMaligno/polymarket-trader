@@ -8,6 +8,17 @@ const logger = pino({ name: 'gamma-collector' });
 
 const GAMMA_API_URL = process.env.GAMMA_API_URL || 'https://gamma-api.polymarket.com';
 const MAX_SYNC_PAGES = parseInt(process.env.MAX_SYNC_PAGES || '10', 10);
+// Parse a positive-int env var, falling back to a sane default when unset or
+// malformed (NaN/≤0). Keeps the collector's established default pattern
+// (cf. MAX_SYNC_PAGES) while preventing a bad env value from flowing through as
+// NaN into the SQL LIMIT / interval.
+function intEnv(name: string, def: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : def;
+}
+const RESOLUTION_BUDGET_PER_RUN = intEnv('RESOLUTION_BUDGET_PER_RUN', 500);
+const RESOLUTION_BATCH_SIZE = intEnv('RESOLUTION_BATCH_SIZE', 20);
+const RESOLUTION_RECHECK_HOURS = intEnv('RESOLUTION_RECHECK_HOURS', 24);
 
 /**
  * Infer category from market question using keyword matching
@@ -61,7 +72,29 @@ interface GammaEventsResponse {
   next_cursor?: string;
 }
 
+/**
+ * Parse Gamma `outcomePrices` (JSON string like '["1","0"]') into a resolution
+ * outcome. YES price ≥0.99 → 'yes', ≤0.01 → 'no', otherwise (50-50, invalid,
+ * malformed) → null. MarketPerformanceTracker treats any non-'yes' as 0.0 PnL,
+ * so we only mark clean yes/no resolutions.
+ */
+export function parseResolutionOutcome(outcomePrices: string | null | undefined): 'yes' | 'no' | null {
+  try {
+    const prices = JSON.parse(outcomePrices || '[]');
+    const yesPrice = prices[0] != null ? parseFloat(prices[0]) : null;
+    if (yesPrice === null || isNaN(yesPrice)) return null;
+    if (yesPrice >= 0.99) return 'yes';
+    if (yesPrice <= 0.01) return 'no';
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export class GammaCollector {
+  // One-shot per process: the last_resolution_check column guard runs once, not
+  // on every recurring resolveOurMarkets() invocation (keeps DDL off the hot path).
+  private static lastResolutionCheckColumnEnsured = false;
   private client: AxiosInstance;
   private rateLimiter = getRateLimiter();
 
@@ -155,114 +188,6 @@ export class GammaCollector {
 
     logger.info({ inserted, updated }, 'Finished syncing markets');
     return { inserted, updated };
-  }
-
-  /**
-   * Sync resolution status for markets that have closed on Polymarket.
-   * Only UPDATES existing rows (never INSERTs) — we don't need resolved
-   * markets we never tracked. Populates `is_resolved`, `resolution_outcome`,
-   * and `resolved_at` so that `resolveShadowTrades` (daily cron) can score
-   * shadow trades against actual outcomes.
-   */
-  async syncResolvedMarketsToDb(): Promise<{ resolved: number; scanned: number }> {
-    let resolved = 0;
-    let scanned = 0;
-    let offset = 0;
-    let pageCount = 0;
-    const limit = 100;
-
-    logger.info('Syncing resolved markets');
-
-    while (true) {
-      await this.rateLimiter.acquire('gamma_markets');
-
-      let markets: any[] = [];
-      try {
-        const response = await this.client.get<any[]>('/markets', {
-          params: {
-            limit: limit.toString(),
-            offset: offset.toString(),
-            closed: 'true',
-            // Newest resolutions first — sort desc by updatedAt if supported; Gamma
-            // doesn't reject unknown params, so this is a best-effort hint.
-            order: 'updatedAt',
-            ascending: 'false',
-          },
-        });
-        markets = response.data || [];
-      } catch (error: any) {
-        logger.error({ err: error.message || String(error), offset }, 'Error fetching closed markets page');
-        break;
-      }
-
-      if (markets.length === 0) break;
-
-      // Build batched UPDATE by id. Only rows that are NOT already resolved are
-      // touched (WHERE is_resolved = false), so re-runs are idempotent and cheap.
-      for (const market of markets) {
-        scanned++;
-        if (!market.id || !market.closed) continue;
-
-        // Schema: `markets.resolution_outcome` is VARCHAR(10) with values
-        // 'yes' | 'no' | 'invalid'. MarketPerformanceTracker interprets any
-        // non-'yes' value as 0.0 in PnL, so invalid markets are skipped here to
-        // avoid polluting shadow resolution.
-        let resolutionOutcome: 'yes' | 'no' | null = null;
-        try {
-          const prices = JSON.parse(market.outcomePrices || '[]');
-          const yesPrice = prices[0] ? parseFloat(prices[0]) : null;
-          if (yesPrice !== null && !isNaN(yesPrice)) {
-            if (yesPrice >= 0.99) resolutionOutcome = 'yes';
-            else if (yesPrice <= 0.01) resolutionOutcome = 'no';
-            // Else market resolved partially (invalid/50-50) — skip.
-          }
-        } catch {
-          // Leave null — we won't mark it resolved.
-        }
-
-        if (resolutionOutcome === null) continue;
-
-        // Prefer the API's closedTime; fall back to now for rows missing it.
-        const resolvedAt = market.closedTime
-          ? new Date(market.closedTime.replace(' ', 'T').replace('+00', 'Z'))
-          : new Date();
-
-        try {
-          const result = await query(
-            `
-            UPDATE markets
-            SET is_resolved = true,
-                resolution_outcome = $1,
-                resolved_at = $2,
-                is_active = false,
-                updated_at = NOW()
-            WHERE id = $3
-              AND COALESCE(is_resolved, false) = false
-            `,
-            [resolutionOutcome, resolvedAt, market.id]
-          );
-          if (result.rowCount && result.rowCount > 0) {
-            resolved++;
-          }
-        } catch (err: any) {
-          logger.warn({ err: err.message || String(err), marketId: market.id }, 'Failed to mark market resolved');
-        }
-      }
-
-      pageCount++;
-      logger.debug({ offset, batchSize: markets.length, resolved, scanned }, 'Processed closed markets batch');
-
-      if (markets.length < limit) break;
-      if (pageCount >= MAX_SYNC_PAGES) {
-        logger.info(`[GammaCollector] Reached MAX_SYNC_PAGES (${MAX_SYNC_PAGES}), stopping resolved-market sync`);
-        break;
-      }
-
-      offset += limit;
-    }
-
-    logger.info({ resolved, scanned }, 'Finished syncing resolved markets');
-    return { resolved, scanned };
   }
 
   /**
@@ -574,6 +499,106 @@ export class GammaCollector {
         return 'updated';
       }
       throw error;
+    }
+  }
+
+  /**
+   * Resolve OUR ended-but-unresolved markets by querying Gamma per-id, instead of
+   * scanning Polymarket's global closed feed (which the 5-min crypto firehose
+   * starves — see docs/superpowers/specs/2026-05-29-resolution-from-our-universe-design.md).
+   * Consumers (shadow_trades / market_panel) and tradeable types are resolved first.
+   * Batch path used: Gamma /markets?id=...&id=... returns multiple rows (verified rows:2).
+   */
+  async resolveOurMarkets(): Promise<{ resolved: number; checked: number }> {
+    // Idempotent schema guard (init SQL only runs on first volume init). Run
+    // once per process — not on every recurring invocation.
+    if (!GammaCollector.lastResolutionCheckColumnEnsured) {
+      await query(`ALTER TABLE markets ADD COLUMN IF NOT EXISTS last_resolution_check TIMESTAMPTZ`);
+      GammaCollector.lastResolutionCheckColumnEnsured = true;
+    }
+
+    const sel = await query<{ id: string }>(
+      `
+      SELECT m.id
+      FROM markets m
+      WHERE m.end_date < NOW()
+        AND NOT COALESCE(m.is_resolved, false)
+        AND (m.last_resolution_check IS NULL
+             OR m.last_resolution_check < NOW() - ($1 || ' hours')::interval)
+      ORDER BY
+        (EXISTS (SELECT 1 FROM shadow_trades s WHERE s.market_id = m.id AND s.resolved_at IS NULL)) DESC,
+        (EXISTS (SELECT 1 FROM market_panel mp WHERE mp.market_id = m.id AND mp.resolved_at IS NULL)) DESC,
+        (m.market_type IN ('crypto_daily','event_financial','event_short')) DESC,
+        m.end_date DESC
+      LIMIT $2
+      `,
+      [String(RESOLUTION_RECHECK_HOURS), RESOLUTION_BUDGET_PER_RUN]
+    );
+
+    const ids = sel.rows.map((r) => String(r.id));
+    if (ids.length === 0) {
+      logger.info('No unresolved-ended markets in budget window');
+      return { resolved: 0, checked: 0 };
+    }
+
+    let resolved = 0;
+    for (let i = 0; i < ids.length; i += RESOLUTION_BATCH_SIZE) {
+      const chunk = ids.slice(i, i + RESOLUTION_BATCH_SIZE);
+      await this.rateLimiter.acquire('gamma_markets');
+
+      let rows: any[] = [];
+      try {
+        const params = new URLSearchParams();
+        for (const id of chunk) params.append('id', id);
+        params.append('closed', 'true');
+        const response = await this.client.get<any[]>('/markets', { params });
+        rows = response.data || [];
+      } catch (err: any) {
+        // Transient — do NOT throttle; retry next run.
+        logger.error({ err: err.message || String(err), chunkSize: chunk.length }, 'Resolution batch fetch failed');
+        continue;
+      }
+
+      const returned = new Set<string>();
+      for (const m of rows) {
+        returned.add(String(m.id));
+        const outcome = parseResolutionOutcome(m.outcomePrices);
+        if (outcome === null) {
+          await this.bumpResolutionCheck(String(m.id)); // 50-50 / invalid — don't re-query hourly
+          continue;
+        }
+        const resolvedAt = m.closedTime
+          ? new Date(String(m.closedTime).replace(' ', 'T').replace('+00', 'Z'))
+          : new Date();
+        try {
+          const result = await query(
+            `UPDATE markets SET is_resolved=true, resolution_outcome=$1, resolved_at=$2,
+                    is_active=false, updated_at=NOW()
+             WHERE id=$3 AND COALESCE(is_resolved,false)=false`,
+            [outcome, resolvedAt, m.id]
+          );
+          // Only count rows actually transitioned (idempotent guard may match 0
+          // for an already-resolved market under concurrency / duplicate rows).
+          if (result.rowCount && result.rowCount > 0) resolved++;
+        } catch (err: any) {
+          logger.warn({ err: err.message || String(err), marketId: m.id }, 'Failed to mark market resolved');
+        }
+      }
+      // Requested-but-absent (still open) → throttle.
+      for (const id of chunk) {
+        if (!returned.has(id)) await this.bumpResolutionCheck(id);
+      }
+    }
+
+    logger.info({ resolved, checked: ids.length }, 'Finished resolving our markets');
+    return { resolved, checked: ids.length };
+  }
+
+  private async bumpResolutionCheck(id: string): Promise<void> {
+    try {
+      await query(`UPDATE markets SET last_resolution_check = NOW() WHERE id = $1`, [id]);
+    } catch (err: any) {
+      logger.warn({ err: err.message || String(err), marketId: id }, 'Failed to bump last_resolution_check');
     }
   }
 

@@ -88,6 +88,13 @@ const cases = [
       assert.equal(got.length, ALLOWED.length);
     },
   },
+  {
+    name: 'DEFAULT_ALLOWED_MARKET_TYPES excludes untradeable crypto_intraday',
+    fn: () => {
+      assert.ok(!DEFAULT_ALLOWED_MARKET_TYPES.includes('crypto_intraday'));
+      assert.deepEqual(DEFAULT_ALLOWED_MARKET_TYPES, ['crypto_daily', 'event_financial', 'event_short']);
+    },
+  },
 ];
 
 let failed = 0;
