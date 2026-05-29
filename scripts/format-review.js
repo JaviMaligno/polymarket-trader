@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { detectSupplyCollapse } = require('./coverage-alerts.js');
 
 // ── Read input ──────────────────────────────────────────────────────────────
 
@@ -184,6 +185,23 @@ const edgeMeasurementFreshness = Array.isArray(data.edge_measurement_freshness) 
 // current-day open distribution (distinct from rolling 7d edge_cohorts_traded).
 const opensToday = Array.isArray(data.opens_today) ? data.opens_today : [];
 const coverageByType = Array.isArray(data.coverage_by_type) ? data.coverage_by_type : [];
+// ALLOWED_MARKET_TYPES, sourced (in priority order) from the gather payload
+// (read from the running dashboard container by daily-review.sh — single source
+// of truth), then the CI env, then undefined (detectSupplyCollapse falls back to
+// its DEFAULT_ALLOWED_MARKET_TYPES). Avoids a hardcoded list drifting from the
+// executor config. #280/#281.
+const allowedMarketTypes = (() => {
+  if (Array.isArray(data.allowed_market_types) && data.allowed_market_types.length) {
+    return data.allowed_market_types;
+  }
+  const csv = typeof data.allowed_market_types === 'string'
+    ? data.allowed_market_types
+    : process.env.ALLOWED_MARKET_TYPES;
+  if (typeof csv === 'string' && csv.trim()) {
+    return csv.split(',').map((s) => s.trim()).filter(Boolean);
+  }
+  return undefined; // detectSupplyCollapse uses DEFAULT_ALLOWED_MARKET_TYPES
+})();
 const generatedAt = data.generated_at || new Date().toISOString();
 
 // ── Trading-state derived signals ───────────────────────────────────────────
@@ -250,6 +268,22 @@ if (feedStarvedTypes.length > 0) {
   alerts.push({
     level: 'critical',
     message: `SignalEngine feed starved for ${feedStarvedTypes.length} type(s) (tracked + priced but 0 predictions/24h): ${feedStarvedTypes.map((r) => `${r.market_type} (${r.tracked} tracked)`).join(', ')}`,
+  });
+}
+
+// 2026-05-29 #280: supply collapse. An ALLOWED (live-tradeable) market type
+// with 0 tracked markets — or entirely absent from coverage_by_type because the
+// gather query's GROUP BY drops empty groups — means the rotator/collector has
+// no supply for that type. The rule used to live only in the LLM prompt §1d;
+// Watchdog #280 silently skipped it for crypto_intraday. Deterministic now.
+// Warning (not critical): a type can be legitimately empty (e.g. crypto_intraday
+// = 5-min markets we can't trade) without being an outage — surfacing it daily
+// is the point; paging on it is not.
+const supplyCollapseTypes = detectSupplyCollapse(coverageByType, allowedMarketTypes);
+if (supplyCollapseTypes.length > 0) {
+  alerts.push({
+    level: 'warning',
+    message: `Supply collapse: ${supplyCollapseTypes.length} ALLOWED market_type(s) have 0 tracked markets: ${supplyCollapseTypes.map((r) => r.market_type).join(', ')}. Either the collector/rotator stopped feeding the type, or its catalog is genuinely empty — verify against the live Polymarket catalog before assuming an outage.`,
   });
 }
 
@@ -447,7 +481,10 @@ function buildMarkdown() {
     // in exactly that case.
     edgeCohortsPositive.length > 0 ||
     edgeGap.length > 0 ||
-    edgeMeasurementFreshness.length > 0
+    edgeMeasurementFreshness.length > 0 ||
+    // 2026-05-29 #280: render the section when we have coverage data even with
+    // no trades — "type X has 0 supply" is exactly a no-trades-day finding.
+    coverageByType.length > 0
   ) {
     ln(`## Performance Breakdown`);
     ln();
@@ -474,6 +511,38 @@ function buildMarkdown() {
       ln(`|------|--------|----------|---------|--------|-------|`);
       for (const c of categoryPerformance) {
         ln(`| ${c.market_type || 'N/A'} | ${fmt(c.n_trades, 0)} | ${fmtPct(c.win_rate)} | ${fmtUsd(c.avg_pnl)} | ${fmt(c.sharpe_ratio, 3)} | ${fmt(c.prior, 3)} |`);
+      }
+      ln();
+    }
+
+    // 2026-05-29 #280: SignalEngine feed coverage, always rendered so the
+    // per-type tracked/priced/predicted breakdown is visible (not just surfaced
+    // as an alert when something is wrong). Watchdog #280 reported only an
+    // aggregate "MarketRotator: 72 active" line, which hid crypto_intraday=0.
+    if (coverageByType.length > 0) {
+      ln(`### Feed Coverage (by market_type)`);
+      ln();
+      ln(`| Type | Tracked | Priced 24h | Preds 24h | Active in DB |`);
+      ln(`|------|---------|------------|-----------|--------------|`);
+      // A collapsed type can be ENTIRELY ABSENT from coverageByType (the gather
+      // query's GROUP BY drops empty groups — the crypto_intraday case). Append
+      // synthetic zero-rows for those so the table shows what the alert reports,
+      // instead of re-hiding the very gap this table was added to expose. #281.
+      const presentTypes = new Set(coverageByType.map((c) => c.market_type));
+      const coverageRows = [...coverageByType];
+      for (const s of supplyCollapseTypes) {
+        if (!presentTypes.has(s.market_type)) {
+          coverageRows.push({ market_type: s.market_type, tracked: 0, priced_24h: 0, with_preds_24h: 0, active_in_db: 0 });
+        }
+      }
+      for (const c of coverageRows) {
+        const collapsed = supplyCollapseTypes.some((s) => s.market_type === c.market_type);
+        const label = collapsed ? `${c.market_type} ⚠️` : c.market_type;
+        ln(`| ${label} | ${fmt(c.tracked, 0)} | ${fmt(c.priced_24h, 0)} | ${fmt(c.with_preds_24h, 0)} | ${fmt(c.active_in_db, 0)} |`);
+      }
+      if (supplyCollapseTypes.length > 0) {
+        ln();
+        ln(`> ⚠️ = ALLOWED type with 0 tracked markets (supply collapse — see Alerts).`);
       }
       ln();
     }
