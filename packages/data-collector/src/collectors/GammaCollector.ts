@@ -525,11 +525,12 @@ export class GammaCollector {
         AND NOT COALESCE(m.is_resolved, false)
         AND (m.last_resolution_check IS NULL
              OR m.last_resolution_check < NOW() - ($1 || ' hours')::interval)
-      ORDER BY
-        (EXISTS (SELECT 1 FROM shadow_trades s WHERE s.market_id = m.id AND s.resolved_at IS NULL)) DESC,
-        (EXISTS (SELECT 1 FROM market_panel mp WHERE mp.market_id = m.id AND mp.resolved_at IS NULL)) DESC,
-        (m.market_type IN ('crypto_daily','event_financial','event_short')) DESC,
-        m.end_date DESC
+      -- Recency order only. The earlier consumer/tradeable-priority ORDER BY used
+      -- correlated EXISTS subqueries that ran per-row over the ~71k-row backlog and
+      -- pinned the e2-micro DB for 30+ min (verified in prod). Plain end_date DESC
+      -- is served by idx_markets_resolution_backlog (partial index) as a backward
+      -- index scan — instant. The backlog drains over cron cycles regardless of order.
+      ORDER BY m.end_date DESC
       LIMIT $2
       `,
       [String(RESOLUTION_RECHECK_HOURS), RESOLUTION_BUDGET_PER_RUN]
