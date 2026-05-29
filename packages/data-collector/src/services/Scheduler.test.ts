@@ -64,11 +64,13 @@ describe('Scheduler — sync-resolved-markets uses resolveOurMarkets', () => {
     vi.clearAllMocks();
   });
 
-  it('sync-resolved-markets calls resolveOurMarkets', async () => {
+  it('sync-resolved-markets dispatches to resolveOurMarkets', async () => {
     const resolveOurMarkets = vi.fn().mockResolvedValue({ resolved: 0, checked: 0 });
     (gammaModule.getGammaCollector as unknown as Mock).mockReturnValue({ resolveOurMarkets } as any);
     const scheduler = new Scheduler();
-    await (scheduler as any).syncResolvedMarkets();
+    // Exercise via runJob so the test also guards the runJob switch dispatch,
+    // not just the handler body.
+    await scheduler.runJob('sync-resolved-markets');
     expect(resolveOurMarkets).toHaveBeenCalled();
   });
 });

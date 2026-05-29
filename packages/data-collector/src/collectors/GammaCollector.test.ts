@@ -40,6 +40,9 @@ describe('parseResolutionOutcome', () => {
 describe('resolveOurMarkets', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Reset the one-shot column-ensure guard so each test runs the ALTER first
+    // (keeps the call-index assumptions below stable).
+    (GammaCollector as any).lastResolutionCheckColumnEnsured = false;
     delete process.env.RESOLUTION_BUDGET_PER_RUN;
     delete process.env.RESOLUTION_BATCH_SIZE;
     delete process.env.RESOLUTION_RECHECK_HOURS;
@@ -64,7 +67,7 @@ describe('resolveOurMarkets', () => {
     (query as any)
       .mockResolvedValueOnce({ rows: [] })                        // ALTER
       .mockResolvedValueOnce({ rows: [{ id: 'A' }, { id: 'B' }] }) // SELECT
-      .mockResolvedValue({ rows: [] });                           // all UPDATEs
+      .mockResolvedValue({ rows: [], rowCount: 1 });              // UPDATE (rowCount=1 → counted) + bumps
 
     // Gamma returns only A as closed (B still open → absent).
     // client is a private instance property; assign a mock directly.

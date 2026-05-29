@@ -8,9 +8,17 @@ const logger = pino({ name: 'gamma-collector' });
 
 const GAMMA_API_URL = process.env.GAMMA_API_URL || 'https://gamma-api.polymarket.com';
 const MAX_SYNC_PAGES = parseInt(process.env.MAX_SYNC_PAGES || '10', 10);
-const RESOLUTION_BUDGET_PER_RUN = parseInt(process.env.RESOLUTION_BUDGET_PER_RUN || '500', 10);
-const RESOLUTION_BATCH_SIZE = parseInt(process.env.RESOLUTION_BATCH_SIZE || '20', 10);
-const RESOLUTION_RECHECK_HOURS = parseInt(process.env.RESOLUTION_RECHECK_HOURS || '24', 10);
+// Parse a positive-int env var, falling back to a sane default when unset or
+// malformed (NaN/≤0). Keeps the collector's established default pattern
+// (cf. MAX_SYNC_PAGES) while preventing a bad env value from flowing through as
+// NaN into the SQL LIMIT / interval.
+function intEnv(name: string, def: number): number {
+  const v = parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(v) && v > 0 ? v : def;
+}
+const RESOLUTION_BUDGET_PER_RUN = intEnv('RESOLUTION_BUDGET_PER_RUN', 500);
+const RESOLUTION_BATCH_SIZE = intEnv('RESOLUTION_BATCH_SIZE', 20);
+const RESOLUTION_RECHECK_HOURS = intEnv('RESOLUTION_RECHECK_HOURS', 24);
 
 /**
  * Infer category from market question using keyword matching
@@ -84,6 +92,9 @@ export function parseResolutionOutcome(outcomePrices: string | null | undefined)
 }
 
 export class GammaCollector {
+  // One-shot per process: the last_resolution_check column guard runs once, not
+  // on every recurring resolveOurMarkets() invocation (keeps DDL off the hot path).
+  private static lastResolutionCheckColumnEnsured = false;
   private client: AxiosInstance;
   private rateLimiter = getRateLimiter();
 
@@ -499,8 +510,12 @@ export class GammaCollector {
    * Batch path used: Gamma /markets?id=...&id=... returns multiple rows (verified rows:2).
    */
   async resolveOurMarkets(): Promise<{ resolved: number; checked: number }> {
-    // Idempotent schema guard (init SQL only runs on first volume init).
-    await query(`ALTER TABLE markets ADD COLUMN IF NOT EXISTS last_resolution_check TIMESTAMPTZ`);
+    // Idempotent schema guard (init SQL only runs on first volume init). Run
+    // once per process — not on every recurring invocation.
+    if (!GammaCollector.lastResolutionCheckColumnEnsured) {
+      await query(`ALTER TABLE markets ADD COLUMN IF NOT EXISTS last_resolution_check TIMESTAMPTZ`);
+      GammaCollector.lastResolutionCheckColumnEnsured = true;
+    }
 
     const sel = await query<{ id: string }>(
       `
@@ -556,13 +571,15 @@ export class GammaCollector {
           ? new Date(String(m.closedTime).replace(' ', 'T').replace('+00', 'Z'))
           : new Date();
         try {
-          await query(
+          const result = await query(
             `UPDATE markets SET is_resolved=true, resolution_outcome=$1, resolved_at=$2,
                     is_active=false, updated_at=NOW()
              WHERE id=$3 AND COALESCE(is_resolved,false)=false`,
             [outcome, resolvedAt, m.id]
           );
-          resolved++;
+          // Only count rows actually transitioned (idempotent guard may match 0
+          // for an already-resolved market under concurrency / duplicate rows).
+          if (result.rowCount && result.rowCount > 0) resolved++;
         } catch (err: any) {
           logger.warn({ err: err.message || String(err), marketId: m.id }, 'Failed to mark market resolved');
         }
