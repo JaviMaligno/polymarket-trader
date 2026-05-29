@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { detectSupplyCollapse } = require('./coverage-alerts.js');
 
 // ── Read input ──────────────────────────────────────────────────────────────
 
@@ -253,6 +254,22 @@ if (feedStarvedTypes.length > 0) {
   });
 }
 
+// 2026-05-29 #280: supply collapse. An ALLOWED (live-tradeable) market type
+// with 0 tracked markets — or entirely absent from coverage_by_type because the
+// gather query's GROUP BY drops empty groups — means the rotator/collector has
+// no supply for that type. The rule used to live only in the LLM prompt §1d;
+// Watchdog #280 silently skipped it for crypto_intraday. Deterministic now.
+// Warning (not critical): a type can be legitimately empty (e.g. crypto_intraday
+// = 5-min markets we can't trade) without being an outage — surfacing it daily
+// is the point; paging on it is not.
+const supplyCollapseTypes = detectSupplyCollapse(coverageByType);
+if (supplyCollapseTypes.length > 0) {
+  alerts.push({
+    level: 'warning',
+    message: `Supply collapse: ${supplyCollapseTypes.length} ALLOWED market_type(s) have 0 tracked markets: ${supplyCollapseTypes.map((r) => r.market_type).join(', ')}. Either the collector/rotator stopped feeding the type, or its catalog is genuinely empty — verify against the live Polymarket catalog before assuming an outage.`,
+  });
+}
+
 // 5+ consecutive losses. The metric is a cumulative DB counter, so when the
 // executor has been idle (tradingInactive) the "5 in a row" is historical and
 // not actionable — surface that context instead of paging on stale data.
@@ -447,7 +464,10 @@ function buildMarkdown() {
     // in exactly that case.
     edgeCohortsPositive.length > 0 ||
     edgeGap.length > 0 ||
-    edgeMeasurementFreshness.length > 0
+    edgeMeasurementFreshness.length > 0 ||
+    // 2026-05-29 #280: render the section when we have coverage data even with
+    // no trades — "type X has 0 supply" is exactly a no-trades-day finding.
+    coverageByType.length > 0
   ) {
     ln(`## Performance Breakdown`);
     ln();
@@ -474,6 +494,27 @@ function buildMarkdown() {
       ln(`|------|--------|----------|---------|--------|-------|`);
       for (const c of categoryPerformance) {
         ln(`| ${c.market_type || 'N/A'} | ${fmt(c.n_trades, 0)} | ${fmtPct(c.win_rate)} | ${fmtUsd(c.avg_pnl)} | ${fmt(c.sharpe_ratio, 3)} | ${fmt(c.prior, 3)} |`);
+      }
+      ln();
+    }
+
+    // 2026-05-29 #280: SignalEngine feed coverage, always rendered so the
+    // per-type tracked/priced/predicted breakdown is visible (not just surfaced
+    // as an alert when something is wrong). Watchdog #280 reported only an
+    // aggregate "MarketRotator: 72 active" line, which hid crypto_intraday=0.
+    if (coverageByType.length > 0) {
+      ln(`### Feed Coverage (by market_type)`);
+      ln();
+      ln(`| Type | Tracked | Priced 24h | Preds 24h | Active in DB |`);
+      ln(`|------|---------|------------|-----------|--------------|`);
+      for (const c of coverageByType) {
+        const collapsed = supplyCollapseTypes.some((s) => s.market_type === c.market_type);
+        const label = collapsed ? `${c.market_type} ⚠️` : c.market_type;
+        ln(`| ${label} | ${fmt(c.tracked, 0)} | ${fmt(c.priced_24h, 0)} | ${fmt(c.with_preds_24h, 0)} | ${fmt(c.active_in_db, 0)} |`);
+      }
+      if (supplyCollapseTypes.length > 0) {
+        ln();
+        ln(`> ⚠️ = ALLOWED type with 0 tracked markets (supply collapse — see Alerts).`);
       }
       ln();
     }
