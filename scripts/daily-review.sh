@@ -531,7 +531,7 @@ fi
 # of truth for the supply-collapse coverage check (#280/#281), so format-review.js
 # does not hardcode a list that can drift from the executor config. Falls back to
 # the known live-tradeable set if the container or env var is unavailable.
-allowed_market_types='["crypto_intraday","crypto_daily","event_financial","event_short"]'
+allowed_market_types='["crypto_daily","event_financial","event_short"]'
 if command -v docker &>/dev/null; then
   raw_allowed=$(docker exec polymarket-dashboard-api printenv ALLOWED_MARKET_TYPES 2>/dev/null | tr -d '\r' || echo "")
   if [ -n "$raw_allowed" ]; then

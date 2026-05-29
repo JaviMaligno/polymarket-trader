@@ -19,7 +19,7 @@
 // is intentionally excluded — it is shadow-only by policy, so tracked=0 there is
 // expected, not a collapse. Keep in sync with the executor config; the LLM
 // prompt §1d remains the backstop if this drifts.
-const DEFAULT_ALLOWED_MARKET_TYPES = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short'];
+const DEFAULT_ALLOWED_MARKET_TYPES = ['crypto_daily', 'event_financial', 'event_short'];
 
 /**
  * Return the ALLOWED market types whose tracked count is zero (or which are

@@ -75,7 +75,7 @@ services:
       CLOB_API_URL: https://clob.polymarket.com
       DATA_API_URL: https://data-api.polymarket.com
       MAX_TRACKED_MARKETS: "45"
-      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial,event_short"
+      ALLOWED_MARKET_TYPES: "crypto_daily,event_financial,event_short"
       MAX_SHADOW_MARKETS: "10"
       # Force-tracked experiment cohort. Two sub-cohorts, same var (data-collector
       # + dashboard both read it), curated manually:
@@ -317,7 +317,7 @@ services:
       # Market type gate: only trade these types live, shadow-trade the rest
       # event_financial: WTI, Fed, indices (continuous underlying)
       # event_short: event markets with short resolution windows (better win rate than event_long)
-      ALLOWED_MARKET_TYPES: "crypto_intraday,crypto_daily,event_financial,event_short"
+      ALLOWED_MARKET_TYPES: "crypto_daily,event_financial,event_short"
       # Market Classifier (Haiku)
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       # Direction Exploration — set EPSILON=0 to disable
