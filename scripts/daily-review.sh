@@ -527,6 +527,19 @@ if command -v docker &>/dev/null; then
   fi
 fi
 
+# 17b. ALLOWED_MARKET_TYPES from the running dashboard container — single source
+# of truth for the supply-collapse coverage check (#280/#281), so format-review.js
+# does not hardcode a list that can drift from the executor config. Falls back to
+# the known live-tradeable set if the container or env var is unavailable.
+allowed_market_types='["crypto_intraday","crypto_daily","event_financial","event_short"]'
+if command -v docker &>/dev/null; then
+  raw_allowed=$(docker exec polymarket-dashboard-api printenv ALLOWED_MARKET_TYPES 2>/dev/null | tr -d '\r' || echo "")
+  if [ -n "$raw_allowed" ]; then
+    parsed_allowed=$(echo "$raw_allowed" | jq -R 'split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0))' 2>/dev/null || echo "")
+    [ -n "$parsed_allowed" ] && allowed_market_types="$parsed_allowed"
+  fi
+fi
+
 # 18. Resource usage (CPU%, MEM usage/limit per container)
 resource_usage="[]"
 if command -v docker &>/dev/null; then
@@ -813,6 +826,7 @@ jq -n \
   --argjson edge_cohorts_traded "$edge_cohorts_traded" \
   --argjson opens_today "$opens_today" \
   --argjson coverage_by_type "$coverage_by_type" \
+  --argjson allowed_market_types "$allowed_market_types" \
   --argjson edge_gap "$edge_gap" \
   --argjson edge_measurement_freshness "$edge_measurement_freshness" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
@@ -850,6 +864,7 @@ jq -n \
     edge_cohorts_traded: $edge_cohorts_traded,
     opens_today: $opens_today,
     coverage_by_type: $coverage_by_type,
+    allowed_market_types: $allowed_market_types,
     edge_gap: $edge_gap,
     edge_measurement_freshness: $edge_measurement_freshness,
     review_history: $review_history
