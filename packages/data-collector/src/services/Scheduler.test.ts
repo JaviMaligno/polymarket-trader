@@ -11,10 +11,16 @@ vi.mock('./EdgeCapacityRefresher.js', () => ({
   refreshEdgeCapacity: vi.fn().mockResolvedValue({ upserts: 0, perType: new Map() }),
 }));
 
+// Mock GammaCollector module so syncResolvedMarkets tests don't hit network/DB.
+vi.mock('../collectors/GammaCollector.js', () => ({
+  getGammaCollector: vi.fn(),
+}));
+
 import { query } from '../database/connection.js';
 import { computeRealizedVolatility } from './Scheduler.js';
 import { Scheduler } from './Scheduler.js';
 import { refreshEdgeCapacity } from './EdgeCapacityRefresher.js';
+import * as gammaModule from '../collectors/GammaCollector.js';
 
 describe('computeRealizedVolatility', () => {
   beforeEach(() => {
@@ -50,5 +56,19 @@ describe('Scheduler.runJob — handler dispatch (Phase 4 hotfix 2026-05-15)', ()
     const scheduler = new Scheduler();
     await scheduler.runJob('refresh-edge-capacity');
     expect(refreshEdgeCapacity).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Scheduler — sync-resolved-markets uses resolveOurMarkets', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sync-resolved-markets calls resolveOurMarkets', async () => {
+    const resolveOurMarkets = vi.fn().mockResolvedValue({ resolved: 0, checked: 0 });
+    (gammaModule.getGammaCollector as unknown as Mock).mockReturnValue({ resolveOurMarkets } as any);
+    const scheduler = new Scheduler();
+    await (scheduler as any).syncResolvedMarkets();
+    expect(resolveOurMarkets).toHaveBeenCalled();
   });
 });

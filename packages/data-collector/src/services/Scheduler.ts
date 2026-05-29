@@ -382,8 +382,8 @@ export class Scheduler {
    */
   private async syncResolvedMarkets(): Promise<void> {
     const collector = getGammaCollector();
-    const result = await collector.syncResolvedMarketsToDb();
-    logger.info({ resolved: result.resolved, scanned: result.scanned }, 'Resolved markets synced');
+    const result = await collector.resolveOurMarkets();
+    logger.info({ resolved: result.resolved, checked: result.checked }, 'Resolved our markets');
   }
 
   /**
