@@ -204,10 +204,14 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
     expect(selectStmt).toContain("INTERVAL '3 days'");
     expect(selectStmt).toContain("INTERVAL '6 hours'");
     expect(selectStmt).toContain("INTERVAL '7 hours'");
-    expect(selectStmt).toContain('ORDER BY random() LIMIT 5000');
+    // Single-scan Bernoulli sample (no full ORDER BY random() sort, which spilled
+    // to disk on the e2-micro and caused the 2026-05-30 timeout — see #288).
+    expect(selectStmt).toContain('random() < LEAST(1.0,');
+    expect(selectStmt).toContain('5000::float');
+    expect(selectStmt).not.toContain('ORDER BY random()');
   });
 
-  it('uses sampleSize=10000 by default (Phase 5 Pilar 1-A calibrated sweet spot)', async () => {
+  it('uses sampleSize=10000 by default, via single-scan Bernoulli (not ORDER BY random)', async () => {
     const capturedSql: string[] = [];
     (query as any).mockImplementation(async (sql: string) => {
       if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
@@ -218,7 +222,10 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
     });
     await refreshEdgeCapacity();
     const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
-    expect(selectStmt).toContain('LIMIT 10000');
+    expect(selectStmt).toContain('10000::float');
+    expect(selectStmt).not.toContain('ORDER BY random()');
+    // Bernoulli fraction is derived from a COUNT(*) of the same slice, capped at 1.0.
+    expect(selectStmt).toContain('SELECT COUNT(*) FROM generator_predictions');
   });
 
   // ─── Phase 5 Pilar 1-B: generator_edge persistence ──────────────────
