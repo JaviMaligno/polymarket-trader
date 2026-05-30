@@ -306,6 +306,28 @@ export async function getLatestEdgePerCell(): Promise<Array<{
     .sort((a, b) => (b.t_net ?? -Infinity) - (a.t_net ?? -Infinity));
 }
 
+/**
+ * Resolve the env-overridable knobs for the nightly refresh. Pure (env in →
+ * config out) so it is unit-testable without process/timing mocks. Invalid
+ * values (non-numeric, ≤0) fall back to the calibrated defaults.
+ *
+ * - `EDGE_REFRESH_SAMPLE_SIZE` (default 10000) — predictions sampled per type.
+ * - `EDGE_REFRESH_PER_TYPE_TIMEOUT_MS` (default 600000) — per-type query cap;
+ *   raised from 300s after the 2026-05-30 stall (#284 DB contention).
+ */
+export function resolveEdgeRefreshConfig(
+  env: Record<string, string | undefined> = process.env,
+): { sampleSize: number; perTypeTimeoutMs: number } {
+  const posIntOr = (raw: string | undefined, def: number): number => {
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
+  };
+  return {
+    sampleSize: posIntOr(env.EDGE_REFRESH_SAMPLE_SIZE, 10000),
+    perTypeTimeoutMs: posIntOr(env.EDGE_REFRESH_PER_TYPE_TIMEOUT_MS, 600_000),
+  };
+}
+
 export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise<{
   upserts: number;
   perType: Map<string, EdgeCapacityEntry>;
@@ -316,7 +338,13 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
   const defaultRt = options.defaultRtCost ?? 0.01;
   const minN = options.minN ?? 50;
   const sampleSize = options.sampleSize ?? 10000;  // Pilar 1-A default
-  const perTypeTimeoutMs = options.perTypeTimeoutMs ?? 300_000;  // 5 min
+  // Default raised 300s → 600s on 2026-05-30: all 4 types timed out at 300s
+  // under DB contention (cf #284), yielding upserts:0 → generator_edge stale
+  // ~33h. The per-type cost is dominated by `ORDER BY random()` over the full
+  // window (calibration: N=1000 ≈ N=10000 ≈ 47s), so a higher cap — not a
+  // smaller sample — is the right lever; lowering sampleSize would only cut
+  // statistical power. See resolveEdgeRefreshConfig for the env overrides.
+  const perTypeTimeoutMs = options.perTypeTimeoutMs ?? 600_000;  // 10 min
   const source = options.source ??
     `EdgeCapacityRefresher cron ${new Date().toISOString().slice(0, 10)} (sample N=${sampleSize})`;
 

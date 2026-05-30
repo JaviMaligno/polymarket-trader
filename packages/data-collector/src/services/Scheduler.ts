@@ -14,7 +14,7 @@ import {
   updateShadowCategoryPerformance,
   resolveShadowTrades,
 } from './MarketPerformanceTracker.js';
-import { refreshEdgeCapacity } from './EdgeCapacityRefresher.js';
+import { refreshEdgeCapacity, resolveEdgeRefreshConfig } from './EdgeCapacityRefresher.js';
 import { NewsCollector } from '../collectors/NewsCollector.js';
 
 const logger = pino({ name: 'scheduler' });
@@ -531,11 +531,17 @@ export class Scheduler {
    * later pass a measured per-type cost map from scripts/measure-rt-cost.js.
    */
   private async refreshEdgeCapacity(): Promise<void> {
+    // sampleSize / perTypeTimeoutMs are env-overridable (defaults 10000 / 600s).
+    // The 300s default timed out all types on 2026-05-30 under DB contention
+    // (#284) → 0 upserts → generator_edge stale. See resolveEdgeRefreshConfig.
+    const { sampleSize, perTypeTimeoutMs } = resolveEdgeRefreshConfig();
     await refreshEdgeCapacity({
       windowDays: 7,
       horizonHours: 4,
       defaultRtCost: 0.01,
       minN: 50,
+      sampleSize,
+      perTypeTimeoutMs,
     });
   }
 
