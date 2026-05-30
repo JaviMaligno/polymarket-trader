@@ -88,6 +88,17 @@ persisted 2+ days, prefix it `[PERSISTENT - N days]` and escalate severity.
   generated? If 0 signals, run the tracked-market price-distribution query
   before classifying — connection-timeout log lines are symptoms, not a root
   cause.
+- **Generation vs execution (do NOT conflate — #286)**: `Signals executed (1h)`
+  comes from `signal_predictions`, which is written ONLY on an actual open/close,
+  *after* every block gate and the combiner threshold. So it reads **0 during a
+  block-induced drought even when the SignalEngine is perfectly healthy**.
+  Generation liveness is `Signals generated (24h)` (from `generator_predictions`,
+  also visible per-type as `with_preds_24h` in coverage). Rule:
+  `generated>0 & executed=0` → **execution drought, INFO, expected** (all cohorts
+  blocked / below threshold). `generated=0 & price feed live` → **CRITICAL real
+  outage**. Never escalate to CRITICAL on `Signals (1h)=0` alone — Watchdog #286
+  did exactly that and was a false positive. The deterministic
+  `classifySignalActivity` alert already encodes this; trust it over the raw count.
 - **MarketRotator alive**: 
   ```sql
   SELECT tracking_status, COUNT(*) FROM markets

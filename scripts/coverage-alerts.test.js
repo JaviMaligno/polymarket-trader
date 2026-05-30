@@ -6,7 +6,11 @@
  * LLM prompt §1d, not in format-review.js's deterministic alert layer).
  */
 const assert = require('node:assert/strict');
-const { detectSupplyCollapse, DEFAULT_ALLOWED_MARKET_TYPES } = require('./coverage-alerts.js');
+const {
+  detectSupplyCollapse,
+  classifySignalActivity,
+  DEFAULT_ALLOWED_MARKET_TYPES,
+} = require('./coverage-alerts.js');
 
 const ALLOWED = ['crypto_intraday', 'crypto_daily', 'event_financial', 'event_short'];
 
@@ -93,6 +97,87 @@ const cases = [
     fn: () => {
       assert.ok(!DEFAULT_ALLOWED_MARKET_TYPES.includes('crypto_intraday'));
       assert.deepEqual(DEFAULT_ALLOWED_MARKET_TYPES, ['crypto_daily', 'event_financial', 'event_short']);
+    },
+  },
+
+  // ── classifySignalActivity — generation outage vs execution drought ───────
+  // Watchdog #286 (2026-05-30) read "Signals (1h)=0" (sourced from
+  // signal_predictions, which is written only AFTER block gates, on actual
+  // open/close) as "signal generation blocked → CRITICAL". It was a false
+  // positive: generator_predictions was healthy (76983/24h); every signal was
+  // simply below the combiner threshold or blocked. This classifier makes the
+  // distinction deterministic so the watchdog cannot conflate the two again.
+  {
+    name: 'generation alive + 0 executions/1h → INFO execution_drought (the #286 case)',
+    fn: () => {
+      const got = classifySignalActivity({
+        coverageByType: [
+          { market_type: 'crypto_daily', with_preds_24h: 5 },
+          { market_type: 'event_short', with_preds_24h: 29 },
+        ],
+        executions1h: 0,
+        prices1h: 888,
+      });
+      assert.ok(got);
+      assert.equal(got.level, 'info');
+      assert.equal(got.kind, 'execution_drought');
+    },
+  },
+  {
+    name: 'generation dead + price feed alive → CRITICAL generation_halted',
+    fn: () => {
+      const got = classifySignalActivity({
+        coverageByType: [
+          { market_type: 'crypto_daily', with_preds_24h: 0 },
+          { market_type: 'event_short', with_preds_24h: 0 },
+        ],
+        executions1h: 0,
+        prices1h: 814,
+      });
+      assert.ok(got);
+      assert.equal(got.level, 'critical');
+      assert.equal(got.kind, 'generation_halted');
+    },
+  },
+  {
+    name: 'generation dead + price feed also dead → null (price alert owns it, no double-alarm)',
+    fn: () => {
+      const got = classifySignalActivity({
+        coverageByType: [{ market_type: 'crypto_daily', with_preds_24h: 0 }],
+        executions1h: 0,
+        prices1h: 0,
+      });
+      assert.equal(got, null);
+    },
+  },
+  {
+    name: 'generation alive + executions > 0 → null (normal operation)',
+    fn: () => {
+      const got = classifySignalActivity({
+        coverageByType: [{ market_type: 'crypto_daily', with_preds_24h: 5 }],
+        executions1h: 3,
+        prices1h: 888,
+      });
+      assert.equal(got, null);
+    },
+  },
+  {
+    name: 'string-typed json numerics handled',
+    fn: () => {
+      const got = classifySignalActivity({
+        coverageByType: [{ market_type: 'event_short', with_preds_24h: '29' }],
+        executions1h: '0',
+        prices1h: '888',
+      });
+      assert.ok(got);
+      assert.equal(got.kind, 'execution_drought');
+    },
+  },
+  {
+    name: 'undefined/empty input does not throw',
+    fn: () => {
+      assert.equal(classifySignalActivity(), null);
+      assert.equal(classifySignalActivity({}), null);
     },
   },
 ];
