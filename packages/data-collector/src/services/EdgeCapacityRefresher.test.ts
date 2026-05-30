@@ -8,8 +8,37 @@ vi.mock('../database/connection.js', () => ({
   query: vi.fn(),
 }));
 
-import { computeEdgeCapacity, refreshEdgeCapacity, getLatestEdgePerCell } from './EdgeCapacityRefresher.js';
+import { computeEdgeCapacity, refreshEdgeCapacity, getLatestEdgePerCell, resolveEdgeRefreshConfig } from './EdgeCapacityRefresher.js';
 import { query } from '../database/connection.js';
+
+describe('resolveEdgeRefreshConfig (env-overridable; #284-driven timeout bump)', () => {
+  // 2026-05-30: all 4 types timed out at the old 300s per-type cap under DB
+  // contention (cf #284) → 0 upserts → generator_edge stale ~33h. The cost is
+  // dominated by ORDER BY random() over the window, not sampleSize, so the fix
+  // is a higher (env-overridable) timeout, not a smaller sample.
+  it('empty env → defaults (sample 10000, timeout raised to 600s)', () => {
+    const got = resolveEdgeRefreshConfig({});
+    expect(got).toEqual({ sampleSize: 10000, perTypeTimeoutMs: 600_000 });
+  });
+
+  it('valid env values are honored', () => {
+    const got = resolveEdgeRefreshConfig({
+      EDGE_REFRESH_SAMPLE_SIZE: '5000',
+      EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: '900000',
+    });
+    expect(got).toEqual({ sampleSize: 5000, perTypeTimeoutMs: 900_000 });
+  });
+
+  it('invalid env values (non-numeric, zero, negative) fall back to defaults', () => {
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: 'abc' }).sampleSize).toBe(10000);
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: '0' }).perTypeTimeoutMs).toBe(600_000);
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: '-5' }).sampleSize).toBe(10000);
+  });
+
+  it('fractional env values are floored', () => {
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: '7500.9' }).sampleSize).toBe(7500);
+  });
+});
 
 describe('computeEdgeCapacity (TS port)', () => {
   it('empty input → empty map', () => {

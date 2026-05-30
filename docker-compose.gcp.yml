@@ -95,6 +95,13 @@ services:
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "60000"
       DB_CONNECTION_TIMEOUT_MS: "30000"
+      # EdgeCapacityRefresher (nightly 02:30 UTC). Default per-type timeout raised
+      # 300s→600s after 2026-05-30: all 4 types timed out at 300s under DB
+      # contention (#284) → upserts:0 → generator_edge stale ~33h. The cost is
+      # dominated by ORDER BY random() over the window, not sampleSize, so raise
+      # the cap rather than shrink the sample. Override here without a code redeploy.
+      EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: "600000"
+      EDGE_REFRESH_SAMPLE_SIZE: "10000"
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       LLM_DAILY_BUDGET_USD: "1.0"
       NEWS_MIN_ENTITY_LENGTH: "4"
