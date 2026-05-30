@@ -124,15 +124,19 @@ async function persistCellsToHistory(
 
 /**
  * Build the t-stat SQL for a single market_type with optional sampling.
- * Phase 5 Pilar 1-A: when sampleSize is set, we use `ORDER BY random() LIMIT N`
- * to avoid the LATERAL bulk-scan timeout on e2-micro. The price_history seek
- * still happens per sampled row (~5ms each), so cost is linear in sampleSize.
  *
- * Calibration 2026-05-15:
- *   N=1000  → 47s
- *   N=5000  → 147s
- *   N=10000 → 47-100s (cache-dependent)
- *   full event_long (~125k rows) → DNF at 60+ min
+ * Sampling method (2026-05-30, replaces the original `ORDER BY random() LIMIT N`):
+ * single-scan Bernoulli. The old approach materialised every row in the window,
+ * assigned random() to each, and top-N sorted — an O(N log N) sort that on the
+ * e2-micro (small work_mem) spilled to disk and blew past the 300s timeout for
+ * all types on 2026-05-30 (#288 raised the cap; this removes the fixed cost).
+ *
+ * Instead we keep each row independently with probability `sampleSize / |slice|`
+ * (capped at 1.0), where `|slice|` is a one-shot scalar COUNT(*) of the same
+ * window/type/direction filter (a non-correlated InitPlan, evaluated once). No
+ * sort, no full materialisation — two sequential scans of cost O(N). The sample
+ * size is ~Binomial(|slice|, p) so it varies by ~√(Np(1-p)) (≈±1% at N=10k),
+ * statistically equivalent to without-replacement sampling for the t-stat.
  */
 function buildPerTypeSQL(marketType: string, windowDays: number, horizonHours: number, sampleSize: number | null): string {
   const sampledCTE = sampleSize
@@ -143,7 +147,12 @@ function buildPerTypeSQL(marketType: string, windowDays: number, horizonHours: n
          WHERE g.time >= NOW() - INTERVAL '${windowDays} days'
            AND g.direction IN ('long','short')
            AND g.market_type = $1
-         ORDER BY random() LIMIT ${sampleSize}
+           AND random() < LEAST(1.0, ${sampleSize}::float / GREATEST((
+             SELECT COUNT(*) FROM generator_predictions gp
+             WHERE gp.time >= NOW() - INTERVAL '${windowDays} days'
+               AND gp.direction IN ('long','short')
+               AND gp.market_type = $1
+           )::float, 1))
        )`
     : `sampled AS (
          SELECT g.id, g.signal_id, g.market_type, g.direction,
