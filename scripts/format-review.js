@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { detectSupplyCollapse } = require('./coverage-alerts.js');
+const { detectSupplyCollapse, classifySignalActivity } = require('./coverage-alerts.js');
 
 // ── Read input ──────────────────────────────────────────────────────────────
 
@@ -285,6 +285,22 @@ if (supplyCollapseTypes.length > 0) {
     level: 'warning',
     message: `Supply collapse: ${supplyCollapseTypes.length} ALLOWED market_type(s) have 0 tracked markets: ${supplyCollapseTypes.map((r) => r.market_type).join(', ')}. Either the collector/rotator stopped feeding the type, or its catalog is genuinely empty — verify against the live Polymarket catalog before assuming an outage.`,
   });
+}
+
+// 2026-05-30 #286: signal generation vs execution. "Signals (1h)" is sourced
+// from signal_predictions, written only AFTER block gates on actual open/close,
+// so it reads 0 during a block-induced drought even while generators are
+// healthy. Watchdog #286 mislabelled that as "signal generation blocked →
+// CRITICAL". Classify deterministically: a real generation outage (0 preds/24h
+// with a live price feed) is CRITICAL; an execution drought (preds flowing but
+// 0 executed) is INFO, not an outage.
+const signalActivity = classifySignalActivity({
+  coverageByType,
+  executions1h: signalFreshness ? signalFreshness.count_last_hour : null,
+  prices1h: priceFreshness ? priceFreshness.record_count_1h : null,
+});
+if (signalActivity) {
+  alerts.push({ level: signalActivity.level, message: signalActivity.message });
 }
 
 // 5+ consecutive losses. The metric is a cumulative DB counter, so when the
@@ -681,8 +697,16 @@ function buildMarkdown() {
   if (signalFreshness) {
     ln(`| Metric | Value |`);
     ln(`|--------|-------|`);
+    // "Signals executed (1h)" — from signal_predictions, written only on actual
+    // open/close (post-gate). 0 here during a block drought is expected, NOT a
+    // generation failure. Generation liveness is the next row (#286).
+    const generation24h = coverageByType.reduce((sum, r) => {
+      const n = Number(r && r.with_preds_24h);
+      return sum + (Number.isFinite(n) ? n : 0);
+    }, 0);
     ln(`| Latest Signal | ${fmtDate(signalFreshness.latest_signal)} |`);
-    ln(`| Signals (1h) | ${fmt(signalFreshness.count_last_hour, 0)} |`);
+    ln(`| Signals executed (1h) | ${fmt(signalFreshness.count_last_hour, 0)} |`);
+    ln(`| Signals generated (24h) | ${fmt(generation24h, 0)} |`);
   } else {
     ln(`*Signal freshness data unavailable.*`);
   }

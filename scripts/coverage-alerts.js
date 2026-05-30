@@ -49,4 +49,62 @@ function detectSupplyCollapse(coverageByType, allowedTypes) {
   return out;
 }
 
-module.exports = { detectSupplyCollapse, DEFAULT_ALLOWED_MARKET_TYPES };
+/**
+ * Distinguish a real signal-generation outage from a benign execution drought.
+ *
+ * The watchdog's "Signals (1h)" metric is sourced from `signal_predictions`,
+ * which is written ONLY inside open/close of a position (AutoSignalExecutor.ts)
+ * — i.e. AFTER every block gate and the combiner threshold. So when all cohorts
+ * are blocked, or no combined signal clears `minCombinedConfidence`, that count
+ * is 0 even though the generators are producing predictions normally. Watchdog
+ * #286 (2026-05-30) read "Signals (1h)=0" as "signal generation blocked" and
+ * escalated to CRITICAL — a false positive (generator_predictions was healthy
+ * at 76983/24h; every signal was simply below threshold or blocked).
+ *
+ * Generation liveness lives in `generator_predictions`, surfaced per-type as
+ * `with_preds_24h` in coverage_by_type. This classifier separates:
+ *   - generation dead + price feed alive → CRITICAL (real SignalEngine outage)
+ *   - generation alive + 0 executions/1h → INFO (execution drought; expected
+ *     when everything is blocked/below-threshold; NOT a generation failure)
+ *   - generation dead + price feed also dead → null (the "no prices" alert owns
+ *     it; avoid double-paging on a single upstream cause)
+ *   - generation alive + executions > 0 → null (normal operation)
+ *
+ * @param {{coverageByType?:Array<{with_preds_24h?:number|string}>, executions1h?:number|string, prices1h?:number|string}} [input]
+ * @returns {{level:'critical'|'info', kind:'generation_halted'|'execution_drought', message:string}|null}
+ */
+function classifySignalActivity(input) {
+  const { coverageByType, executions1h, prices1h } = input || {};
+  const rows = Array.isArray(coverageByType) ? coverageByType : [];
+  const generation24h = rows.reduce((sum, r) => {
+    const n = Number(r && r.with_preds_24h);
+    return sum + (Number.isFinite(n) ? n : 0);
+  }, 0);
+  const execNum = Number(executions1h);
+  const executions = Number.isFinite(execNum) ? execNum : 0;
+  const priceNum = Number(prices1h);
+  const pricesLive = Number.isFinite(priceNum) && priceNum > 0;
+
+  if (generation24h === 0) {
+    // No generation. Only a real outage if prices are still flowing; otherwise
+    // the price-feed alert is the root cause — stay silent to avoid double-alarm.
+    if (!pricesLive) return null;
+    return {
+      level: 'critical',
+      kind: 'generation_halted',
+      message:
+        'Signal generation halted: 0 generator predictions in 24h while the price feed is live. The SignalEngine is not producing predictions — a real outage, not a trading drought.',
+    };
+  }
+  if (executions === 0) {
+    return {
+      level: 'info',
+      kind: 'execution_drought',
+      message:
+        `Execution drought: ${generation24h} generator predictions in 24h but 0 signals executed in the last hour. Signals ARE being generated; they are all below the combiner threshold or blocked by gates. Expected steady state when cohorts are blocked — NOT a generation failure. Do not escalate on "Signals (1h)=0" alone.`,
+    };
+  }
+  return null;
+}
+
+module.exports = { detectSupplyCollapse, classifySignalActivity, DEFAULT_ALLOWED_MARKET_TYPES };
