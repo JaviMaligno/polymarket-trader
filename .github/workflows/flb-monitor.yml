@@ -75,21 +75,31 @@ jobs:
             exit 1
           fi
 
-          # Use workflow-unique paths and rm -f defensively. The GH Actions
-          # SSH identity differs from the operator's interactive identity, so
-          # a /tmp/ file written by hand would block the scp with "Permission
-          # denied".
-          $SSH --command="rm -f /tmp/flb-monitor-cost.js /tmp/flb-monitor-cal.js" > /dev/null
+          # Use run-unique /tmp paths on the VM. The OS Login POSIX user is
+          # stable within a single run but differs across runs, and /tmp has
+          # the sticky bit — so a stale file left by a previous run is owned by
+          # a different user and `rm -f` fails with "Operation not permitted"
+          # (the -f flag suppresses missing-file errors, not permission ones),
+          # aborting the step under `bash -e`. A per-run suffix guarantees scp
+          # never collides with another run's leftovers; end-of-step cleanup of
+          # our own files is best-effort (`|| true`).
+          SUFFIX="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          REMOTE_COST="/tmp/flb-monitor-cost.${SUFFIX}.js"
+          REMOTE_CAL="/tmp/flb-monitor-cal.${SUFFIX}.js"
 
-          gcloud compute scp scripts/flb-cost-realism-check.js polymarket-vm:/tmp/flb-monitor-cost.js --zone=$ZONE
-          gcloud compute scp scripts/flb-calibration-monitor.js polymarket-vm:/tmp/flb-monitor-cal.js --zone=$ZONE
+          gcloud compute scp scripts/flb-cost-realism-check.js "polymarket-vm:${REMOTE_COST}" --zone=$ZONE
+          gcloud compute scp scripts/flb-calibration-monitor.js "polymarket-vm:${REMOTE_CAL}" --zone=$ZONE
 
-          $SSH --command="docker cp /tmp/flb-monitor-cost.js polymarket-dashboard-api:/app/flb-monitor-cost.js && docker cp /tmp/flb-monitor-cal.js polymarket-dashboard-api:/app/flb-monitor-cal.js" > /dev/null
+          $SSH --command="docker cp ${REMOTE_COST} polymarket-dashboard-api:/app/flb-monitor-cost.js && docker cp ${REMOTE_CAL} polymarket-dashboard-api:/app/flb-monitor-cal.js" > /dev/null
 
           # Capture outputs to files so we can both echo them and write the summary.
           $SSH --command="docker exec polymarket-dashboard-api node /app/flb-monitor-cost.js" | tee cost.txt
           echo
           $SSH --command="docker exec polymarket-dashboard-api node /app/flb-monitor-cal.js" | tee cal.txt
+
+          # Best-effort cleanup of this run's own /tmp files (removable — we own
+          # them). Never fatal: a cleanup failure must not fail the monitor.
+          $SSH --command="rm -f ${REMOTE_COST} ${REMOTE_CAL}" > /dev/null 2>&1 || true
 
           {
             echo "## FLB Early-Failure Monitor — $(date -u +%Y-%m-%d)"
