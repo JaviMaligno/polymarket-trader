@@ -22,6 +22,18 @@ Private analysis of the auto-review system's daily output. Review the issue and 
 
 ## Workflow
 
+### Step 0: Carry-over verification (MANDATORY — do this FIRST)
+
+Prior sessions leave **⏰ pending-verification reminders** in the project memory (a fix shipped yesterday whose effect can only be confirmed after the next cron / next day's data). These must be actively resolved every session — do NOT rely on the reminder happening to be in context, and do NOT accept "it was deployed so it works".
+
+1. Open the memory index `C:\Users\Usuario\.claude\projects\C--Users-Usuario-GitHub-polymarket-trader\memory\MEMORY.md` and the "Latest verified work" entries it points to.
+2. Grep the memory dir for `⏰` (and phrases like "VERIFY IN TOMORROW", "verify next", "re-verify", "still verify"). Each hit is a carry-over obligation.
+3. For each pending item, run the concrete verifying query/command it names (usually a VM SQL query or a workflow-run check) and record the result as **CONFIRMED / REFUTED / PARTIAL** with the evidence.
+4. If a fix is REFUTED or PARTIAL, that is today's lead finding — investigate the residual root cause, don't just re-defer it.
+5. After resolving, **update the ⏰ item in memory**: mark it done with the outcome, or replace it with the next carry-over reminder if the fix spawned a new one.
+
+This generalizes the "fix verification" quality dimension (Step 4) into a hard gate: every shipped-yesterday fix gets an evidence-based verdict before the new day's analysis begins.
+
 ### Step 1: Gather Data (parallel)
 
 ```bash
