@@ -77,6 +77,10 @@ export interface RefreshOptions {
   // (122k predictions × per-row price seek).
   sampleSize?: number;  // null/undefined = no sampling (full data, legacy)
   perTypeTimeoutMs?: number;  // skip a type that exceeds this; default 300s
+  // If non-empty, only measure types in this list — skips non-traded types
+  // (e.g. event_long) that always time out and waste the nightly cron window.
+  // When empty/undefined, all active types are measured (backward compat).
+  allowedTypes?: string[];
 }
 
 /**
@@ -367,7 +371,11 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
        AND COALESCE(is_resolved, false) = false
        AND market_type IS NOT NULL`,
   );
-  const types = typesRes.rows.map((r) => r.market_type);
+  let types = typesRes.rows.map((r) => r.market_type);
+  if (options.allowedTypes && options.allowedTypes.length > 0) {
+    const allowed = new Set(options.allowedTypes);
+    types = types.filter((t) => allowed.has(t));
+  }
   logger.info({ types }, 'refreshEdgeCapacity starting per-type loop');
 
   const perTypeAcc = new Map<string, EdgeCapacityEntry>();
