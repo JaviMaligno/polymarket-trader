@@ -263,6 +263,55 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
     expect(insertedRows[1][10]).toBe(0);
   });
 
+  it('skips types not in allowedTypes when allowedTypes is non-empty', async () => {
+    const queriedTypes: string[] = [];
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [
+          { market_type: 'crypto_daily' },
+          { market_type: 'event_long' },
+          { market_type: 'event_financial' },
+        ]};
+      }
+      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+        queriedTypes.push(String(params?.[0]));
+        return { rows: [
+          { signal_id: 'momentum', market_type: String(params?.[0]), direction: 'long', n: 100, gross_pct: 0.5, t_gross: 2 },
+        ]};
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const { upserts, skipped } = await refreshEdgeCapacity({
+      minN: 50,
+      allowedTypes: ['crypto_daily', 'event_financial'],
+    });
+    // event_long should be skipped entirely — not queried, not upserted
+    expect(queriedTypes).not.toContain('event_long');
+    expect(queriedTypes).toContain('crypto_daily');
+    expect(queriedTypes).toContain('event_financial');
+    expect(upserts).toBe(2);
+    expect(skipped).not.toContain('event_long');
+  });
+
+  it('measures all discovered types when allowedTypes is empty (backward compat)', async () => {
+    const queriedTypes: string[] = [];
+    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
+        return { rows: [{ market_type: 'crypto_daily' }, { market_type: 'event_long' }] };
+      }
+      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+        queriedTypes.push(String(params?.[0]));
+        return { rows: [
+          { signal_id: 'momentum', market_type: String(params?.[0]), direction: 'long', n: 100, gross_pct: 0.5, t_gross: 2 },
+        ]};
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    await refreshEdgeCapacity({ minN: 50, allowedTypes: [] });
+    expect(queriedTypes).toContain('crypto_daily');
+    expect(queriedTypes).toContain('event_long');
+  });
+
   it('persistence failure does not abort the per-type loop', async () => {
     let insertCalls = 0;
     (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {

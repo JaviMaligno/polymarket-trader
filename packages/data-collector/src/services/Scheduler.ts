@@ -7,7 +7,7 @@ import { getPool, query } from '../database/connection.js';
 import { AdaptiveSyncManager } from './AdaptiveSyncManager.js';
 import { ExternalDataCollector } from '../collectors/ExternalDataCollector.js';
 import { MarketScorer } from './MarketScorer.js';
-import { MarketRotator } from './MarketRotator.js';
+import { MarketRotator, parseAllowedMarketTypes } from './MarketRotator.js';
 import { optimizeScorerWeights } from './ScorerWeightOptimizer.js';
 import {
   updateCategoryPriors,
@@ -535,6 +535,7 @@ export class Scheduler {
     // The 300s default timed out all types on 2026-05-30 under DB contention
     // (#284) → 0 upserts → generator_edge stale. See resolveEdgeRefreshConfig.
     const { sampleSize, perTypeTimeoutMs } = resolveEdgeRefreshConfig();
+    const allowedTypes = parseAllowedMarketTypes(process.env.ALLOWED_MARKET_TYPES);
     await refreshEdgeCapacity({
       windowDays: 7,
       horizonHours: 4,
@@ -542,6 +543,7 @@ export class Scheduler {
       minN: 50,
       sampleSize,
       perTypeTimeoutMs,
+      allowedTypes,
     });
   }
 
