@@ -351,12 +351,15 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
   const defaultRt = options.defaultRtCost ?? 0.01;
   const minN = options.minN ?? 50;
   const sampleSize = options.sampleSize ?? 10000;  // Pilar 1-A default
-  // Default raised 300s → 600s on 2026-05-30: all 4 types timed out at 300s
-  // under DB contention (cf #284), yielding upserts:0 → generator_edge stale
-  // ~33h. The per-type cost is dominated by `ORDER BY random()` over the full
-  // window (calibration: N=1000 ≈ N=10000 ≈ 47s), so a higher cap — not a
-  // smaller sample — is the right lever; lowering sampleSize would only cut
-  // statistical power. See resolveEdgeRefreshConfig for the env overrides.
+  // Default raised 300s → 600s on 2026-05-30 (#288). The TRUE per-type cost
+  // (root-caused 2026-06-01, #294) was the missing index on
+  // generator_predictions(market_type, direction, time): both the COUNT(*)
+  // InitPlan and the `sampled` scan seq-scanned the FULL 7-day window across
+  // all types (~320MB on e2-micro) to filter one type. Migration 034 adds that
+  // index → event_short dropped >600s timeout → ~41s. With the index, the cap
+  // is no longer the binding constraint; it remains a safety backstop. Lowering
+  // sampleSize would only cut statistical power and is NOT the right lever.
+  // See resolveEdgeRefreshConfig for the env overrides.
   const perTypeTimeoutMs = options.perTypeTimeoutMs ?? 600_000;  // 10 min
   const source = options.source ??
     `EdgeCapacityRefresher cron ${new Date().toISOString().slice(0, 10)} (sample N=${sampleSize})`;
