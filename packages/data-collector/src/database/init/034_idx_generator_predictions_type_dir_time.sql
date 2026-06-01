@@ -1,0 +1,27 @@
+-- Index generator_predictions on (market_type, direction, time) for the
+-- nightly EdgeCapacityRefresher.
+--
+-- Root cause (2026-06-01, daily-review #294): `EdgeCapacityRefresher` measures
+-- one market_type at a time via `buildPerTypeSQL`. Each per-type query filters
+-- `WHERE market_type = $1 AND direction IN ('long','short') AND time >= NOW()-7d`
+-- twice — once in the COUNT(*) InitPlan that sizes the Bernoulli sample, and
+-- once in the `sampled` CTE scan. With only (time), (signal_id,time) and
+-- (market_id,time) indexes present, both fell back to a seq-scan of the FULL
+-- 7-day window across ALL market_types (~320MB on the e2-micro), filtering down
+-- to the target type. For `event_short` (the largest cohort, ~158k predictions
+-- /7d) this blew past the 600s per-type cap → generator_edge stale 82.9h, the
+-- edge sentinel blind. (The correlated price_history forward-seek is NOT the
+-- bottleneck: it is index-served via idx_ph_market_time, ~ms/row.)
+--
+-- PRs #288/#289/#290 mis-diagnosed this: #289 attributed cost to ORDER BY
+-- random() (already removed), #291 to the price_history join, #290 shipped a
+-- containment (drop event_long) that never touched event_short's own scan cost.
+--
+-- Measured effect of this index on the VM: event_short full-sample query
+-- 40.8s (was >600s timeout). >15x, ample margin under the 600s cap.
+--
+-- NOTE: init/*.sql only runs on a FRESH volume. On the live VM this index was
+-- created manually on 2026-06-01; this migration ensures fresh installs and
+-- future volume re-inits get it too. IF NOT EXISTS makes it idempotent.
+CREATE INDEX IF NOT EXISTS idx_gen_pred_type_dir_time
+    ON generator_predictions (market_type, direction, time DESC);
