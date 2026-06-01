@@ -60,6 +60,33 @@ describe('Scheduler.runJob — handler dispatch (Phase 4 hotfix 2026-05-15)', ()
     await scheduler.runJob('refresh-edge-capacity');
     expect(refreshEdgeCapacity).toHaveBeenCalledTimes(1);
   });
+
+  it('edge measurement scope is decoupled from ALLOWED_MARKET_TYPES (2026-06-01)', async () => {
+    // #290 tied the refresher's allowedTypes to the LIVE trade allowlist
+    // (ALLOWED_MARKET_TYPES) purely to dodge event_long's timeout. Migration
+    // 034's index removed that cost, so edge measurement should cover ALL types
+    // (incl. shadow-only event_long) for full observability. Reads
+    // EDGE_REFRESH_ALLOWED_TYPES instead; unset → [] → measure all discovered.
+    vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday,event_short');
+    vi.stubEnv('EDGE_REFRESH_ALLOWED_TYPES', '');
+    const scheduler = new Scheduler();
+    await scheduler.runJob('refresh-edge-capacity');
+    expect(refreshEdgeCapacity).toHaveBeenCalledWith(
+      expect.objectContaining({ allowedTypes: [] }),
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it('edge measurement scope honours EDGE_REFRESH_ALLOWED_TYPES when set', async () => {
+    vi.stubEnv('ALLOWED_MARKET_TYPES', 'crypto_intraday');
+    vi.stubEnv('EDGE_REFRESH_ALLOWED_TYPES', 'event_short, event_long');
+    const scheduler = new Scheduler();
+    await scheduler.runJob('refresh-edge-capacity');
+    expect(refreshEdgeCapacity).toHaveBeenCalledWith(
+      expect.objectContaining({ allowedTypes: ['event_short', 'event_long'] }),
+    );
+    vi.unstubAllEnvs();
+  });
 });
 
 describe('Scheduler — sync-resolved-markets uses resolveOurMarkets', () => {
