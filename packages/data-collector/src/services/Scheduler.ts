@@ -535,7 +535,14 @@ export class Scheduler {
     // The 300s default timed out all types on 2026-05-30 under DB contention
     // (#284) → 0 upserts → generator_edge stale. See resolveEdgeRefreshConfig.
     const { sampleSize, perTypeTimeoutMs } = resolveEdgeRefreshConfig();
-    const allowedTypes = parseAllowedMarketTypes(process.env.ALLOWED_MARKET_TYPES);
+    // Edge-measurement scope is decoupled from the LIVE trade allowlist
+    // (ALLOWED_MARKET_TYPES). #290 tied the two purely to dodge event_long's
+    // 600s timeout; migration 034's generator_predictions(market_type,direction,
+    // time) index removed that cost (event_short >600s→41s), so there's no
+    // longer a reason to starve shadow-only types of edge observability. Read a
+    // dedicated EDGE_REFRESH_ALLOWED_TYPES: unset/empty → [] → measure ALL
+    // discovered types (incl. event_long); set → restrict to that list.
+    const allowedTypes = parseAllowedMarketTypes(process.env.EDGE_REFRESH_ALLOWED_TYPES);
     await refreshEdgeCapacity({
       windowDays: 7,
       horizonHours: 4,
