@@ -24,6 +24,10 @@ The full query was **always** >600s, before and after #295. `event_short` times 
 
 NOT urgent in capital terms: `event_short` is blocked in both directions (#275/#277), `event_long` is shadow-only. This is degraded **edge-sentinel observability**, not capital loss — which is why this gets a designed structural fix rather than a reactive nightly patch.
 
+### Relevance to trading outcomes (honest causal chain)
+
+This fix does **not** open trades by itself. Its value is upstream of trading: `market_type_edge_capacity` / `generator_edge` are the cost-aware edge signals that (a) feed `MarketScorer.tradeabilityScore` and market rotation, and (b) drive the daily-review edge sentinel that flags `(signal, type, direction)` cells with `t_net > 0` as candidates to unblock. With `event_short`/`event_long` stale for 5 days and `event_financial` one slow night from also timing out, the system is **blind to whether any explorable edge exists in those cohorts** — it cannot distinguish "no edge" from "not measured". Restoring (and making robust + deterministic) this measurement is the prerequisite for *discovering* better trades, not a source of edge in itself. Concretely, a faster/complete refresh also means the sampling removal raises per-cell `n`, so a genuine edge cell crosses the `t_net` significance bar sooner and with less run-to-run noise. Any actual trade-enabling decision (e.g. lifting an `event_short` direction block) remains a separate, evidence-gated step.
+
 ## Approach (chosen: A — materialized outcomes)
 
 Move the expensive 4h-forward price lookup **out of the nightly refresh** and into a deferred, incremental job that computes each prediction's outcome **once**, when it matures. The refresher then reads a small, purpose-built table — no `generator_predictions` heap-fetch, no `price_history` correlated subquery.
