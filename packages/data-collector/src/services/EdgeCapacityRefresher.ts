@@ -71,11 +71,6 @@ export interface RefreshOptions {
   rtCostMap?: Map<string, number>;
   minN?: number;
   source?: string;
-  // Phase 5 Pilar 1-A (2026-05-15): per-type sampling avoids the LATERAL
-  // bulk-query timeout on e2-micro. Calibration found N=10k → 47-150s,
-  // 14 cells visible. The original bulk query never completed for event_long
-  // (122k predictions × per-row price seek).
-  sampleSize?: number;  // null/undefined = no sampling (full data, legacy)
   perTypeTimeoutMs?: number;  // skip a type that exceeds this; default 300s
   // If non-empty, only measure types in this list — skips non-traded types
   // (e.g. event_long) that always time out and waste the nightly cron window.
@@ -127,70 +122,25 @@ async function persistCellsToHistory(
 }
 
 /**
- * Build the t-stat SQL for a single market_type with optional sampling.
+ * Build the t-stat SQL for a single market_type, reading the precomputed
+ * generator_prediction_outcomes table (daily-review #297). No price_history
+ * seek, no sampling — the table is small and index-served by
+ * idx_gpo_type_dir_time. gross_edge uses y0/y1 already present per row.
  *
- * Sampling method (2026-05-30, replaces the original `ORDER BY random() LIMIT N`):
- * single-scan Bernoulli. The old approach materialised every row in the window,
- * assigned random() to each, and top-N sorted — an O(N log N) sort that on the
- * e2-micro (small work_mem) spilled to disk and blew past the 300s timeout for
- * all types on 2026-05-30 (#288 raised the cap; this removes the fixed cost).
- *
- * Instead we keep each row independently with probability `sampleSize / |slice|`
- * (capped at 1.0), where `|slice|` is a one-shot scalar COUNT(*) of the same
- * window/type/direction filter (a non-correlated InitPlan, evaluated once). No
- * sort, no full materialisation — two sequential scans of cost O(N). The sample
- * size is ~Binomial(|slice|, p) so it varies by ~√(Np(1-p)) (≈±1% at N=10k),
- * statistically equivalent to without-replacement sampling for the t-stat.
+ * `${marketType}` is NOT interpolated — it binds through $1. Only numeric
+ * server-controlled values (windowDays, horizonHours) interpolate.
  */
-function buildPerTypeSQL(marketType: string, windowDays: number, horizonHours: number, sampleSize: number | null): string {
-  const sampledCTE = sampleSize
-    ? `sampled AS (
-         SELECT g.id, g.signal_id, g.market_type, g.direction,
-                g.market_id, g.time, g.yes_price_at_signal
-         FROM generator_predictions g
-         WHERE g.time >= NOW() - INTERVAL '${windowDays} days'
-           AND g.direction IN ('long','short')
-           AND g.market_type = $1
-           AND random() < LEAST(1.0, ${sampleSize}::float / GREATEST((
-             SELECT COUNT(*) FROM generator_predictions gp
-             WHERE gp.time >= NOW() - INTERVAL '${windowDays} days'
-               AND gp.direction IN ('long','short')
-               AND gp.market_type = $1
-           )::float, 1))
-       )`
-    : `sampled AS (
-         SELECT g.id, g.signal_id, g.market_type, g.direction,
-                g.market_id, g.time, g.yes_price_at_signal
-         FROM generator_predictions g
-         WHERE g.time >= NOW() - INTERVAL '${windowDays} days'
-           AND g.direction IN ('long','short')
-           AND g.market_type = $1
-       )`;
-
-  // Note: `${marketType}` is NOT interpolated below — it goes through $1 binding
-  // to prevent SQL injection. Only numeric server-controlled values interpolate.
+function buildPerTypeSQL(marketType: string, windowDays: number, horizonHours: number): string {
   return `
-    WITH ${sampledCTE},
-    outcomes AS (
-      SELECT
-        s.signal_id,
-        s.market_type,
-        s.direction,
-        s.yes_price_at_signal::numeric AS y0,
-        (
-          SELECT p.close::numeric
-          FROM price_history p
-          WHERE p.market_id = s.market_id
-            AND p.time >= s.time + INTERVAL '${horizonHours} hours'
-            AND p.time <  s.time + INTERVAL '${horizonHours + 1} hours'
-          ORDER BY p.time ASC LIMIT 1
-        ) AS y1
-      FROM sampled s
-    ),
-    edges AS (
+    WITH edges AS (
       SELECT signal_id, market_type, direction,
              CASE WHEN direction='long' THEN y1 - y0 ELSE y0 - y1 END AS gross_edge
-      FROM outcomes WHERE y1 IS NOT NULL
+      FROM generator_prediction_outcomes
+      WHERE prediction_time >= NOW() - INTERVAL '${windowDays} days'
+        AND market_type = $1
+        AND direction IN ('long','short')
+        AND horizon_hours = ${horizonHours}
+        AND y1 IS NOT NULL
     )
     SELECT
       signal_id, market_type, direction,
@@ -216,10 +166,9 @@ async function measureCellsForType(
   marketType: string,
   windowDays: number,
   horizonHours: number,
-  sampleSize: number | null,
   timeoutMs: number,
 ): Promise<Cell[] | null> {
-  const sql = buildPerTypeSQL(marketType, windowDays, horizonHours, sampleSize);
+  const sql = buildPerTypeSQL(marketType, windowDays, horizonHours);
   const start = Date.now();
   try {
     // Race the query against a timeout. If the timeout fires first we reject
@@ -257,14 +206,12 @@ async function measureCellsForType(
 }
 
 /**
- * Refresh `market_type_edge_capacity` table by iterating over distinct
- * market_types with active markets, sampling N=sampleSize predictions per
- * type, and upserting the computed edge_capacity. Returns the upserted
- * entries (useful for tests + logging).
- *
- * Phase 5 Pilar 1-A (2026-05-15): rewrote from bulk-query to per-type
- * sampling. Calibrated N=10000 takes 47-150s/type on e2-micro. perTypeTimeoutMs
- * caps each type at 300s so a slow type doesn't block the others.
+ * Refresh `market_type_edge_capacity` by iterating over distinct market_types
+ * with active markets, reading the precomputed generator_prediction_outcomes
+ * table per type (daily-review #297 — no sampling, no price_history seek), and
+ * upserting the computed edge_capacity. Returns the upserted entries (useful
+ * for tests + logging). perTypeTimeoutMs is a safety backstop only (the read is
+ * now index-served and fast).
  */
 /**
  * Phase 5 Pilar 1-B reporting helper: latest measurement per (signal, type,
@@ -324,19 +271,19 @@ export async function getLatestEdgePerCell(): Promise<Array<{
  * config out) so it is unit-testable without process/timing mocks. Invalid
  * values (non-numeric, ≤0) fall back to the calibrated defaults.
  *
- * - `EDGE_REFRESH_SAMPLE_SIZE` (default 10000) — predictions sampled per type.
- * - `EDGE_REFRESH_PER_TYPE_TIMEOUT_MS` (default 600000) — per-type query cap;
- *   raised from 300s after the 2026-05-30 stall (#284 DB contention).
+ * - `EDGE_REFRESH_PER_TYPE_TIMEOUT_MS` (default 600000) — per-type query cap.
+ *   A safety backstop only: now that the per-type query reads the precomputed
+ *   generator_prediction_outcomes table (no price_history seek, no sampling),
+ *   it is no longer the binding constraint.
  */
 export function resolveEdgeRefreshConfig(
   env: Record<string, string | undefined> = process.env,
-): { sampleSize: number; perTypeTimeoutMs: number } {
+): { perTypeTimeoutMs: number } {
   const posIntOr = (raw: string | undefined, def: number): number => {
     const n = Number(raw);
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : def;
   };
   return {
-    sampleSize: posIntOr(env.EDGE_REFRESH_SAMPLE_SIZE, 10000),
     perTypeTimeoutMs: posIntOr(env.EDGE_REFRESH_PER_TYPE_TIMEOUT_MS, 600_000),
   };
 }
@@ -350,19 +297,9 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
   const horizonHours = options.horizonHours ?? 4;
   const defaultRt = options.defaultRtCost ?? 0.01;
   const minN = options.minN ?? 50;
-  const sampleSize = options.sampleSize ?? 10000;  // Pilar 1-A default
-  // Default raised 300s → 600s on 2026-05-30 (#288). The TRUE per-type cost
-  // (root-caused 2026-06-01, #294) was the missing index on
-  // generator_predictions(market_type, direction, time): both the COUNT(*)
-  // InitPlan and the `sampled` scan seq-scanned the FULL 7-day window across
-  // all types (~320MB on e2-micro) to filter one type. Migration 034 adds that
-  // index → event_short dropped >600s timeout → ~41s. With the index, the cap
-  // is no longer the binding constraint; it remains a safety backstop. Lowering
-  // sampleSize would only cut statistical power and is NOT the right lever.
-  // See resolveEdgeRefreshConfig for the env overrides.
   const perTypeTimeoutMs = options.perTypeTimeoutMs ?? 600_000;  // 10 min
   const source = options.source ??
-    `EdgeCapacityRefresher cron ${new Date().toISOString().slice(0, 10)} (sample N=${sampleSize})`;
+    `EdgeCapacityRefresher cron ${new Date().toISOString().slice(0, 10)} (full)`;
 
   // Discover types that have any active markets — there's no point measuring
   // a cohort with zero supply (Phase 4 lesson: crypto_intraday went from 2.14
@@ -385,7 +322,7 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
   const skipped: string[] = [];
 
   for (const marketType of types) {
-    const cells = await measureCellsForType(marketType, windowDays, horizonHours, sampleSize, perTypeTimeoutMs);
+    const cells = await measureCellsForType(marketType, windowDays, horizonHours, perTypeTimeoutMs);
     if (cells === null) {
       skipped.push(marketType);
       continue;
@@ -403,7 +340,7 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
     // Best-effort; failure to insert one row should NOT abort the type.
     const rtForType = options.rtCostMap?.get(marketType) ?? defaultRt;
     await persistCellsToHistory(
-      cells, rtForType, windowDays, horizonHours, sampleSize, source, minN,
+      cells, rtForType, windowDays, horizonHours, null, source, minN,
     ).catch((err) => {
       logger.warn({ marketType, err: (err as Error).message }, 'persistCellsToHistory failed (non-fatal)');
     });
@@ -433,7 +370,7 @@ export async function refreshEdgeCapacity(options: RefreshOptions = {}): Promise
   }
 
   logger.info(
-    { upserts, types: [...perTypeAcc.keys()], skipped, sampleSize, perTypeTimeoutMs },
+    { upserts, types: [...perTypeAcc.keys()], skipped, perTypeTimeoutMs },
     'edge_capacity refreshed',
   );
   return { upserts, perType: perTypeAcc, skipped };

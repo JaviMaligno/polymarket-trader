@@ -13,6 +13,7 @@ import {
   updateCategoryPriors,
   updateShadowCategoryPerformance,
   resolveShadowTrades,
+  materializePredictionOutcomes,
 } from './MarketPerformanceTracker.js';
 import { refreshEdgeCapacity, resolveEdgeRefreshConfig } from './EdgeCapacityRefresher.js';
 import { NewsCollector } from '../collectors/NewsCollector.js';
@@ -117,6 +118,10 @@ export class Scheduler {
     // before compute-market-priors so both data sources are fresh for the next
     // MarketScorer cycle. See docs/plans/2026-05-13-phase4-edge-aware-scorer-design.md.
     this.defineJob('refresh-edge-capacity', '30 2 * * *', this.refreshEdgeCapacity.bind(this));  // Daily at 02:30 UTC
+    // daily-review #297: materialize 4h-forward outcomes hourly so the nightly
+    // refresher reads a precomputed table instead of a per-row price_history
+    // seek. :15 to avoid colliding with the :00/:30 jobs.
+    this.defineJob('materialize-prediction-outcomes', '15 * * * *', this.materializePredictionOutcomes.bind(this));
     this.defineJob('collect-news', '*/15 * * * *', this.collectNews.bind(this));  // News pipeline every 15 minutes
     this.defineJob('compute-realized-volatility', '*/15 * * * *', computeRealizedVolatility);  // Every 15 min
   }
@@ -270,6 +275,9 @@ export class Scheduler {
           // fell through to 'No handler for job' (lastDuration=0ms, no
           // upserts). Discovered 2026-05-15 in the daily-autoreview validation.
           await this.refreshEdgeCapacity();
+          break;
+        case 'materialize-prediction-outcomes':
+          await this.materializePredictionOutcomes();
           break;
         case 'collect-news':
           await this.collectNews();
@@ -531,10 +539,10 @@ export class Scheduler {
    * later pass a measured per-type cost map from scripts/measure-rt-cost.js.
    */
   private async refreshEdgeCapacity(): Promise<void> {
-    // sampleSize / perTypeTimeoutMs are env-overridable (defaults 10000 / 600s).
-    // The 300s default timed out all types on 2026-05-30 under DB contention
-    // (#284) → 0 upserts → generator_edge stale. See resolveEdgeRefreshConfig.
-    const { sampleSize, perTypeTimeoutMs } = resolveEdgeRefreshConfig();
+    // perTypeTimeoutMs is env-overridable (default 600s) — a safety backstop now
+    // that the per-type query reads generator_prediction_outcomes (no
+    // price_history seek, no sampling). See resolveEdgeRefreshConfig.
+    const { perTypeTimeoutMs } = resolveEdgeRefreshConfig();
     // Edge-measurement scope is decoupled from the LIVE trade allowlist
     // (ALLOWED_MARKET_TYPES). #290 tied the two purely to dodge event_long's
     // 600s timeout; migration 034's generator_predictions(market_type,direction,
@@ -548,10 +556,17 @@ export class Scheduler {
       horizonHours: 4,
       defaultRtCost: 0.01,
       minN: 50,
-      sampleSize,
       perTypeTimeoutMs,
       allowedTypes,
     });
+  }
+
+  /**
+   * daily-review #297: incremental materialization of generator_prediction_outcomes.
+   * Hourly at :15. Cheap (only matured-in-last-hour predictions on hot data).
+   */
+  private async materializePredictionOutcomes(): Promise<void> {
+    await materializePredictionOutcomes();
   }
 
   /**
