@@ -40,8 +40,12 @@ CREATE INDEX IF NOT EXISTS idx_gen_predictions_market_time
 
 -- ~110k rows/day at full universe (35 markets x 11 generators x 12 cycles/h x 24h).
 -- 30-day retention keeps the table around 3.3M rows / ~250 MB compressed.
-ALTER TABLE generator_predictions SET (
-    timescaledb.compress_after = '3 days'
-);
+--
+-- NOTE (2026-06-02, daily-review #297 / migration 035): the `compress_after`
+-- table option is rejected by the current TimescaleDB version. Prod is already
+-- compressed from the original older-version init; this only matters for a fresh
+-- volume. Use SET (timescaledb.compress, compress_orderby=...) + policy instead.
+ALTER TABLE generator_predictions SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('generator_predictions', INTERVAL '3 days', if_not_exists => TRUE);
 
 SELECT add_retention_policy('generator_predictions', INTERVAL '30 days', if_not_exists => TRUE);
