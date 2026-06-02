@@ -38,5 +38,16 @@ SELECT create_hypertable('generator_prediction_outcomes', 'prediction_time',
 CREATE INDEX IF NOT EXISTS idx_gpo_type_dir_time
     ON generator_prediction_outcomes (market_type, direction, prediction_time DESC);
 
-ALTER TABLE generator_prediction_outcomes SET (timescaledb.compress_after = '3 days');
+-- Compression. NOTE: the `timescaledb.compress_after` table option used by the
+-- older migrations (003_retention_policies.sql, 030_generator_predictions.sql)
+-- is REJECTED by the TimescaleDB version now running on the VM
+-- ("unrecognized parameter timescaledb.compress_after"; verified 2026-06-02 when
+-- this migration first ran). Those tables were compressed when the original
+-- volume was initialised under an older version; a fresh volume today would
+-- silently skip their compression. The current, supported form is: enable
+-- compression on the table, then attach a time-based policy.
+ALTER TABLE generator_prediction_outcomes
+    SET (timescaledb.compress, timescaledb.compress_orderby = 'prediction_time DESC');
+SELECT add_compression_policy('generator_prediction_outcomes', INTERVAL '3 days', if_not_exists => TRUE);
+
 SELECT add_retention_policy('generator_prediction_outcomes', INTERVAL '14 days', if_not_exists => TRUE);
