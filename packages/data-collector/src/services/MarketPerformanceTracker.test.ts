@@ -121,118 +121,68 @@ describe('updateShadowCategoryPerformance', () => {
   });
 });
 
-describe('materializePredictionOutcomes', () => {
+describe('materializePredictionOutcomes (bulk, batched — 2026-06-02 scale fix)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
-  it('materializes a matured prediction with a forward price', async () => {
-    const inserts: any[][] = [];
-    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('FROM generator_predictions g')) {
-        return { rows: [{
-          id: '101', time: new Date('2026-06-02T00:00:00Z'), market_id: 'm1',
-          market_type: 'event_short', signal_id: 'momentum', direction: 'long',
-          yes_price_at_signal: '0.40', age_hours: '6',
-        }]};
-      }
-      if (sql.includes('FROM price_history')) {
-        return { rows: [{ close: 0.47 }] };
-      }
-      if (sql.startsWith('INSERT INTO generator_prediction_outcomes')) {
-        inserts.push(params ?? []);
-        return { rows: [], rowCount: 1 };
+  it('counts materialized (y1 present) vs noPrice (no_forward_price) from the bulk INSERT RETURNING', async () => {
+    let calls = 0;
+    (query as any).mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO generator_prediction_outcomes')) {
+        calls++;
+        return { rows: [{ no_price: false }, { no_price: false }, { no_price: true }] };
       }
       return { rows: [], rowCount: 0 };
     });
-
-    const res = await materializePredictionOutcomes();
-    expect(res.materialized).toBe(1);
-    expect(res.noPrice).toBe(0);
-    expect(inserts).toHaveLength(1);
-    expect(inserts[0][0]).toBe('101');
-    expect(inserts[0][7]).toBe(0.47);          // y1
-    expect(inserts[0][9]).toBe(false);         // no_forward_price
-  });
-
-  it('marks no_forward_price=true when matured >8h with no forward price', async () => {
-    const inserts: any[][] = [];
-    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('FROM generator_predictions g')) {
-        return { rows: [{
-          id: '102', time: new Date('2026-06-01T00:00:00Z'), market_id: 'm2',
-          market_type: 'event_long', signal_id: 'ofi', direction: 'short',
-          yes_price_at_signal: '0.30', age_hours: '20',
-        }]};
-      }
-      if (sql.includes('FROM price_history')) return { rows: [] };
-      if (sql.startsWith('INSERT INTO generator_prediction_outcomes')) {
-        inserts.push(params ?? []);
-        return { rows: [], rowCount: 1 };
-      }
-      return { rows: [], rowCount: 0 };
-    });
-
-    const res = await materializePredictionOutcomes();
-    expect(res.materialized).toBe(0);
+    const res = await materializePredictionOutcomes({ batchSize: 5000 });
+    expect(res.materialized).toBe(2);
     expect(res.noPrice).toBe(1);
-    expect(inserts[0][7]).toBe(null);          // y1
-    expect(inserts[0][9]).toBe(true);          // no_forward_price
+    expect(res.batches).toBe(1);   // 3 rows < batchSize → drained after one batch
+    expect(calls).toBe(1);         // ONE server-side query, not per-row round trips
   });
 
-  it('skips a matured-but-young prediction (<8h) with no price yet (retried later)', async () => {
-    const inserts: any[][] = [];
-    (query as any).mockImplementation(async (sql: string, params?: unknown[]) => {
-      if (sql.includes('FROM generator_predictions g')) {
-        return { rows: [{
-          id: '103', time: new Date('2026-06-02T06:00:00Z'), market_id: 'm3',
-          market_type: 'event_short', signal_id: 'hawkes', direction: 'long',
-          yes_price_at_signal: '0.50', age_hours: '6',
-        }]};
-      }
-      if (sql.includes('FROM price_history')) return { rows: [] };
-      if (sql.startsWith('INSERT INTO generator_prediction_outcomes')) {
-        inserts.push(params ?? []);
-        return { rows: [], rowCount: 1 };
+  it('does the work server-side: one bulk INSERT...SELECT...LEFT JOIN LATERAL with the idempotency + maturity guards', async () => {
+    let sqlSeen = '';
+    (query as any).mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO generator_prediction_outcomes')) { sqlSeen = sql; return { rows: [] }; }
+      return { rows: [], rowCount: 0 };
+    });
+    await materializePredictionOutcomes({ horizonHours: 4 });
+    expect(sqlSeen).toContain('LEFT JOIN LATERAL');
+    expect(sqlSeen).toContain('FROM price_history');
+    expect(sqlSeen).toContain('NOT EXISTS');
+    expect(sqlSeen).toContain('FROM generator_prediction_outcomes o');
+    expect(sqlSeen).toContain('o.prediction_id = g.id');
+    expect(sqlSeen).toContain('LIMIT');
+    expect(sqlSeen).toContain("INTERVAL '8 hours'");  // verdict age = horizon(4) + 4
+    expect(sqlSeen).toContain("INTERVAL '4 hours'");  // forward window start
+    expect(sqlSeen).toContain("INTERVAL '5 hours'");  // forward window end
+  });
+
+  it('caps work at maxBatches when every batch comes back full (does not drain the whole backlog in one tick)', async () => {
+    let calls = 0;
+    (query as any).mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO generator_prediction_outcomes')) {
+        calls++;
+        return { rows: [{ no_price: false }, { no_price: false }] };  // full batch (== batchSize)
       }
       return { rows: [], rowCount: 0 };
     });
+    const res = await materializePredictionOutcomes({ batchSize: 2, maxBatches: 3 });
+    expect(calls).toBe(3);          // stopped by maxBatches, NOT by drain
+    expect(res.batches).toBe(3);
+    expect(res.materialized).toBe(6);
+  });
 
+  it('stops immediately when the first batch is empty (no backlog)', async () => {
+    let calls = 0;
+    (query as any).mockImplementation(async (sql: string) => {
+      if (sql.includes('INSERT INTO generator_prediction_outcomes')) { calls++; return { rows: [] }; }
+      return { rows: [], rowCount: 0 };
+    });
     const res = await materializePredictionOutcomes();
+    expect(calls).toBe(1);
+    expect(res.batches).toBe(0);
     expect(res.materialized).toBe(0);
     expect(res.noPrice).toBe(0);
-    expect(inserts).toHaveLength(0);
-  });
-
-  it('the pending-select excludes already-materialized predictions (idempotency guard)', async () => {
-    let pendingSql = '';
-    (query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM generator_predictions g')) {
-        pendingSql = sql;
-        return { rows: [] };
-      }
-      return { rows: [], rowCount: 0 };
-    });
-    await materializePredictionOutcomes();
-    expect(pendingSql).toContain('NOT EXISTS');
-    expect(pendingSql).toContain('FROM generator_prediction_outcomes o');
-    expect(pendingSql).toContain('o.prediction_id = g.id');
-  });
-
-  it('a failing forward-seek does not abort the batch', async () => {
-    let inserts = 0;
-    (query as any).mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM generator_predictions g')) {
-        return { rows: [
-          { id: '201', time: new Date('2026-06-02T00:00:00Z'), market_id: 'mA', market_type: 'event_short', signal_id: 's', direction: 'long', yes_price_at_signal: '0.4', age_hours: '6' },
-          { id: '202', time: new Date('2026-06-02T00:00:00Z'), market_id: 'mB', market_type: 'event_short', signal_id: 's', direction: 'long', yes_price_at_signal: '0.4', age_hours: '6' },
-        ]};
-      }
-      if (sql.includes('FROM price_history')) {
-        throw new Error('simulated seek failure');
-      }
-      if (sql.startsWith('INSERT INTO generator_prediction_outcomes')) { inserts++; return { rows: [], rowCount: 1 }; }
-      return { rows: [], rowCount: 0 };
-    });
-    await expect(materializePredictionOutcomes()).resolves.toBeDefined();
-    expect(inserts).toBe(0);
   });
 });

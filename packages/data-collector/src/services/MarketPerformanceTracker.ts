@@ -106,91 +106,88 @@ export async function resolveShadowTrades(): Promise<void> {
  * generator_prediction ONCE, when it matures, into generator_prediction_outcomes.
  * The nightly EdgeCapacityRefresher then reads that table instead of recomputing
  * a correlated price_history seek per sampled row over compressed chunks (the
- * >600s timeout root cause). Idempotent via NOT EXISTS; runs hourly on hot data.
+ * >600s timeout root cause). Idempotent via NOT EXISTS.
  *
- * Maturity rule:
- *  - age < horizon+1h         → not selected (too young to have a forward price).
- *  - horizon+1h ≤ age < 8h, no price → left unwritten, retried next run (price
- *                              may arrive late after a transient collector gap).
- *  - age ≥ 8h, no price       → written with y1=NULL, no_forward_price=true
- *                              (processed; never retried — market stopped quoting/resolved).
- *  - price found              → written with y1, no_forward_price=false.
+ * SCALE LESSON (2026-06-02 deploy): the first version did one round-trip JS
+ * seek per prediction. Against the real backlog (~557k rows over 8d) that melted
+ * the e2-micro (load avg 19, ~2 rows materialized). This version does the work
+ * SERVER-SIDE in bulk via `INSERT ... SELECT ... LEFT JOIN LATERAL`, and caps
+ * each invocation at `maxBatches × batchSize` rows so the backlog drains over a
+ * few hours of hourly ticks without saturating the VM. In steady state only the
+ * ~hour's worth of newly-matured rows remain, so a single small batch suffices.
+ *
+ * Maturity rule (simplified to avoid re-selecting young no-price rows every tick):
+ *  - age < horizon+4h  → not selected yet (waits for a later tick).
+ *  - age ≥ horizon+4h  → written: y1 if a forward price exists, else
+ *                        y1=NULL, no_forward_price=true (terminal, never retried).
  */
 export async function materializePredictionOutcomes(
-  opts: { horizonHours?: number } = {},
-): Promise<{ materialized: number; noPrice: number }> {
+  opts: { horizonHours?: number; batchSize?: number; maxBatches?: number } = {},
+): Promise<{ materialized: number; noPrice: number; batches: number }> {
   const horizon = opts.horizonHours ?? 4;
-
-  const pending = await query<{
-    id: string;
-    time: Date;
-    market_id: string;
-    market_type: string | null;
-    signal_id: string;
-    direction: string;
-    yes_price_at_signal: string;
-    age_hours: string;
-  }>(
-    `SELECT g.id, g.time, g.market_id, g.market_type, g.signal_id, g.direction,
-            g.yes_price_at_signal,
-            EXTRACT(EPOCH FROM (NOW() - g.time)) / 3600.0 AS age_hours
-     FROM generator_predictions g
-     WHERE g.time >= NOW() - INTERVAL '8 days'
-       AND g.time <  NOW() - INTERVAL '${horizon + 1} hours'
-       AND g.direction IN ('long','short')
-       AND NOT EXISTS (
-         SELECT 1 FROM generator_prediction_outcomes o
-         WHERE o.prediction_id = g.id AND o.horizon_hours = $1
-       )`,
-    [horizon],
-  );
-
-  if (pending.rows.length === 0) {
-    return { materialized: 0, noPrice: 0 };
-  }
-
-  logger.info({ count: pending.rows.length, horizon }, 'Materializing prediction outcomes');
+  const batchSize = opts.batchSize ?? 5000;
+  const maxBatches = opts.maxBatches ?? 4;
+  // Rows reach a verdict once the [+horizon, +horizon+1h) forward window is well
+  // in the past. horizon+4h gives a comfortable margin for late-arriving prices.
+  const verdictAgeHours = horizon + 4;
 
   let materialized = 0;
   let noPrice = 0;
+  let batches = 0;
 
-  for (const row of pending.rows) {
-    try {
-      const fwd = await query<{ close: number }>(
-        `SELECT close::float AS close FROM price_history
-         WHERE market_id = $1
-           AND time >= $2::timestamptz + INTERVAL '${horizon} hours'
-           AND time <  $2::timestamptz + INTERVAL '${horizon + 1} hours'
-         ORDER BY time ASC LIMIT 1`,
-        [row.market_id, row.time],
-      );
-
-      const y1 = fwd.rows.length > 0 ? Number(fwd.rows[0].close) : null;
-      const ageHours = Number(row.age_hours);
-
-      if (y1 === null && ageHours < 8) {
-        continue;
-      }
-
-      await query(
-        `INSERT INTO generator_prediction_outcomes
+  for (let b = 0; b < maxBatches; b++) {
+    const res = await query<{ no_price: boolean }>(
+      `WITH batch AS (
+         SELECT g.id, g.time, g.market_id, g.market_type, g.signal_id,
+                g.direction, g.yes_price_at_signal
+         FROM generator_predictions g
+         WHERE g.time >= NOW() - INTERVAL '8 days'
+           AND g.time <  NOW() - INTERVAL '${verdictAgeHours} hours'
+           AND g.direction IN ('long','short')
+           AND NOT EXISTS (
+             SELECT 1 FROM generator_prediction_outcomes o
+             WHERE o.prediction_id = g.id AND o.horizon_hours = $1
+           )
+         ORDER BY g.time
+         LIMIT ${batchSize}
+       ),
+       resolved AS (
+         SELECT b.*, fwd.close AS y1
+         FROM batch b
+         LEFT JOIN LATERAL (
+           SELECT p.close FROM price_history p
+           WHERE p.market_id = b.market_id
+             AND p.time >= b.time + INTERVAL '${horizon} hours'
+             AND p.time <  b.time + INTERVAL '${horizon + 1} hours'
+           ORDER BY p.time ASC LIMIT 1
+         ) fwd ON true
+       ),
+       ins AS (
+         INSERT INTO generator_prediction_outcomes
            (prediction_id, prediction_time, market_id, market_type, signal_id,
             direction, y0, y1, horizon_hours, no_forward_price)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-         ON CONFLICT (prediction_time, prediction_id, horizon_hours) DO NOTHING`,
-        [row.id, row.time, row.market_id, row.market_type, row.signal_id,
-         row.direction, Number(row.yes_price_at_signal), y1, horizon, y1 === null],
-      );
+         SELECT id, time, market_id, market_type, signal_id, direction,
+                yes_price_at_signal::numeric, y1::numeric, $1, (y1 IS NULL)
+         FROM resolved
+         ON CONFLICT (prediction_time, prediction_id, horizon_hours) DO NOTHING
+         RETURNING no_forward_price AS no_price
+       )
+       SELECT no_price FROM ins`,
+      [horizon],
+    );
 
-      if (y1 === null) noPrice++; else materialized++;
-    } catch (err) {
-      logger.warn({ predictionId: row.id, err: (err as Error).message },
-        'materializePredictionOutcomes: row failed (non-fatal)');
+    if (res.rows.length === 0) break;
+    batches++;
+    for (const r of res.rows) {
+      if (r.no_price) noPrice++; else materialized++;
     }
+    if (res.rows.length < batchSize) break;  // backlog drained
   }
 
-  logger.info({ materialized, noPrice }, 'Prediction outcomes materialized');
-  return { materialized, noPrice };
+  if (batches > 0) {
+    logger.info({ materialized, noPrice, batches, batchSize }, 'Prediction outcomes materialized');
+  }
+  return { materialized, noPrice, batches };
 }
 
 export async function updateShadowCategoryPerformance(): Promise<void> {
