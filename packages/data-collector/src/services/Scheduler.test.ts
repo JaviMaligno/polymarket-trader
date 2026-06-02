@@ -5,6 +5,13 @@ vi.mock('../database/connection.js', () => ({
   getPool: vi.fn(),
 }));
 
+vi.mock('./MarketPerformanceTracker.js', () => ({
+  updateCategoryPriors: vi.fn().mockResolvedValue(undefined),
+  updateShadowCategoryPerformance: vi.fn().mockResolvedValue(undefined),
+  resolveShadowTrades: vi.fn().mockResolvedValue(undefined),
+  materializePredictionOutcomes: vi.fn().mockResolvedValue({ materialized: 0, noPrice: 0 }),
+}));
+
 // Mock the EdgeCapacityRefresher module so runJob('refresh-edge-capacity')
 // can be exercised without hitting the real SQL pipeline.
 vi.mock('./EdgeCapacityRefresher.js', () => ({
@@ -24,6 +31,7 @@ import { computeRealizedVolatility } from './Scheduler.js';
 import { Scheduler } from './Scheduler.js';
 import { refreshEdgeCapacity } from './EdgeCapacityRefresher.js';
 import * as gammaModule from '../collectors/GammaCollector.js';
+import { materializePredictionOutcomes } from './MarketPerformanceTracker.js';
 
 describe('computeRealizedVolatility', () => {
   beforeEach(() => {
@@ -102,5 +110,22 @@ describe('Scheduler — sync-resolved-markets uses resolveOurMarkets', () => {
     // not just the handler body.
     await scheduler.runJob('sync-resolved-markets');
     expect(resolveOurMarkets).toHaveBeenCalled();
+  });
+});
+
+describe('Scheduler — materialize-prediction-outcomes cron', () => {
+  beforeEach(() => { vi.clearAllMocks(); });
+
+  it('runJob("materialize-prediction-outcomes") invokes materializePredictionOutcomes', async () => {
+    const scheduler = new Scheduler();
+    await scheduler.runJob('materialize-prediction-outcomes');
+    expect(materializePredictionOutcomes).toHaveBeenCalledTimes(1);
+  });
+
+  it('registers the job at hourly :15', () => {
+    const scheduler = new Scheduler();
+    const job = (scheduler as any).jobs.get('materialize-prediction-outcomes');
+    expect(job).toBeDefined();
+    expect(job.schedule).toBe('15 * * * *');
   });
 });
