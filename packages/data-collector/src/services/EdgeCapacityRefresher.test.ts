@@ -11,32 +11,17 @@ vi.mock('../database/connection.js', () => ({
 import { computeEdgeCapacity, refreshEdgeCapacity, getLatestEdgePerCell, resolveEdgeRefreshConfig } from './EdgeCapacityRefresher.js';
 import { query } from '../database/connection.js';
 
-describe('resolveEdgeRefreshConfig (env-overridable; #284-driven timeout bump)', () => {
-  // 2026-05-30: all 4 types timed out at the old 300s per-type cap under DB
-  // contention (cf #284) → 0 upserts → generator_edge stale ~33h. The cost is
-  // dominated by ORDER BY random() over the window, not sampleSize, so the fix
-  // is a higher (env-overridable) timeout, not a smaller sample.
-  it('empty env → defaults (sample 10000, timeout raised to 600s)', () => {
-    const got = resolveEdgeRefreshConfig({});
-    expect(got).toEqual({ sampleSize: 10000, perTypeTimeoutMs: 600_000 });
+describe('resolveEdgeRefreshConfig (env-overridable per-type timeout backstop)', () => {
+  it('empty env → default timeout 600s', () => {
+    expect(resolveEdgeRefreshConfig({})).toEqual({ perTypeTimeoutMs: 600_000 });
   });
-
-  it('valid env values are honored', () => {
-    const got = resolveEdgeRefreshConfig({
-      EDGE_REFRESH_SAMPLE_SIZE: '5000',
-      EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: '900000',
-    });
-    expect(got).toEqual({ sampleSize: 5000, perTypeTimeoutMs: 900_000 });
+  it('valid env value is honored', () => {
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: '900000' }))
+      .toEqual({ perTypeTimeoutMs: 900_000 });
   });
-
-  it('invalid env values (non-numeric, zero, negative) fall back to defaults', () => {
-    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: 'abc' }).sampleSize).toBe(10000);
+  it('invalid env values fall back to default', () => {
     expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: '0' }).perTypeTimeoutMs).toBe(600_000);
-    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: '-5' }).sampleSize).toBe(10000);
-  });
-
-  it('fractional env values are floored', () => {
-    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_SAMPLE_SIZE: '7500.9' }).sampleSize).toBe(7500);
+    expect(resolveEdgeRefreshConfig({ EDGE_REFRESH_PER_TYPE_TIMEOUT_MS: 'abc' }).perTypeTimeoutMs).toBe(600_000);
   });
 });
 
@@ -133,7 +118,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
         ]};
       }
       // Per-type t-stat query: returns cells for the specific market_type param
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         const mt = String(params?.[0]);
         if (mt === 'crypto_intraday') {
           return { rows: [
@@ -170,7 +155,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
           { market_type: 'event_financial' },
         ]};
       }
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         const mt = String(params?.[0]);
         if (mt === 'event_long') throw new Error('simulated DB error');
         return { rows: [
@@ -187,7 +172,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
     expect(perType.has('event_financial')).toBe(true);
   });
 
-  it('passes window / horizon / sampleSize into the per-type SQL', async () => {
+  it('per-type SQL reads generator_prediction_outcomes with window + horizon filter, no price_history, no random()', async () => {
     const capturedSql: string[] = [];
     (query as any).mockImplementation(async (sql: string) => {
       if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
@@ -197,35 +182,16 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
       return { rows: [], rowCount: 0 };
     });
 
-    await refreshEdgeCapacity({ windowDays: 3, horizonHours: 6, minN: 100, sampleSize: 5000 });
+    await refreshEdgeCapacity({ windowDays: 3, horizonHours: 6, minN: 100 });
 
-    const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
-    expect(selectStmt).toBeDefined();
-    expect(selectStmt).toContain("INTERVAL '3 days'");
-    expect(selectStmt).toContain("INTERVAL '6 hours'");
-    expect(selectStmt).toContain("INTERVAL '7 hours'");
-    // Single-scan Bernoulli sample (no full ORDER BY random() sort, which spilled
-    // to disk on the e2-micro and caused the 2026-05-30 timeout — see #288).
-    expect(selectStmt).toContain('random() < LEAST(1.0,');
-    expect(selectStmt).toContain('5000::float');
-    expect(selectStmt).not.toContain('ORDER BY random()');
-  });
-
-  it('uses sampleSize=10000 by default, via single-scan Bernoulli (not ORDER BY random)', async () => {
-    const capturedSql: string[] = [];
-    (query as any).mockImplementation(async (sql: string) => {
-      if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
-        return { rows: [{ market_type: 'event_long' }] };
-      }
-      if (typeof sql === 'string') capturedSql.push(sql);
-      return { rows: [], rowCount: 0 };
-    });
-    await refreshEdgeCapacity();
-    const selectStmt = capturedSql.find(s => s.includes('FROM generator_predictions'));
-    expect(selectStmt).toContain('10000::float');
-    expect(selectStmt).not.toContain('ORDER BY random()');
-    // Bernoulli fraction is derived from a COUNT(*) of the same slice, capped at 1.0.
-    expect(selectStmt).toContain('SELECT COUNT(*) FROM generator_predictions');
+    const stmt = capturedSql.find(s => s.includes('FROM generator_prediction_outcomes'));
+    expect(stmt).toBeDefined();
+    expect(stmt).toContain("INTERVAL '3 days'");
+    expect(stmt).toContain('horizon_hours = 6');
+    expect(stmt).toContain('y1 IS NOT NULL');
+    expect(stmt).not.toContain('price_history');
+    expect(stmt).not.toContain('random()');
+    expect(stmt).not.toContain('FROM generator_predictions g');
   });
 
   // ─── Phase 5 Pilar 1-B: generator_edge persistence ──────────────────
@@ -235,7 +201,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
       if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
         return { rows: [{ market_type: 'event_long' }] };
       }
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         return { rows: [
           // cell with positive t_gross → t_net should be t_gross × (gross-rtPct)/gross
           { signal_id: 'spread_compression', market_type: 'event_long', direction: 'long', n: 99, gross_pct: 0.88, t_gross: 1.71 },
@@ -273,7 +239,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
           { market_type: 'event_financial' },
         ]};
       }
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         queriedTypes.push(String(params?.[0]));
         return { rows: [
           { signal_id: 'momentum', market_type: String(params?.[0]), direction: 'long', n: 100, gross_pct: 0.5, t_gross: 2 },
@@ -299,7 +265,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
       if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
         return { rows: [{ market_type: 'crypto_daily' }, { market_type: 'event_long' }] };
       }
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         queriedTypes.push(String(params?.[0]));
         return { rows: [
           { signal_id: 'momentum', market_type: String(params?.[0]), direction: 'long', n: 100, gross_pct: 0.5, t_gross: 2 },
@@ -318,7 +284,7 @@ describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)
       if (typeof sql === 'string' && sql.includes('SELECT DISTINCT market_type')) {
         return { rows: [{ market_type: 'event_long' }] };
       }
-      if (typeof sql === 'string' && sql.includes('FROM generator_predictions')) {
+      if (typeof sql === 'string' && sql.includes('FROM generator_prediction_outcomes')) {
         return { rows: [
           { signal_id: 'mean_reversion', market_type: 'event_long', direction: 'long', n: 200, gross_pct: 0.5, t_gross: 3 },
         ]};

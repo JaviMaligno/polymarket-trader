@@ -18,7 +18,7 @@ vi.mock('./EdgeCapacityRefresher.js', () => ({
   refreshEdgeCapacity: vi.fn().mockResolvedValue({ upserts: 0, perType: new Map() }),
   // Scheduler.refreshEdgeCapacity() resolves env-overridable knobs through this
   // before invoking refreshEdgeCapacity (#284 timeout fix).
-  resolveEdgeRefreshConfig: vi.fn().mockReturnValue({ sampleSize: 10000, perTypeTimeoutMs: 600_000 }),
+  resolveEdgeRefreshConfig: vi.fn().mockReturnValue({ perTypeTimeoutMs: 600_000 }),
 }));
 
 // Mock GammaCollector module so syncResolvedMarkets tests don't hit network/DB.

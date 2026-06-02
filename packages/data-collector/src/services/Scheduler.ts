@@ -539,10 +539,10 @@ export class Scheduler {
    * later pass a measured per-type cost map from scripts/measure-rt-cost.js.
    */
   private async refreshEdgeCapacity(): Promise<void> {
-    // sampleSize / perTypeTimeoutMs are env-overridable (defaults 10000 / 600s).
-    // The 300s default timed out all types on 2026-05-30 under DB contention
-    // (#284) → 0 upserts → generator_edge stale. See resolveEdgeRefreshConfig.
-    const { sampleSize, perTypeTimeoutMs } = resolveEdgeRefreshConfig();
+    // perTypeTimeoutMs is env-overridable (default 600s) — a safety backstop now
+    // that the per-type query reads generator_prediction_outcomes (no
+    // price_history seek, no sampling). See resolveEdgeRefreshConfig.
+    const { perTypeTimeoutMs } = resolveEdgeRefreshConfig();
     // Edge-measurement scope is decoupled from the LIVE trade allowlist
     // (ALLOWED_MARKET_TYPES). #290 tied the two purely to dodge event_long's
     // 600s timeout; migration 034's generator_predictions(market_type,direction,
@@ -556,7 +556,6 @@ export class Scheduler {
       horizonHours: 4,
       defaultRtCost: 0.01,
       minN: 50,
-      sampleSize,
       perTypeTimeoutMs,
       allowedTypes,
     });
