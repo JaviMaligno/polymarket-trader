@@ -206,14 +206,12 @@ async function measureCellsForType(
 }
 
 /**
- * Refresh `market_type_edge_capacity` table by iterating over distinct
- * market_types with active markets, sampling N=sampleSize predictions per
- * type, and upserting the computed edge_capacity. Returns the upserted
- * entries (useful for tests + logging).
- *
- * Phase 5 Pilar 1-A (2026-05-15): rewrote from bulk-query to per-type
- * sampling. Calibrated N=10000 takes 47-150s/type on e2-micro. perTypeTimeoutMs
- * caps each type at 300s so a slow type doesn't block the others.
+ * Refresh `market_type_edge_capacity` by iterating over distinct market_types
+ * with active markets, reading the precomputed generator_prediction_outcomes
+ * table per type (daily-review #297 — no sampling, no price_history seek), and
+ * upserting the computed edge_capacity. Returns the upserted entries (useful
+ * for tests + logging). perTypeTimeoutMs is a safety backstop only (the read is
+ * now index-served and fast).
  */
 /**
  * Phase 5 Pilar 1-B reporting helper: latest measurement per (signal, type,

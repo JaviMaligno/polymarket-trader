@@ -202,6 +202,21 @@ describe('materializePredictionOutcomes', () => {
     expect(inserts).toHaveLength(0);
   });
 
+  it('the pending-select excludes already-materialized predictions (idempotency guard)', async () => {
+    let pendingSql = '';
+    (query as any).mockImplementation(async (sql: string) => {
+      if (sql.includes('FROM generator_predictions g')) {
+        pendingSql = sql;
+        return { rows: [] };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    await materializePredictionOutcomes();
+    expect(pendingSql).toContain('NOT EXISTS');
+    expect(pendingSql).toContain('FROM generator_prediction_outcomes o');
+    expect(pendingSql).toContain('o.prediction_id = g.id');
+  });
+
   it('a failing forward-seek does not abort the batch', async () => {
     let inserts = 0;
     (query as any).mockImplementation(async (sql: string) => {

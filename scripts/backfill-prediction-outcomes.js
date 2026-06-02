@@ -25,7 +25,8 @@ async function main() {
 
   const pending = await pool.query(
     `SELECT g.id, g.time, g.market_id, g.market_type, g.signal_id, g.direction,
-            g.yes_price_at_signal
+            g.yes_price_at_signal,
+            EXTRACT(EPOCH FROM (NOW() - g.time)) / 3600.0 AS age_hours
      FROM generator_predictions g
      WHERE g.time >= NOW() - INTERVAL '${windowDays} days'
        AND g.time <  NOW() - INTERVAL '${horizon + 1} hours'
@@ -51,6 +52,10 @@ async function main() {
         [row.market_id, row.time],
       );
       const y1 = fwd.rows.length > 0 ? Number(fwd.rows[0].close) : null;
+      const ageHours = Number(row.age_hours);
+      if (y1 === null && ageHours < 8) {
+        continue; // too young to give up; the hourly job will retry once matured
+      }
       await pool.query(
         `INSERT INTO generator_prediction_outcomes
            (prediction_id, prediction_time, market_id, market_type, signal_id,

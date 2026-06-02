@@ -105,7 +105,7 @@ describe('computeEdgeCapacity (TS port)', () => {
   });
 });
 
-describe('refreshEdgeCapacity (integration, Phase 5 Pilar 1-A per-type sampling)', () => {
+describe('refreshEdgeCapacity (integration, reads generator_prediction_outcomes)', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
   it('iterates types from markets and UPSERTs one row per type with measurable cells', async () => {
