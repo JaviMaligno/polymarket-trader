@@ -6,36 +6,40 @@
 -- COMPRESSION SETTINGS (More Aggressive)
 -- ============================================
 
--- Enable compression on all hypertables with shorter intervals
+-- Enable compression on all hypertables, then attach a time-based policy.
+--
+-- NOTE (2026-06-02, daily-review #297 / migration 035): the original
+-- `timescaledb.compress_after` table option is REJECTED by the TimescaleDB
+-- version now running on the VM ("unrecognized parameter
+-- timescaledb.compress_after"). These tables were compressed when the original
+-- volume was initialised under an older version, so PROD is fine — but a fresh
+-- volume today would silently skip compression here. The supported form is
+-- `SET (timescaledb.compress, compress_orderby=...)` + add_compression_policy.
+-- All these hypertables partition on the `time` column.
+
 -- Price history: compress after 3 days (was 7)
-ALTER TABLE price_history SET (
-  timescaledb.compress_after = '3 days'
-);
+ALTER TABLE price_history SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('price_history', INTERVAL '3 days', if_not_exists => TRUE);
 
 -- Orderbook snapshots: compress after 1 day (most voluminous)
-ALTER TABLE orderbook_snapshots SET (
-  timescaledb.compress_after = '1 day'
-);
+ALTER TABLE orderbook_snapshots SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('orderbook_snapshots', INTERVAL '1 day', if_not_exists => TRUE);
 
 -- Trades: compress after 3 days
-ALTER TABLE trades SET (
-  timescaledb.compress_after = '3 days'
-);
+ALTER TABLE trades SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('trades', INTERVAL '3 days', if_not_exists => TRUE);
 
 -- Paper equity history: compress after 7 days
-ALTER TABLE paper_equity_history SET (
-  timescaledb.compress_after = '7 days'
-);
+ALTER TABLE paper_equity_history SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('paper_equity_history', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- Signal predictions: compress after 3 days
-ALTER TABLE signal_predictions SET (
-  timescaledb.compress_after = '3 days'
-);
+ALTER TABLE signal_predictions SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('signal_predictions', INTERVAL '3 days', if_not_exists => TRUE);
 
 -- Strategy performance log: compress after 7 days
-ALTER TABLE strategy_performance_log SET (
-  timescaledb.compress_after = '7 days'
-);
+ALTER TABLE strategy_performance_log SET (timescaledb.compress, timescaledb.compress_orderby = 'time DESC');
+SELECT add_compression_policy('strategy_performance_log', INTERVAL '7 days', if_not_exists => TRUE);
 
 -- ============================================
 -- RETENTION POLICIES (Auto-delete old data)
