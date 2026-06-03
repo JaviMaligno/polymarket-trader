@@ -309,8 +309,46 @@ REJECTED log format so the daily-review gate-fire-log query picks it up).
   paper positions remain and reconcile to resolution as designed (or are simply left — paper).
 - Code revert: separate PR; do NOT drop `flb_positions` (historical record).
 
-## 11. Verdict query (unchanged — segment by cohort)
-The build does not change the decision gate. The tradeable-cohort verdict (n ≥ 100, net ≥ +1%,
-parametric t ≥ 2 with a confirming bootstrap, plus a hold-aware annualised hurdle) remains the
-condition for *live* promotion, run on `flb_shadow_signals` AND now cross-checkable against the
-realistic-cost `flb_positions` track. Never read the pooled row as the verdict.
+## 11. Verdict query — segment by cohort AND use realistic cost
+
+The tradeable-cohort verdict (n ≥ 100, net ≥ +1%, parametric t ≥ 2 with a confirming bootstrap,
+plus a hold-aware annualised hurdle) remains the condition for *live* promotion. Two hard rules,
+both learned the hard way:
+
+1. **Never read the pooled row as the verdict** (the tradeable cohort is ~96% diluted by
+   shadow-only event_long).
+2. **Read `net_pnl_real` on the enterable subset, NOT the flat-cost `net_pnl`.** The shadow
+   recorder records both: `net_pnl` charges a flat 0.54%; `net_pnl_real = win_or_wipeout −
+   (entry_spread/2)/(1−entry_yes)` charges the actual per-signal spread, and `entry_cost_real`
+   is that spread cost. The verdict filters to `entry_cost_real <= FLB_MAX_ENTRY_COST_PCT/100`
+   (the executor's flb_0d ceiling), because the executor would not enter wider-spread signals.
+
+> **Empirical warning (2026-06-03, n=133 forward resolved).** At the flat 0.54% cost the pooled
+> forward read was +3.0%/t=2.78 — but it was an artefact. Re-costed realistically and filtered to
+> enterable signals: all 5 event_financial signals are un-enterable (real cost 5–9% ≫ 1%), and
+> the 45 enterable event_long signals average **+0.05% (≈0), P(edge>0)≈0.5**. A cheaper-sub-band
+> sweep (`scripts/flb-subband-sweep.py`) found no clean positive sub-band. The realistic-cost
+> forward edge is **not demonstrated** (not refuted either: tiny n, 2 wipeouts, in-sample +2.24%
+> stands). Hierarchical partial-pooling analysis: `scripts/flb-hierarchical-edge.py`.
+
+```sql
+WITH resolved AS (
+  SELECT net_pnl_real AS net, hold_days,
+         CASE WHEN market_type = 'event_long' THEN 'event_long (shadow-only)'
+              ELSE 'TRADEABLE (cd/ef/es)' END AS cohort
+  FROM flb_shadow_signals
+  WHERE resolved_at IS NOT NULL
+    AND entry_cost_real IS NOT NULL
+    AND entry_cost_real <= 0.01            -- executor flb_0d enterable filter
+)
+SELECT cohort, COUNT(*) n,
+       ROUND(AVG(net)::numeric, 4) avg_net_real,
+       ROUND(STDDEV_SAMP(net)::numeric, 4) sd,
+       ROUND((AVG(net) / NULLIF(STDDEV_SAMP(net) / SQRT(COUNT(*)), 0))::numeric, 2) t,
+       COUNT(*) FILTER (WHERE net > 0) wins,
+       ROUND(percentile_cont(0.5) WITHIN GROUP (ORDER BY hold_days)::numeric, 1) median_hold_days
+FROM resolved GROUP BY cohort ORDER BY cohort;
+```
+
+Also run a bootstrap on `net_pnl_real` (~10,000 resamples) — the −100% tail breaks the
+parametric t. If parametric t ≥ 2 but bootstrap P(mean>0) is not high, do NOT build.
