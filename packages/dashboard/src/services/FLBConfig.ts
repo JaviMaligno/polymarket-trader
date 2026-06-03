@@ -21,6 +21,7 @@ function num(envVal: string | undefined, fallback: number): number {
 
 export function getFLBConfig(): FLBConfig {
   const typesRaw = process.env.FLB_ELIGIBLE_TYPES;
+  // event_long included in FLB paper cohort despite being shadow-only in the 4h trader; live promotion is a separate future decision.
   const eligibleTypes = typesRaw === undefined
     ? ['crypto_daily', 'event_financial', 'event_short', 'event_long']
     : typesRaw.split(',').map(s => s.trim()).filter(s => s.length > 0);

@@ -31,6 +31,11 @@ describe('getFLBConfig', () => {
     expect(getFLBConfig().enabled).toBe(true);
   });
 
+  it('honours FLB_DRY_RUN=true', () => {
+    process.env.FLB_DRY_RUN = 'true';
+    expect(getFLBConfig().dryRun).toBe(true);
+  });
+
   it('parses numeric overrides', () => {
     process.env.FLB_MAX_POSITION_PCT = '0.5';
     process.env.FLB_MAX_SAME_WEEK_POSITIONS = '30';
