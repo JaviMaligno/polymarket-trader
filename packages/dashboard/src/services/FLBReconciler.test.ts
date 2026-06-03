@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../database/index.js', () => ({
   query: (...args: unknown[]) => queryMock(...args),
+  transaction: async (fn: (client: any) => Promise<unknown>) => fn({ query: (...a: unknown[]) => queryMock(...a) }),
   isDatabaseConfigured: () => true,
 }));
 
@@ -61,6 +62,9 @@ describe('FLBReconciler.run', () => {
     expect(r.voided).toBe(1);
     const posUpd = writes.find(w => w.sql.startsWith('UPDATE flb_positions'));
     expect(posUpd!.params).toContain('voided');
+    expect(posUpd!.params).toContain('invalid'); // resolution_outcome set on void (change #2)
+    const acctUpd = writes.find(w => w.sql.startsWith('UPDATE paper_account'));
+    expect(acctUpd!.params.some(p => Number(p) === 100)).toBe(true); // release = noStake 100 + fee 0
   });
 
   it('alerts (does not settle) an overdue-unresolved position', async () => {
@@ -87,5 +91,21 @@ describe('FLBReconciler.run', () => {
     const r = await new FLBReconciler().run();
     expect(r.settled + r.voided + r.alerts).toBe(0);
     expect(writes.length).toBe(0);
+  });
+
+  it('settles a NO resolution with a nonzero entry fee', async () => {
+    const writes: { sql: string; params: unknown[] }[] = [];
+    queryMock.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (sql.includes("status = 'open'")) return { rows: [openRow({
+        is_resolved: true, outcome: 'no', resolved_at: '2026-06-08T00:00:00Z',
+        fee_paid: '2', no_size: '105', no_stake: '100' })] };
+      writes.push({ sql, params }); return { rowCount: 1, rows: [] };
+    });
+    const r = await new FLBReconciler().run();
+    expect(r.settled).toBe(1);
+    const acctUpd = writes.find(w => w.sql.startsWith('UPDATE paper_account'));
+    // release = noStake(100) + feePaid(2) = 102; net_pnl = 105 - 100 - 2 = 3
+    expect(acctUpd!.params.some(p => Number(p) === 102)).toBe(true);
+    expect(acctUpd!.params.some(p => Number(p) === 3)).toBe(true);
   });
 });

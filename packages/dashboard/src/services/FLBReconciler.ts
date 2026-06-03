@@ -1,4 +1,4 @@
-import { query } from '../database/index.js';
+import { query, transaction } from '../database/index.js';
 import { settle } from './flbMath.js';
 
 export interface ReconcileResult {
@@ -35,6 +35,7 @@ export class FLBReconciler {
     for (const r of res.rows) {
       const noStake = Number(r.no_stake);
       const feePaid = Number(r.fee_paid);
+      // release = the capital locked at entry (noStake + feePaid). netPnl already nets out feePaid, so the locked-release and realized-pnl deltas are independent (no double count).
       const release = noStake + feePaid;
 
       if (r.is_resolved && (r.outcome === 'yes' || r.outcome === 'no')) {
@@ -44,32 +45,36 @@ export class FLBReconciler {
           ? (new Date(r.resolved_at).getTime() - new Date(r.opened_at).getTime()) / 86_400_000
           : null;
 
-        await query(
-          `UPDATE flb_positions
-              SET status = $1, resolved_at = $2, resolution_outcome = $3,
-                  gross_pnl = $4, net_pnl = $5, hold_days = $6
-            WHERE id = $7`,
-          ['resolved', r.resolved_at, r.outcome, grossPnl, netPnl, holdDays, r.id]);
-        await query(
-          `UPDATE paper_account
-              SET flb_locked_capital = flb_locked_capital - $1,
-                  flb_realized_pnl   = flb_realized_pnl + $2
-            WHERE id = (SELECT id FROM paper_account ORDER BY id LIMIT 1)`,
-          [release, netPnl]);
+        await transaction(async (client) => {
+          await client.query(
+            `UPDATE flb_positions
+                SET status = $1, resolved_at = $2, resolution_outcome = $3,
+                    gross_pnl = $4, net_pnl = $5, hold_days = $6
+              WHERE id = $7`,
+            ['resolved', r.resolved_at, r.outcome, grossPnl, netPnl, holdDays, r.id]);
+          await client.query(
+            `UPDATE paper_account
+                SET flb_locked_capital = flb_locked_capital - $1,
+                    flb_realized_pnl   = flb_realized_pnl + $2
+              WHERE id = (SELECT id FROM paper_account ORDER BY id LIMIT 1)`,
+            [release, netPnl]);
+        });
         settled++;
         continue;
       }
 
       if (r.is_resolved) {
-        await query(
-          `UPDATE flb_positions
-              SET status = $1, resolved_at = $2, gross_pnl = 0, net_pnl = 0
-            WHERE id = $3`,
-          ['voided', r.resolved_at, r.id]);
-        await query(
-          `UPDATE paper_account SET flb_locked_capital = flb_locked_capital - $1
-            WHERE id = (SELECT id FROM paper_account ORDER BY id LIMIT 1)`,
-          [release]);
+        await transaction(async (client) => {
+          await client.query(
+            `UPDATE flb_positions
+                SET status = $1, resolved_at = $2, resolution_outcome = $3, gross_pnl = 0, net_pnl = 0
+              WHERE id = $4`,
+            ['voided', r.resolved_at, r.outcome, r.id]);
+          await client.query(
+            `UPDATE paper_account SET flb_locked_capital = flb_locked_capital - $1
+              WHERE id = (SELECT id FROM paper_account ORDER BY id LIMIT 1)`,
+            [release]);
+        });
         voided++;
         continue;
       }
