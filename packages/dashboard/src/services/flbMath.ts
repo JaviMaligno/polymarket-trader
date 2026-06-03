@@ -1,4 +1,7 @@
-/** Half-spread crossing cost as a percentage of NO stake. */
+/**
+ * Half-spread crossing cost as a percentage of NO stake.
+ * @param yesPrice must be < 1.0 (the [0.02,0.10] band gate guarantees this; noMid=0 would divide by zero).
+ */
 export function computeEntryCostPct(spread: number, yesPrice: number): number {
   const noMid = 1 - yesPrice;
   return ((spread / 2) / noMid) * 100;
@@ -19,10 +22,11 @@ export function settle(
   noStake: number, noSize: number, feePaid: number, outcome: 'yes' | 'no',
 ): { grossPnl: number; netPnl: number } {
   if (outcome === 'no') {
-    const payout = noSize * 1.0;
+    const payout = noSize; // settles at par ($1/share)
     const grossPnl = payout - noStake;
     return { grossPnl, netPnl: grossPnl - feePaid };
   }
+  // noSize unused on YES (full wipeout of the stake)
   return { grossPnl: -noStake, netPnl: -noStake - feePaid };
 }
 
