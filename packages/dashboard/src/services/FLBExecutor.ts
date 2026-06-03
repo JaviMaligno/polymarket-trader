@@ -1,4 +1,4 @@
-import { query } from '../database/index.js';
+import { query, transaction } from '../database/index.js';
 import type { FLBConfig } from './FLBConfig.js';
 import { evaluateSignal, isoWeekKey, type FLBCandidate, type FLBContext } from './flbGates.js';
 
@@ -43,7 +43,7 @@ export class FLBExecutor {
 
   private async loadContext(): Promise<FLBContext> {
     const acct = await query<{ initial_capital: string; flb_locked_capital: string }>(
-      'SELECT initial_capital, flb_locked_capital FROM paper_account LIMIT 1');
+      'SELECT initial_capital, flb_locked_capital FROM paper_account ORDER BY id LIMIT 1');
     const open = await query<{ market_id: string }>(
       "SELECT market_id FROM flb_positions WHERE status = 'open'");
     const weeks = await query<{ week_key: string; n: string }>(`
@@ -56,13 +56,14 @@ export class FLBExecutor {
 
     return {
       now: new Date(),
-      initialCapital: parseFloat(acct.rows[0]?.initial_capital ?? '10000'),
-      lockedCapital: parseFloat(acct.rows[0]?.flb_locked_capital ?? '0'),
+      initialCapital: Number(acct.rows[0]?.initial_capital ?? '10000'),
+      lockedCapital: Number(acct.rows[0]?.flb_locked_capital ?? '0'),
       openMarketIds: new Set(open.rows.map(r => r.market_id)),
       sameWeekOpenCounts,
     };
   }
 
+  /** Caller must invoke ensureFLBSchema() once before the first executeCandidates() (FLBService does this on start). */
   async executeCandidates(candidates: FLBCandidate[], cfg: FLBConfig): Promise<ExecuteResult> {
     const ctx = await this.loadContext();
     let opened = 0, rejected = 0, dryRunIntents = 0;
@@ -80,25 +81,33 @@ export class FLBExecutor {
         continue;
       }
 
-      const ins = await query(
-        `INSERT INTO flb_positions
-           (market_id, market_type, entry_yes_price, entry_no_price, executed_no_price,
-            no_size, no_stake, fee_paid, slippage_pct, fill_source, entry_cost_pct,
-            ttr_hours_at_entry, end_date, status)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'open')
-         ON CONFLICT (market_id) DO NOTHING`,
-        [c.marketId, c.marketType, c.yesPrice, 1 - c.yesPrice, decision.executedNoPrice,
-         decision.noSize, decision.noStake, decision.feePaid, decision.slippagePct,
-         decision.fillSource, decision.entryCostPct, c.ttrHours, c.endDate]);
+      const lockDelta = (decision.noStake ?? 0) + (decision.feePaid ?? 0);
 
-      if ((ins.rowCount ?? 0) === 0) { rejected++; continue; } // lost a race / duplicate
+      // Atomic: position row and locked-capital move together or not at all.
+      const inserted = await transaction(async (client) => {
+        const ins = await client.query(
+          `INSERT INTO flb_positions
+             (market_id, market_type, entry_yes_price, entry_no_price, executed_no_price,
+              no_size, no_stake, fee_paid, slippage_pct, fill_source, entry_cost_pct,
+              ttr_hours_at_entry, end_date, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'open')
+           ON CONFLICT (market_id) DO NOTHING`,
+          [c.marketId, c.marketType, c.yesPrice, 1 - c.yesPrice, decision.executedNoPrice,
+           decision.noSize, decision.noStake, decision.feePaid, decision.slippagePct,
+           decision.fillSource, decision.entryCostPct, c.ttrHours, c.endDate]);
 
-      await query(
-        'UPDATE paper_account SET flb_locked_capital = flb_locked_capital + $1 WHERE id = 1',
-        [(decision.noStake ?? 0) + (decision.feePaid ?? 0)]);
+        if ((ins.rowCount ?? 0) === 0) return false; // lost a race / duplicate
+
+        await client.query(
+          'UPDATE paper_account SET flb_locked_capital = flb_locked_capital + $1 WHERE id = (SELECT id FROM paper_account ORDER BY id LIMIT 1)',
+          [lockDelta]);
+        return true;
+      });
+
+      if (!inserted) { rejected++; continue; } // lost a race / duplicate; ctx left untouched
 
       // keep in-memory ctx consistent across the batch
-      ctx.lockedCapital += (decision.noStake ?? 0) + (decision.feePaid ?? 0);
+      ctx.lockedCapital += lockDelta;
       ctx.openMarketIds.add(c.marketId);
       const wk = decision.isoWeekKey ?? isoWeekKey(new Date(c.endDate));
       ctx.sameWeekOpenCounts.set(wk, (ctx.sameWeekOpenCounts.get(wk) ?? 0) + 1);
