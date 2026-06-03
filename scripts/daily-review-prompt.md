@@ -239,6 +239,19 @@ Compute `t = avg_net / (sd / sqrt(n))`. The in-sample reference is
 "accumulating". If `n ≥ 100` and forward `t ≥ 2` with positive `avg_net` → flag
 **prominently** as "FLB forward edge holding — candidate to build the executor".
 
+## FLB Paper Executor track (`flb_cohorts` / `flb_capital` in review-data.json)
+
+The report's **FLB Paper Executor** section is the live (cost-aware,
+spread-based) paper track from `flb_positions` — distinct from the shadow
+recorder above. It is **cohort-segmented and MUST be read that way**: the
+TRADEABLE cohort (crypto_daily/event_financial/event_short) is the
+verdict-relevant one; `event_long` is shadow-only. **Never read the pooled or
+the event_long number as the live verdict.** Capital is derived from positions
+(`locked_capital = SUM(no_stake+fee_paid)` of open rows, `realized_pnl =
+SUM(net_pnl)` of resolved rows), not from the `paper_account.flb_*` cache. The
+executor is gated off by default (`FLB_EXECUTOR_ENABLED` unset), so an empty
+table ("FLB: no paper positions yet") is the expected steady state — not a bug.
+
 ---
 
 # Role 3 — Edge sentinel (keeps the search alive)
