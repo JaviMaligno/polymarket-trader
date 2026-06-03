@@ -43,9 +43,10 @@ resolved), so even its t=2.54 understates the eventual capital-efficiency pictur
   additionally resolves the NO token id and reads `orderbook_snapshots` for cost realism.
 - Paper SHORT-longshot opens (buy NO) with **realistic entry cost from `markets.spread`**
   (the half-spread crossing cost, same source/formula as Lever 1 — covers 100% of the
-  universe), with an **opportunistic order-book walk** via `OrderBookExecutionSimulator` only
-  when a fresh NO-side `orderbook_snapshot` exists (~2.5% of the universe; see Data Reality
-  below). `fill_source` records which path was taken.
+  universe). `fill_source='spread'` in this build. An **opportunistic order-book walk** via
+  `OrderBookExecutionSimulator` is supported by the gate chain (`fill_source='orderbook'`) and
+  unit-tested, but is NOT wired into the live scanner in this build — see the "Build status"
+  note under Data Reality (deliberate YAGNI: books cover only ~2.5% of the universe).
 - New `flb_positions` table + capital-lockup accounting (independent FLB sub-ledger).
 - `FLBReconciler` — daily settle on market resolution; release locked capital; alert on
   overdue-unresolved.
@@ -121,9 +122,19 @@ Verified against the VM DB; these facts are load-bearing:
 simulator as the primary fill source would reject ~58% of FLB signals ("no market data") and
 crudely volume-estimate the rest. The honest, fully-covered realistic cost is the half-spread
 crossing cost `entry_cost_pct = (spread / 2) / no_price` — the exact formula Lever 1
-(`flb-cost-realism-check`) already validated. The order-book walk is used **only** when a fresh
-NO snapshot exists, recorded as `fill_source='orderbook'`; otherwise `fill_source='spread'`.
-A signal whose `spread` is null/≤0 is rejected by flb_0d (cannot price the entry).
+(`flb-cost-realism-check`) already validated. A signal whose `spread` is null/≤0 is rejected by
+flb_0d (cannot price the entry).
+
+> **Build status (2026-06-03): order-book walk is a tested extension point, NOT wired live.**
+> The gate chain (`flbGates.evaluateSignal`) fully supports an `fill_source='orderbook'` branch
+> (a fresh NO snapshot's book-walk price overrides the spread cost) and it is unit-tested. But
+> `FLBScanner` does **not** read `orderbook_snapshots` in this build, so no live candidate sets
+> the `book*` fields and **every live fill is `fill_source='spread'`**. This is deliberate YAGNI:
+> order books cover only ~2.5% of the FLB universe and the spread cost is already realistic and
+> 100%-covered, so the marginal value of the walk does not justify the per-scan book-fetch load
+> on the e2-micro. Wiring it (an executor pre-pass that calls `OrderBookExecutionSimulator`
+> for candidates with a fresh NO snapshot) is a clean future extension; the gate already accepts
+> the result.
 
 ## 4. Data model
 
