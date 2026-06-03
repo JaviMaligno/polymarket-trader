@@ -185,6 +185,13 @@ const edgeMeasurementFreshness = Array.isArray(data.edge_measurement_freshness) 
 // current-day open distribution (distinct from rolling 7d edge_cohorts_traded).
 const opensToday = Array.isArray(data.opens_today) ? data.opens_today : [];
 const coverageByType = Array.isArray(data.coverage_by_type) ? data.coverage_by_type : [];
+// FLB paper executor (Task 11). gather (daily-review.sh) maps a missing
+// flb_positions table or zero rows to [] / null via its query helpers, so the
+// table NOT existing yet (executor gated off, migration not run) degrades to an
+// empty cohort list here. The capital line is derived from positions, so a
+// missing/empty table yields {locked_capital:0, realized_pnl:0}.
+const flbCohorts = Array.isArray(data.flb_cohorts) ? data.flb_cohorts : [];
+const flbCapital = data.flb_capital || null;
 // ALLOWED_MARKET_TYPES, sourced (in priority order) from the gather payload
 // (read from the running dashboard container by daily-review.sh — single source
 // of truth), then the CI env, then undefined (detectSupplyCollapse falls back to
@@ -624,6 +631,31 @@ function buildMarkdown() {
     }
   }
 
+  // FLB Paper Executor (Task 11). Cohort-segmented — the tradeable cohort
+  // (crypto_daily/event_financial/event_short) is the verdict-relevant view;
+  // event_long is shadow-only. NEVER read a pooled number as the live verdict.
+  // Tolerates an empty/missing flb_positions table: gather degrades it to []
+  // and {0,0}, and we render a single "no paper positions yet" line.
+  ln(`## FLB Paper Executor`);
+  ln();
+  ln(`> Cost-aware (spread-based) hold-to-resolution paper track. **Read it cohort-segmented** — the TRADEABLE cohort (crypto_daily/event_financial/event_short) is the verdict-relevant one; event_long is shadow-only. Never read a pooled or event_long number as the live verdict.`);
+  ln();
+  if (flbCapital) {
+    ln(`**Locked capital**: ${fmtUsd(flbCapital.locked_capital)} | **Realized net PnL**: ${fmtUsd(flbCapital.realized_pnl)}`);
+    ln();
+  }
+  if (flbCohorts.length > 0) {
+    ln(`| Cohort | Open | Resolved | Realized Net | Win Rate |`);
+    ln(`|--------|------|----------|--------------|----------|`);
+    for (const c of flbCohorts) {
+      ln(`| ${c.cohort || 'N/A'} | ${fmt(c.open_now, 0)} | ${fmt(c.resolved, 0)} | ${fmtUsd(c.realized_net)} | ${c.win_rate_pct != null ? fmtPctRaw(c.win_rate_pct) : 'N/A'} |`);
+    }
+    ln();
+  } else {
+    ln(`*FLB: no paper positions yet.*`);
+    ln();
+  }
+
   // Open Positions
   ln(`## Open Positions (${openPositions.length})`);
   ln();
@@ -940,6 +972,25 @@ function buildEmailHtml() {
       }
       p('</table>');
     }
+  }
+
+  // FLB Paper Executor — cohort-segmented; tolerates empty/missing table.
+  p('<h2>FLB Paper Executor</h2>');
+  p('<p style="font-size:12px;color:#6a737d;margin:4px 0 8px;">Cost-aware hold-to-resolution paper track. Read cohort-segmented — the TRADEABLE cohort (cd/ef/es) is the verdict-relevant one; event_long is shadow-only. Never read a pooled number as the verdict.</p>');
+  if (flbCapital) {
+    p(`<p>Locked capital: ${escapeHtml(fmtUsd(flbCapital.locked_capital))} | Realized net PnL: ${escapeHtml(fmtUsd(flbCapital.realized_pnl))}</p>`);
+  }
+  if (flbCohorts.length > 0) {
+    p('<table>');
+    p('<tr><th>Cohort</th><th>Open</th><th>Resolved</th><th>Realized Net</th><th>Win Rate</th></tr>');
+    for (const c of flbCohorts) {
+      const net = Number(c.realized_net || 0);
+      const cls = net >= 0 ? 'positive' : 'negative';
+      p(`<tr><td>${escapeHtml(c.cohort || 'N/A')}</td><td>${escapeHtml(fmt(c.open_now, 0))}</td><td>${escapeHtml(fmt(c.resolved, 0))}</td><td class="${cls}">${escapeHtml(fmtUsd(c.realized_net))}</td><td>${escapeHtml(c.win_rate_pct != null ? fmtPctRaw(c.win_rate_pct) : 'N/A')}</td></tr>`);
+    }
+    p('</table>');
+  } else {
+    p('<p><em>FLB: no paper positions yet.</em></p>');
   }
 
   // Open positions

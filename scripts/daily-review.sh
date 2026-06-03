@@ -483,6 +483,42 @@ edge_measurement_freshness=$(query_json "
   ) t
 ")
 
+# 15e. FLB paper executor — cohort-segmented track + capital line.
+# The executor is gated off by default, so flb_positions may have 0 rows or,
+# on an environment where migration 036 has not run, not exist at all. The
+# query_json/query_one helpers run psql with `2>&2 || echo ""` and map any
+# failure (including a missing-relation 42P01) or empty result to []/null, so
+# a missing table degrades gracefully here; format-review.js tolerates the rest.
+#
+# Cohort split (NEVER read the pooled row as a verdict): the tradeable cohort
+# (crypto_daily/event_financial/event_short) is the verdict-relevant one;
+# event_long is shadow-only.
+flb_cohorts=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      CASE WHEN market_type = 'event_long' THEN 'event_long (shadow-only)'
+           ELSE 'TRADEABLE (cd/ef/es)' END AS cohort,
+      COUNT(*) FILTER (WHERE status = 'open')::float     AS open_now,
+      COUNT(*) FILTER (WHERE status = 'resolved')::float AS resolved,
+      ROUND(SUM(net_pnl) FILTER (WHERE status = 'resolved')::numeric, 2)::float AS realized_net,
+      ROUND(100.0 * COUNT(*) FILTER (WHERE status = 'resolved' AND net_pnl > 0)
+            / NULLIF(COUNT(*) FILTER (WHERE status = 'resolved'), 0), 1)::float AS win_rate_pct
+    FROM flb_positions
+    GROUP BY 1 ORDER BY 1
+  ) t
+")
+
+# Capital line — derived from positions so it is always consistent (the
+# paper_account.flb_* columns are a cache).
+flb_capital=$(query_one "
+  SELECT row_to_json(t) FROM (
+    SELECT
+      COALESCE(SUM(no_stake + fee_paid) FILTER (WHERE status='open'), 0)::float AS locked_capital,
+      COALESCE(SUM(net_pnl) FILTER (WHERE status='resolved'), 0)::float          AS realized_pnl
+    FROM flb_positions
+  ) t
+")
+
 # 16. Consecutive losses (from recently closed positions with negative PnL)
 consecutive_losses=$(query_one "
   SELECT row_to_json(t) FROM (
@@ -829,6 +865,8 @@ jq -n \
   --argjson allowed_market_types "$allowed_market_types" \
   --argjson edge_gap "$edge_gap" \
   --argjson edge_measurement_freshness "$edge_measurement_freshness" \
+  --argjson flb_cohorts "$flb_cohorts" \
+  --argjson flb_capital "$flb_capital" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -867,5 +905,7 @@ jq -n \
     allowed_market_types: $allowed_market_types,
     edge_gap: $edge_gap,
     edge_measurement_freshness: $edge_measurement_freshness,
+    flb_cohorts: $flb_cohorts,
+    flb_capital: $flb_capital,
     review_history: $review_history
   }'

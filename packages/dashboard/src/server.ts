@@ -21,6 +21,7 @@ import {
 } from './services/DirectionMultiplierPolicy.js';
 import { getPolymarketService } from './services/PolymarketService.js';
 import { getTradingAutomation } from './services/TradingAutomation.js';
+import { initializeFLBService } from './services/FLBService.js';
 import { initializePositionCleanupService } from './services/PositionCleanupService.js';
 import { getPositionClosingService } from './services/PositionClosingService.js';
 import { initializeStopLossService } from './services/StopLossService.js';
@@ -1002,6 +1003,12 @@ async function main(): Promise<void> {
       });
       await circuitBreakerService.start();
       console.log('CircuitBreakerService started');
+
+      // Start FLBService (favorite-longshot paper executor). Gated: no-op unless
+      // FLB_EXECUTOR_ENABLED=true. See docs/superpowers/specs/2026-06-03-flb-paper-executor-design.md
+      const flbService = initializeFLBService();
+      await flbService.start();
+      console.log('FLBService started');
 
       // Initialize real trading (non-blocking — failure doesn't prevent paper trading)
       await initializeRealTrading();
