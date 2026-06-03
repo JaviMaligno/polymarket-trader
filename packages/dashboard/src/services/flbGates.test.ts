@@ -31,8 +31,11 @@ describe('evaluateSignal gate chain', () => {
     expect(d.fillSource).toBe('spread');
     expect(d.noStake).toBeCloseTo(21, 6);
     expect(d.executedNoPrice).toBeCloseTo(0.955, 6);
-    expect(d.noSize).toBeCloseTo(21 / 0.955, 6);
+    expect(d.noSize).toBeCloseTo(21 / 0.955, 6); // 21 / 0.955 ≈ 21.99
     expect(d.entryCostPct).toBeCloseTo(0.5263, 3);
+    expect(d.feePaid).toBe(0);
+    expect(d.slippagePct).toBe(0);
+    expect(d.isoWeekKey).toBe(isoWeekKey(new Date('2026-09-01T00:00:00Z')));
   });
 
   it('rejects ineligible market type (flb_0a)', () => {
@@ -71,6 +74,17 @@ describe('evaluateSignal gate chain', () => {
 
   it('rejects when the book walk is unfillable (flb_0d)', () => {
     expect(evaluateSignal(cand({ bookExecuted: false }), ctx(), cfg()).reason).toBe('book_unfillable');
+  });
+
+  it('rejects orderbook path when entry cost exceeds ceiling (flb_0d)', () => {
+    // yesPrice=0.05 → noMid=0.95; bookExecutedNoPrice=0.97 → ((0.97-0.95)/0.95)*100 ≈ 2.1% > 1.0%
+    const d = evaluateSignal(
+      cand({ bookExecuted: true, bookExecutedNoPrice: 0.97 }),
+      ctx(),
+      cfg(),
+    );
+    expect(d.accept).toBe(false);
+    expect(d.reason).toBe('entry_cost_too_high');
   });
 
   it('rejects when ISO-week cap reached (flb_0e)', () => {

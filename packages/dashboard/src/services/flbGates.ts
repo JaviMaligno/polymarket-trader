@@ -1,6 +1,7 @@
 import type { FLBConfig } from './FLBConfig.js';
 import { computeEntryCostPct, computeExecutedNoPrice, computeStake, isoWeekKey } from './flbMath.js';
 
+/** A tail-band market under evaluation; book* fields set only when a fresh NO snapshot was walked. */
 export interface FLBCandidate {
   marketId: string;
   marketType: string;
@@ -15,6 +16,7 @@ export interface FLBCandidate {
   bookSlippagePct?: number;
 }
 
+/** Live account/portfolio state for the gate batch; sameWeekOpenCounts keyed by isoWeekKey(endDate). */
 export interface FLBContext {
   now: Date;
   initialCapital: number;
@@ -23,6 +25,7 @@ export interface FLBContext {
   sameWeekOpenCounts: Map<string, number>; // isoWeekKey(endDate) -> open count
 }
 
+/** Gate verdict; pricing/sizing fields populated only on accept. */
 export interface FLBDecision {
   accept: boolean;
   reason?: string;
@@ -58,7 +61,7 @@ export function evaluateSignal(c: FLBCandidate, ctx: FLBContext, cfg: FLBConfig)
   let fillSource: 'spread' | 'orderbook';
   const noMid = 1 - c.yesPrice;
 
-  if (c.bookExecuted !== undefined || c.bookExecutedNoPrice != null) {
+  if (c.bookExecuted !== undefined) {   // a book-walk was attempted for this candidate
     if (!c.bookExecuted || c.bookExecutedNoPrice == null) {
       return { accept: false, reason: 'book_unfillable' };
     }
