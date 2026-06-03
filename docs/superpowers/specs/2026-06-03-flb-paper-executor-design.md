@@ -41,8 +41,11 @@ resolved), so even its t=2.54 understates the eventual capital-efficiency pictur
 - `FLBExecutor` service in `packages/dashboard`, parallel to `AutoSignalExecutor`.
 - `FLBScanner` — daily band+TTR scan (reuses `flb-shadow-snapshot` selection logic) that
   additionally resolves the NO token id and reads `orderbook_snapshots` for cost realism.
-- Paper SHORT-longshot opens (buy NO) with **synthetic realistic fills** via the existing
-  `OrderBookExecutionSimulator` (walks `orderbook_snapshots`; fee + slippage + cost).
+- Paper SHORT-longshot opens (buy NO) with **realistic entry cost from `markets.spread`**
+  (the half-spread crossing cost, same source/formula as Lever 1 — covers 100% of the
+  universe), with an **opportunistic order-book walk** via `OrderBookExecutionSimulator` only
+  when a fresh NO-side `orderbook_snapshot` exists (~2.5% of the universe; see Data Reality
+  below). `fill_source` records which path was taken.
 - New `flb_positions` table + capital-lockup accounting (independent FLB sub-ledger).
 - `FLBReconciler` — daily settle on market resolution; release locked capital; alert on
   overdue-unresolved.
@@ -72,7 +75,9 @@ resolved), so even its t=2.54 understates the eventual capital-efficiency pictur
    │        → resolve NO token id; read latest orderbook_snapshot for NO token
    │     FLBExecutor.execute(signals)
    │        → per signal: gate chain flb_0a..0g
-   │        → OrderBookExecutionSimulator.simulateBuy(marketId, noTokenId, noSize, noPrice)
+   │        → cost model: entry_cost_pct = (spread/2)/no_price  [fill_source='spread'],
+   │          OR OrderBookExecutionSimulator.simulateBuy(NO) when a fresh NO snapshot
+   │          exists [fill_source='orderbook']
    │        → insert flb_positions (status=open); lock capital
    │
    └─ reconcile tick (every FLB_RECONCILE_INTERVAL_MS, default 6h)
@@ -102,14 +107,23 @@ orthogonal and the rollback clean (drop nothing; flip the flag off).
 (e.g. the near-resolved-price gate would block the entire 0.02–0.10 band). It runs its own
 minimal chain (§5).
 
-### NO-token integration point (must be resolved in the plan)
-The simulator reads `orderbook_snapshots` keyed by `(market_id, token_id)` and needs the **NO**
-token id. The shadow recorder only used `markets.spread` / `current_price_yes` and never walked
-a book. The plan's first task MUST verify where the NO token id comes from (a `markets` column,
-the `clobTokenIds` array, or `paper_positions`' SHORT token convention) and that
-`orderbook_snapshots` carries NO-side rows for tail-band markets. If NO-side snapshots are
-absent, the simulator falls back to the volume-based estimate — acceptable, but the plan must
-state it explicitly and the `fill_source` column records which path was taken.
+### Data Reality (verified 2026-06-03 — drives the cost model)
+Verified against the VM DB; these facts are load-bearing:
+- **`markets.clob_token_id_no` exists** (indexed). The NO token id is directly available — no
+  derivation needed. ✓
+- **`markets.spread` covers 100%** of the active tail-band universe (event_long 1728/1728,
+  event_financial 139/139, crypto_daily 16/16, event_short 13/13). Median spread: event_long
+  0.020, event_financial 0.042, crypto_daily 0.010, event_short 0.017.
+- **`orderbook_snapshots` covers only ~47 markets** (the 35-market 4h-tracked set), i.e. ~2.5%
+  of the ~1,896-market tail-band universe. `volume_24h` covers only ~40%.
+
+**Consequence — the cost engine is `markets.spread`, NOT the order-book simulator.** Using the
+simulator as the primary fill source would reject ~58% of FLB signals ("no market data") and
+crudely volume-estimate the rest. The honest, fully-covered realistic cost is the half-spread
+crossing cost `entry_cost_pct = (spread / 2) / no_price` — the exact formula Lever 1
+(`flb-cost-realism-check`) already validated. The order-book walk is used **only** when a fresh
+NO snapshot exists, recorded as `fill_source='orderbook'`; otherwise `fill_source='spread'`.
+A signal whose `spread` is null/≤0 is rejected by flb_0d (cannot price the entry).
 
 ## 4. Data model
 
@@ -121,13 +135,14 @@ CREATE TABLE IF NOT EXISTS flb_positions (
   market_type        TEXT NOT NULL,
   opened_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   entry_yes_price    NUMERIC(10,6) NOT NULL,
-  entry_no_price     NUMERIC(10,6) NOT NULL,        -- 1 - entry_yes_price (the side we buy)
-  no_size            NUMERIC(18,6) NOT NULL,        -- NO shares bought
-  no_stake           NUMERIC(18,6) NOT NULL,        -- cost = no_size * executed_no_price
+  entry_no_price     NUMERIC(10,6) NOT NULL,        -- mid NO = 1 - entry_yes_price
+  executed_no_price  NUMERIC(10,6) NOT NULL,        -- price actually paid = no_mid + half-spread (or book-walk avg)
+  no_size            NUMERIC(18,6) NOT NULL,        -- NO shares bought = no_stake / executed_no_price
+  no_stake           NUMERIC(18,6) NOT NULL,        -- dollars committed (the locked capital)
   fee_paid           NUMERIC(18,6) NOT NULL DEFAULT 0,
   slippage_pct       NUMERIC(10,4),
-  fill_source        TEXT,                          -- 'orderbook' | 'estimated'
-  entry_cost_pct     NUMERIC(10,4),                 -- effective entry cost used by flb_0d
+  fill_source        TEXT,                          -- 'spread' | 'orderbook'
+  entry_cost_pct     NUMERIC(10,4),                 -- (spread/2)/no_price (percent); the value checked by flb_0d
   ttr_hours_at_entry NUMERIC(10,2),
   end_date           TIMESTAMPTZ,
   status             TEXT NOT NULL DEFAULT 'open',   -- open | resolved | voided
@@ -162,13 +177,22 @@ deploy step creates the table/columns manually (existing volume).
   - `flb_realized_pnl = SUM(net_pnl) FROM flb_positions WHERE status='resolved'`.
   - `flb_locked_capital = SUM(no_stake + fee_paid) FROM flb_positions WHERE status='open'`.
 
-### PnL formula (dollars; mirrors the shadow recorder fractional form)
-- Stake `S` buys `no_size = S / executed_no_price` NO shares at entry.
+### Entry pricing and PnL (dollars; the entry cost is baked into `executed_no_price`)
+- `no_mid = 1 − entry_yes_price`. `entry_cost_pct = (spread / 2) / no_mid` (a fraction).
+- `executed_no_price = no_mid + spread/2` (spread path) — or the book-walk avg price when
+  `fill_source='orderbook'`. The cost is in the price (we get fewer shares), so no separate
+  cost subtraction is needed; `fee_paid` defaults 0 (Polymarket has no trading fee; the
+  book-walk path may carry the simulator's fee).
+- Stake `S = no_stake` (the locked capital) buys `no_size = S / executed_no_price` NO shares.
 - Resolves NO (longshot loses, our short wins): payout `= no_size × 1.0`;
   `gross_pnl = no_size − S`; `net_pnl = gross_pnl − fee_paid`.
-- Resolves YES (wipeout): `gross_pnl = −S`; `net_pnl = −S − fee_paid`.
+- Resolves YES (wipeout): `net_pnl = −S − fee_paid`.
 - Resolution settles at par — no exit fee, no exit slippage (the structural reason FLB beats
   the 4h paradigm).
+- Sanity tie-out: per-dollar net `= no_size/S − 1 = 1/executed_no_price − 1`. With
+  `executed_no_price ≈ no_mid + spread/2`, this reproduces the shadow's
+  `entry_yes/(1−entry_yes) − entry_cost` form to first order — the executor must tie out to the
+  shadow recorder on a zero-spread fixture.
 
 ## 5. Gate chain (`FLBExecutor`)
 
@@ -176,9 +200,9 @@ deploy step creates the table/columns manually (existing volume).
 flb_0a  market active AND not resolved
 flb_0b  TTR-to-end_date ≥ FLB_MIN_TTR_HOURS (48h)
 flb_0c  YES ∈ [FLB_LONGSHOT_LO, FLB_LONGSHOT_HI] = [0.02, 0.10]
-flb_0d  simulated entry cost ≤ FLB_MAX_ENTRY_COST_PCT (1.0%);
-        reject if book one-sided/empty OR simulator returns executed=false
-        (insufficient liquidity / slippage over max)
+flb_0d  entry_cost_pct = (spread/2)/no_mid ≤ FLB_MAX_ENTRY_COST_PCT (1.0%);
+        reject if spread is null/≤0 (cannot price); when a fresh NO snapshot exists,
+        use the book-walk avg price instead and reject if simulator executed=false
 flb_0e  ISO-week concentration cap: open positions resolving in the same ISO week
         (by end_date) < FLB_MAX_SAME_WEEK_POSITIONS (default 50)
 flb_0f  flb_locked_capital + (no_stake + fee) ≤ FLB_MAX_LOCKED_CAPITAL_PCT × initial_capital
@@ -225,9 +249,11 @@ REJECTED log format so the daily-review gate-fire-log query picks it up).
 ### Unit — `FLBExecutor.test.ts`
 | Case | Setup | Expected |
 |---|---|---|
-| Qualifying | YES 0.05, TTR 96h, cost 0.5% | Intent: SHORT NO, stake = (FLB_MAX_POSITION_PCT/100) × initial |
-| Wide spread | YES 0.05, TTR 96h, cost 1.5% | REJECT flb_0d |
-| Empty/one-sided book | simulator executed=false | REJECT flb_0d |
+| Qualifying (spread path) | YES 0.05, TTR 96h, spread 0.01 → cost ~0.53% | SHORT NO, fill_source='spread', stake = (FLB_MAX_POSITION_PCT/100) × initial |
+| Wide spread | YES 0.05, TTR 96h, spread 0.04 → cost ~2.1% | REJECT flb_0d |
+| Spread null/zero | spread IS NULL | REJECT flb_0d (cannot price) |
+| Fresh NO snapshot present | snapshot exists, book-walk cost 0.4% | fill_source='orderbook', uses book-walk avg price |
+| Book-walk unfillable | snapshot exists but simulator executed=false | REJECT flb_0d |
 | TTR too short | YES 0.05, TTR 24h | REJECT flb_0b |
 | Out-of-band low | YES 0.01 | REJECT flb_0c |
 | Out-of-band high | YES 0.15 | REJECT flb_0c |
@@ -238,7 +264,13 @@ REJECTED log format so the daily-review gate-fire-log query picks it up).
 
 ### Unit — `FLBScanner.test.ts`
 - Band + TTR selection matches the shadow recorder's WHERE clause.
-- NO-token resolution returns the expected id; falls back cleanly when snapshot absent.
+- NO token id read from `markets.clob_token_id_no`.
+- Cost-source selection: fresh NO snapshot → book-walk path; no/stale snapshot → spread path.
+
+### Tie-out — `flb.shadow-parity.test.ts`
+- On a zero-spread, zero-fee fixture the executor's per-dollar `net_pnl` equals the shadow
+  recorder's `entry_yes/(1−entry_yes)` for a NO resolution and `−1` for a YES resolution
+  (guards the entry-pricing/PnL derivation against drift from the validated shadow math).
 
 ### Integration — `flb.lifecycle.test.ts`
 - open → reconcile(resolves NO) → status=resolved, gross/net_pnl correct, capital released,
