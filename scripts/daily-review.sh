@@ -508,6 +508,35 @@ flb_cohorts=$(query_json "
   ) t
 ")
 
+# 15f. FLB forward sentinel — the shadow-recorder OUT-OF-SAMPLE edge test, the
+# one live trading lead. Cohort-segmented (tradeable vs event_long) and reported
+# at BOTH the legacy flat 0.54% cost (net_pnl) and the real per-signal half-spread
+# (net_pnl_real, added by PR #304), plus the enterable subset (entry_cost_real
+# ≤ 1% — what the executor would actually fill). Watchdog #305 reported only the
+# flat number (t=1.39) and framed it as "watching, could cross back >2"; at real
+# cost the same pooled sample is t≈-0.07 and the enterable subset is -1.75%/t=-0.50.
+# The verdict (computed in coverage-alerts.js) is keyed on the TRADEABLE real-cost
+# t-stat, NEVER the flat or pooled number. Degrades gracefully if the columns or
+# table are absent (older volume): query helpers map any failure to [].
+flb_forward=$(query_json "
+  SELECT COALESCE(json_agg(t), '[]'::json) FROM (
+    SELECT
+      CASE WHEN market_type = 'event_long' THEN 'event_long' ELSE 'tradeable' END AS cohort,
+      COUNT(*) FILTER (WHERE net_pnl IS NOT NULL)::float                                            AS n_flat,
+      ROUND(AVG(net_pnl)::numeric, 6)::float                                                        AS avg_flat,
+      ROUND(STDDEV_SAMP(net_pnl)::numeric, 6)::float                                                AS sd_flat,
+      COUNT(*) FILTER (WHERE net_pnl_real IS NOT NULL)::float                                       AS n_real,
+      ROUND(AVG(net_pnl_real)::numeric, 6)::float                                                   AS avg_real,
+      ROUND(STDDEV_SAMP(net_pnl_real)::numeric, 6)::float                                           AS sd_real,
+      COUNT(*) FILTER (WHERE entry_cost_real <= 0.01 AND net_pnl_real IS NOT NULL)::float           AS n_enterable,
+      ROUND(AVG(net_pnl_real) FILTER (WHERE entry_cost_real <= 0.01)::numeric, 6)::float            AS avg_enterable,
+      ROUND(STDDEV_SAMP(net_pnl_real) FILTER (WHERE entry_cost_real <= 0.01)::numeric, 6)::float    AS sd_enterable
+    FROM flb_shadow_signals
+    WHERE resolved_outcome IS NOT NULL
+    GROUP BY 1 ORDER BY 1
+  ) t
+")
+
 # Capital line — derived from positions so it is always consistent (the
 # paper_account.flb_* columns are a cache).
 flb_capital=$(query_one "
@@ -867,6 +896,7 @@ jq -n \
   --argjson edge_measurement_freshness "$edge_measurement_freshness" \
   --argjson flb_cohorts "$flb_cohorts" \
   --argjson flb_capital "$flb_capital" \
+  --argjson flb_forward "$flb_forward" \
   --argjson review_history "$(cat "$HISTORY_FILE" 2>/dev/null | jq 'sort_by(.date) | .[-7:]' 2>/dev/null || echo "[]")" \
   '{
     generated_at: $ts,
@@ -907,5 +937,6 @@ jq -n \
     edge_measurement_freshness: $edge_measurement_freshness,
     flb_cohorts: $flb_cohorts,
     flb_capital: $flb_capital,
+    flb_forward: $flb_forward,
     review_history: $review_history
   }'

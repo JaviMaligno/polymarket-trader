@@ -9,7 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { detectSupplyCollapse, classifySignalActivity } = require('./coverage-alerts.js');
+const { detectSupplyCollapse, classifySignalActivity, flbForwardVerdict } = require('./coverage-alerts.js');
 
 // ── Read input ──────────────────────────────────────────────────────────────
 
@@ -192,6 +192,13 @@ const coverageByType = Array.isArray(data.coverage_by_type) ? data.coverage_by_t
 // missing/empty table yields {locked_capital:0, realized_pnl:0}.
 const flbCohorts = Array.isArray(data.flb_cohorts) ? data.flb_cohorts : [];
 const flbCapital = data.flb_capital || null;
+// FLB forward sentinel — the shadow-recorder out-of-sample edge test, segmented
+// by cohort and reported at BOTH flat (net_pnl) and real (net_pnl_real) cost.
+// The verdict is keyed on the TRADEABLE real-cost t-stat. #305: the prompt-only
+// sentinel read the flat column (t=1.39) and framed it as a near-edge; at real
+// cost the same sample is t≈-0.07. Degrades to [] on an older volume.
+const flbForward = Array.isArray(data.flb_forward) ? data.flb_forward : [];
+const flbForwardResult = flbForwardVerdict(flbForward);
 // ALLOWED_MARKET_TYPES, sourced (in priority order) from the gather payload
 // (read from the running dashboard container by daily-review.sh — single source
 // of truth), then the CI env, then undefined (detectSupplyCollapse falls back to
@@ -308,6 +315,14 @@ const signalActivity = classifySignalActivity({
 });
 if (signalActivity) {
   alerts.push({ level: signalActivity.level, message: signalActivity.message });
+}
+
+// FLB flat-vs-real cost discrepancy: the flat 0.54%-cost column crosses the
+// build gate (t ≥ 2) while real cost does not. Guards against the #305 failure
+// of selling the flat number as a near-edge. Warning, not critical — the
+// executor is gated off, so this never risks capital, only a wrong build call.
+if (flbForwardResult.costDiscrepancy) {
+  alerts.push({ level: 'warning', message: flbForwardResult.costDiscrepancy });
 }
 
 // 5+ consecutive losses. The metric is a cumulative DB counter, so when the
@@ -656,6 +671,32 @@ function buildMarkdown() {
     ln();
   }
 
+  // FLB Forward Sentinel (shadow recorder OOS edge test). Reported at BOTH flat
+  // and real cost; the verdict is keyed on the TRADEABLE real-cost t-stat. #305.
+  ln(`## FLB Forward Sentinel (shadow OOS)`);
+  ln();
+  ln(`> Out-of-sample edge test from \`flb_shadow_signals\`. **The verdict uses the TRADEABLE cohort at REAL cost** (\`net_pnl_real\`, PR #304) — the flat 0.54%-cost column (\`net_pnl\`) is shown for continuity only and over-states the edge. In-sample reference: +2.24%/trade, t=3.49. Build gate: tradeable n ≥ 100, real-cost t ≥ 2.`);
+  ln();
+  if (flbForwardResult.cohorts.length > 0) {
+    const ft = (x) => (x == null || !Number.isFinite(Number(x)) ? 'N/A' : Number(x).toFixed(2));
+    const fp = (x) => (Number.isFinite(Number(x)) ? `${(Number(x) * 100).toFixed(2)}%` : 'N/A');
+    ln(`| Cohort | n | avg (real) | **t (real)** | t (flat, ref) | enterable n | enterable avg | enterable t |`);
+    ln(`|--------|---|-----------|-----------|--------------|-------------|---------------|-------------|`);
+    for (const c of flbForwardResult.cohorts) {
+      ln(`| ${c.cohort || 'N/A'} | ${fmt(c.n_real, 0)} | ${fp(c.avg_real)} | **${ft(c.t_real)}** | ${ft(c.t_flat)} | ${fmt(c.n_enterable, 0)} | ${fp(c.avg_enterable)} | ${ft(c.t_enterable)} |`);
+    }
+    ln();
+    ln(`**Verdict (${flbForwardResult.verdict.status})**: ${flbForwardResult.verdict.message}`);
+    ln();
+    if (flbForwardResult.costDiscrepancy) {
+      ln(`> ⚠️ ${flbForwardResult.costDiscrepancy}`);
+      ln();
+    }
+  } else {
+    ln(`*FLB forward: no resolved shadow signals yet (or net_pnl_real not backfilled).*`);
+    ln();
+  }
+
   // Open Positions
   ln(`## Open Positions (${openPositions.length})`);
   ln();
@@ -991,6 +1032,28 @@ function buildEmailHtml() {
     p('</table>');
   } else {
     p('<p><em>FLB: no paper positions yet.</em></p>');
+  }
+
+  // FLB Forward Sentinel (shadow OOS) — verdict keyed on tradeable real cost. #305.
+  p('<h2>FLB Forward Sentinel (shadow OOS)</h2>');
+  p('<p style="font-size:12px;color:#6a737d;margin:4px 0 8px;">Out-of-sample edge test from flb_shadow_signals. The verdict uses the TRADEABLE cohort at REAL cost (net_pnl_real, PR #304); the flat 0.54%-cost column over-states the edge and is shown for continuity only. Build gate: tradeable n &ge; 100, real-cost t &ge; 2.</p>');
+  if (flbForwardResult.cohorts.length > 0) {
+    const ft = (x) => (x == null || !Number.isFinite(Number(x)) ? 'N/A' : Number(x).toFixed(2));
+    const fp = (x) => (Number.isFinite(Number(x)) ? `${(Number(x) * 100).toFixed(2)}%` : 'N/A');
+    p('<table>');
+    p('<tr><th>Cohort</th><th>n</th><th>avg (real)</th><th>t (real)</th><th>t (flat, ref)</th><th>enterable n</th><th>enterable avg</th><th>enterable t</th></tr>');
+    for (const c of flbForwardResult.cohorts) {
+      const tr = Number(c.t_real);
+      const cls = Number.isFinite(tr) && tr >= 2 ? 'positive' : (Number.isFinite(tr) && tr < 0 ? 'negative' : '');
+      p(`<tr><td>${escapeHtml(c.cohort || 'N/A')}</td><td>${escapeHtml(fmt(c.n_real, 0))}</td><td>${escapeHtml(fp(c.avg_real))}</td><td class="${cls}">${escapeHtml(ft(c.t_real))}</td><td>${escapeHtml(ft(c.t_flat))}</td><td>${escapeHtml(fmt(c.n_enterable, 0))}</td><td>${escapeHtml(fp(c.avg_enterable))}</td><td>${escapeHtml(ft(c.t_enterable))}</td></tr>`);
+    }
+    p('</table>');
+    p(`<p><strong>Verdict (${escapeHtml(flbForwardResult.verdict.status)})</strong>: ${escapeHtml(flbForwardResult.verdict.message)}</p>`);
+    if (flbForwardResult.costDiscrepancy) {
+      p(`<p style="color:#b08800;">&#9888; ${escapeHtml(flbForwardResult.costDiscrepancy)}</p>`);
+    }
+  } else {
+    p('<p><em>FLB forward: no resolved shadow signals yet (or net_pnl_real not backfilled).</em></p>');
   }
 
   // Open positions

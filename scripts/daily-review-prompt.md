@@ -226,18 +226,40 @@ gh run list --workflow=flb-shadow-snapshot.yml --limit 5 --json conclusion,creat
 
 ## Edge sentinel within the FLB shadow data
 
-Once there are resolved signals, check the running forward result:
+The report's **FLB Forward Sentinel (shadow OOS)** section is now **deterministic**
+(computed in `coverage-alerts.js` from the gathered `flb_forward` rows). Read its
+table and `Verdict (...)` line — do NOT recompute the t-stat from
+`AVG(net_pnl)` by hand.
 
-```sql
-SELECT COUNT(*) n, ROUND(AVG(net_pnl)::numeric,4) avg_net,
-  ROUND(STDDEV_SAMP(net_pnl)::numeric,4) sd
-FROM flb_shadow_signals WHERE resolved_outcome IS NOT NULL;
-```
+**CRITICAL — read the REAL-cost column, never the flat one.** `flb_shadow_signals`
+has two PnL columns: `net_pnl` (a flat 0.54% entry cost — legacy) and
+`net_pnl_real` (the real per-signal half-spread, added by PR #304). The flat
+column over-states the edge by ~half the fees plus the omitted spread. Watchdog
+#305 (2026-06-04) reported the forward t-stat as **1.39 from `net_pnl`** and
+framed the drop below 2.0 as "watching, could cross back" — but at real cost the
+same pooled sample was **t ≈ -0.07**, and the enterable subset (`entry_cost_real`
+≤ 1%, what the executor would actually fill) was **-1.75%/t=-0.50**. The flat
+number is a flat-cost artefact; the real-cost verdict is ~0.
 
-Compute `t = avg_net / (sd / sqrt(n))`. The in-sample reference is
-+2.24%/trade, t=3.49. **Only report a verdict once `n ≥ 100`** — below that, say
-"accumulating". If `n ≥ 100` and forward `t ≥ 2` with positive `avg_net` → flag
-**prominently** as "FLB forward edge holding — candidate to build the executor".
+Rules:
+- The verdict is keyed on the **TRADEABLE cohort at REAL cost** (the build gate:
+  n ≥ 100, real-cost t ≥ 2, avg > 0). `event_long` is shadow-only — never read it,
+  the pooled row, or any flat-cost number as the verdict.
+- In-sample reference: +2.24%/trade, t=3.49.
+- If the report shows a **flat-vs-real discrepancy ⚠️** (flat t ≥ 2 while real
+  t < 2), surface it prominently — it means the flat column is being mistaken for
+  an edge.
+- If you must run SQL manually, segment by cohort and use `net_pnl_real` on the
+  enterable subset:
+  ```sql
+  SELECT
+    CASE WHEN market_type='event_long' THEN 'event_long' ELSE 'tradeable' END AS cohort,
+    COUNT(*) FILTER (WHERE net_pnl_real IS NOT NULL) n,
+    ROUND(AVG(net_pnl_real)*100::numeric,3) avg_real_pct,
+    ROUND((AVG(net_pnl_real)/NULLIF(STDDEV_SAMP(net_pnl_real)/SQRT(COUNT(*)),0))::numeric,3) t_real,
+    COUNT(*) FILTER (WHERE entry_cost_real <= 0.01) n_enterable
+  FROM flb_shadow_signals WHERE resolved_outcome IS NOT NULL GROUP BY 1;
+  ```
 
 ## FLB Paper Executor track (`flb_cohorts` / `flb_capital` in review-data.json)
 
