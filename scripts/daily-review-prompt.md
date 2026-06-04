@@ -235,7 +235,7 @@ table and `Verdict (...)` line — do NOT recompute the t-stat from
 has two PnL columns: `net_pnl` (a flat 0.54% entry cost — legacy) and
 `net_pnl_real` (the real per-signal half-spread, added by PR #304). The flat
 column over-states the edge by ~half the fees plus the omitted spread. Watchdog
-#305 (2026-06-04) reported the forward t-stat as **1.39 from `net_pnl`** and
+`#305` (2026-06-04) reported the forward t-stat as **1.39 from `net_pnl`** and
 framed the drop below 2.0 as "watching, could cross back" — but at real cost the
 same pooled sample was **t ≈ -0.07**, and the enterable subset (`entry_cost_real`
 ≤ 1%, what the executor would actually fill) was **-1.75%/t=-0.50**. The flat
@@ -251,6 +251,7 @@ Rules:
   an edge.
 - If you must run SQL manually, segment by cohort and use `net_pnl_real` on the
   enterable subset:
+
   ```sql
   SELECT
     CASE WHEN market_type='event_long' THEN 'event_long' ELSE 'tradeable' END AS cohort,
