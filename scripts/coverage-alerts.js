@@ -107,4 +107,106 @@ function classifySignalActivity(input) {
   return null;
 }
 
-module.exports = { detectSupplyCollapse, classifySignalActivity, DEFAULT_ALLOWED_MARKET_TYPES };
+// ── FLB forward sentinel (real-cost) ─────────────────────────────────────────
+// Watchdog #305 (2026-06-04) reported the FLB forward t-stat as 1.39, computed
+// from flb_shadow_signals.net_pnl — the FLAT 0.54% entry-cost column. PR #304
+// added net_pnl_real (the real per-signal half-spread) precisely because the
+// flat cost over-states the edge by ~half the fees plus the omitted spread. On
+// real cost the same 2026-06-04 sample was pooled t≈-0.07, and the enterable
+// subset (entry_cost_real ≤ 1% — what the executor would actually fill) was
+// -1.75%/t=-0.50. The forward sentinel lived only in the LLM prompt, so the
+// model silently picked the wrong column and framed the drop to 1.39 as
+// "watching, could cross back above 2" — implying a latent edge that does not
+// exist at realistic cost. This makes the verdict deterministic.
+const FLB_VERDICT_MIN_N = 100;
+const FLB_VERDICT_MIN_T = 2;
+
+/** Student-t for a one-sample mean: avg / (sd / sqrt(n)). Null if not computable. */
+function tStat(avg, sd, n) {
+  const a = Number(avg);
+  const s = Number(sd);
+  const k = Number(n);
+  if (!Number.isFinite(a) || !Number.isFinite(s) || !Number.isFinite(k)) return null;
+  if (k < 2 || s <= 0) return null;
+  return a / (s / Math.sqrt(k));
+}
+
+/**
+ * Deterministic FLB forward verdict from resolved flb_shadow_signals, segmented
+ * by cohort. The verdict is keyed on the TRADEABLE cohort's REAL-cost t-stat
+ * (the pre-registered build gate: n ≥ 100, t ≥ 2, avg > 0). event_long is
+ * shadow-only and never drives the verdict; the flat-cost column is reported for
+ * continuity only and is explicitly flagged when it disagrees with real cost.
+ *
+ * @param {Array<{cohort:string, n_flat?:number|string, avg_flat?:number|string, sd_flat?:number|string, n_real?:number|string, avg_real?:number|string, sd_real?:number|string, n_enterable?:number|string, avg_enterable?:number|string, sd_enterable?:number|string}>} [cohortRows]
+ * @returns {{cohorts:Array<object>, verdict:{status:string,message:string}, costDiscrepancy:(string|null)}}
+ */
+function flbForwardVerdict(cohortRows) {
+  const rows = Array.isArray(cohortRows) ? cohortRows : [];
+  const cohorts = rows.map((r) => ({
+    cohort: r.cohort,
+    n_flat: Number(r.n_flat) || 0,
+    avg_flat: Number(r.avg_flat),
+    t_flat: tStat(r.avg_flat, r.sd_flat, r.n_flat),
+    n_real: Number(r.n_real) || 0,
+    avg_real: Number(r.avg_real),
+    t_real: tStat(r.avg_real, r.sd_real, r.n_real),
+    n_enterable: Number(r.n_enterable) || 0,
+    avg_enterable: Number(r.avg_enterable),
+    t_enterable: tStat(r.avg_enterable, r.sd_enterable, r.n_enterable),
+  }));
+
+  // The flat column may not be sold as an edge: flag any cohort where flat clears
+  // the gate (t ≥ 2) but real cost does not. This is exactly the #305 failure.
+  let costDiscrepancy = null;
+  for (const c of cohorts) {
+    if (c.t_flat != null && c.t_flat >= FLB_VERDICT_MIN_T
+        && (c.t_real == null || c.t_real < FLB_VERDICT_MIN_T)) {
+      costDiscrepancy =
+        `FLB ${c.cohort}: flat-cost t=${c.t_flat.toFixed(2)} clears the gate but `
+        + `real-cost t=${c.t_real == null ? 'n/a' : c.t_real.toFixed(2)} does not. `
+        + `The flat 0.54% column over-states the edge — read net_pnl_real, not net_pnl.`;
+      break;
+    }
+  }
+
+  const tradeable = cohorts.find((c) => c.cohort === 'tradeable');
+  let verdict;
+  if (!tradeable || tradeable.n_real === 0) {
+    verdict = { status: 'no_data', message: 'No resolved tradeable FLB signals yet.' };
+  } else if (tradeable.n_real < FLB_VERDICT_MIN_N) {
+    verdict = {
+      status: 'accumulating',
+      message:
+        `FLB tradeable forward: n=${tradeable.n_real} (< ${FLB_VERDICT_MIN_N}) — accumulating. `
+        + `Real-cost t=${tradeable.t_real == null ? 'n/a' : tradeable.t_real.toFixed(2)}. `
+        + `Do NOT build the executor until n ≥ ${FLB_VERDICT_MIN_N} on real cost.`,
+    };
+  } else if (tradeable.t_real != null && tradeable.t_real >= FLB_VERDICT_MIN_T && tradeable.avg_real > 0) {
+    verdict = {
+      status: 'edge_holding',
+      message:
+        `FLB forward edge holding at REAL cost: tradeable n=${tradeable.n_real}, `
+        + `t=${tradeable.t_real.toFixed(2)}, avg=${(tradeable.avg_real * 100).toFixed(2)}% — `
+        + `candidate to build the executor.`,
+    };
+  } else {
+    verdict = {
+      status: 'no_edge_at_real_cost',
+      message:
+        `FLB tradeable forward: n=${tradeable.n_real}, real-cost `
+        + `t=${tradeable.t_real == null ? 'n/a' : tradeable.t_real.toFixed(2)}, `
+        + `avg=${(tradeable.avg_real * 100).toFixed(2)}% — no edge at realistic cost. `
+        + `Keep the executor gated off.`,
+    };
+  }
+
+  return { cohorts, verdict, costDiscrepancy };
+}
+
+module.exports = {
+  detectSupplyCollapse,
+  classifySignalActivity,
+  flbForwardVerdict,
+  DEFAULT_ALLOWED_MARKET_TYPES,
+};
