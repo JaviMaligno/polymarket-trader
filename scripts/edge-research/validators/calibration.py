@@ -26,7 +26,7 @@ class CalibrationValidator:
         brier = float(np.mean((p - y) ** 2))
         edges = np.linspace(0.0, 1.0, ctx.n_bins + 1)
         idx = np.clip(np.digitize(p, edges[1:-1]), 0, ctx.n_bins - 1)
-        best = None  # (abs_excess, signed_edge, bin_dev, bin_n)
+        best = None  # (abs_excess, signed_edge, bin_dev, bin_n, ci_lo, ci_hi)
         for b in range(ctx.n_bins):
             m = idx == b
             bn = int(m.sum())
@@ -41,14 +41,13 @@ class CalibrationValidator:
                 continue
             signed = dev - np.sign(dev) * ctx.cost  # net edge per share, signed
             if best is None or abs(signed) > abs(best[1]):
-                best = (excess, signed, dev, bn)
+                best = (excess, signed, dev, bn, lo, hi)
         if best is None:
             return Verdict(self.hypothesis_id, self.hclass, n, None, None, None,
                            "full", {"brier": brier}, f"entry_only_{ctx.cost}",
                            "fail", [], ctx.computed_at)
-        _, signed, dev, bn = best
-        sig_lo, sig_hi = bootstrap_ci(np.full(bn, dev), seed=ctx.seed)
-        return Verdict(self.hypothesis_id, self.hclass, n, float(signed), float(dev),
-                       float((sig_hi - sig_lo) / 2 or 1e-9), "full",
+        _, signed, dev, bn, lo, hi = best
+        return Verdict(self.hypothesis_id, self.hclass, n, float(signed), float(signed),
+                       float((hi - lo) / 2), "full",
                        {"brier": brier, "edged_bin_n": bn}, f"entry_only_{ctx.cost}",
                        "pass", [], ctx.computed_at)

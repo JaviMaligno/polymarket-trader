@@ -46,3 +46,15 @@ def test_determinism():  # P5
     a = CalibrationValidator().run(Ctx(df))[0]
     b = CalibrationValidator().run(Ctx(df))[0]
     assert a == b
+
+def test_significance_real_ci_and_insample_equals_net():  # P6 — regression for Fix 1 & Fix 2
+    # Clear-edge frame: price 0.10, true prob 0.18, n=3000 → FLB longshot bin passes CI
+    rng = np.random.default_rng(42)
+    prices = np.full(3000, 0.10)
+    outcomes = (rng.uniform(size=3000) < 0.18).astype(int)
+    v = CalibrationValidator().run(Ctx(_frame(prices, outcomes)))[0]
+    assert v.status == "pass"
+    # Fix 1: significance must be a real bootstrap CI half-width, NOT the 1e-9 placeholder
+    assert v.significance is not None and v.significance > 0.001
+    # Fix 2: edge_insample_pct must equal edge_net_pct (no train/holdout split in calibration)
+    assert v.edge_insample_pct == v.edge_net_pct
