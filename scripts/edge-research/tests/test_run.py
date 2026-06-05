@@ -1,0 +1,22 @@
+import numpy as np, pandas as pd
+from run import run_validators
+
+def _panel():
+    rng = np.random.default_rng(0)
+    n = 4000
+    return pd.DataFrame({
+        "market_id": [f"m{i}" for i in range(n)],
+        "yes_price": np.full(n, 0.10),
+        "outcome_yes": (rng.uniform(size=n) < 0.18).astype(int),
+        "market_type": ["event_long"] * n, "ttr_days": [10.0] * n,
+        "market_score": [0.5] * n,
+    })
+
+def test_run_dispatches_calibration_and_is_deterministic():
+    df = _panel()
+    r1 = run_validators(df, available={"market_panel_resolved"}, computed_at="t")
+    r2 = run_validators(df, available={"market_panel_resolved"}, computed_at="t")
+    assert [v.to_json() for v in r1["verdicts"]] == [v.to_json() for v in r2["verdicts"]]
+    assert any(v.hypothesis_id == "H-CAL-1" for v in r1["verdicts"])
+    # H-MM-1 needs price_history_bidask → blocked when only the panel is available
+    assert any(b["id"] == "H-MM-1" for b in r1["blocked"])
