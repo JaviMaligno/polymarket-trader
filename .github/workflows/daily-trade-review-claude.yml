@@ -93,26 +93,30 @@ jobs:
       - name: Run pre-review tests
         id: pre_tests
         run: |
-          # Unit tests — catch any regressions before review starts
+          # Unit tests — catch any regressions before review starts.
+          # Track status in shell locals: step outputs are NOT readable inside
+          # the step that defines them (${{ steps.pre_tests.outputs.* }} expands
+          # before the step runs), which left the footer "Unit: , Integration:"
+          # blank in the prompt.
           echo "=== UNIT TESTS $(date -u +'%Y-%m-%d %H:%M UTC') ===" > test-results.txt
+          UNIT_STATUS=fail
           if pnpm test 2>&1 | tee -a test-results.txt | grep -q "passed"; then
-            echo "unit_status=pass" >> $GITHUB_OUTPUT
-          else
-            echo "unit_status=fail" >> $GITHUB_OUTPUT
+            UNIT_STATUS=pass
           fi
+          echo "unit_status=$UNIT_STATUS" >> $GITHUB_OUTPUT
 
           # Integration tests — position lifecycle invariants against real PostgreSQL
           echo "" >> test-results.txt
           echo "=== INTEGRATION TESTS ===" >> test-results.txt
+          INT_STATUS=fail
           if DATABASE_URL="postgres://test:test@localhost:5432/test_trading" \
              pnpm run test:integration 2>&1 | tee -a test-results.txt | grep -q "passed\|skipped"; then
-            echo "integration_status=pass" >> $GITHUB_OUTPUT
-          else
-            echo "integration_status=fail" >> $GITHUB_OUTPUT
+            INT_STATUS=pass
           fi
+          echo "integration_status=$INT_STATUS" >> $GITHUB_OUTPUT
 
           echo "" >> test-results.txt
-          echo "Unit: ${{ steps.pre_tests.outputs.unit_status }}, Integration: ${{ steps.pre_tests.outputs.integration_status }}" >> test-results.txt
+          echo "Unit: $UNIT_STATUS, Integration: $INT_STATUS" >> test-results.txt
           cat test-results.txt
 
       - name: Gather data from VM
