@@ -17,8 +17,9 @@ def shape_panel(raw: pd.DataFrame) -> pd.DataFrame:
         (earliest["end_date"] - earliest["snapshot_at"]).dt.total_seconds() / 86400.0
     )
     earliest["outcome_yes"] = earliest["outcome_yes"].astype(int)
+    # snapshot_at kept for the supervised validator's temporal train/holdout split.
     return earliest[["market_id", "yes_price", "outcome_yes", "market_type",
-                     "ttr_days", "market_score"]]
+                     "ttr_days", "market_score", "snapshot_at"]]
 
 def load_market_panel(database_url: str | None = None) -> pd.DataFrame:
     return shape_panel(_read(RESOLVED_SQL, database_url))

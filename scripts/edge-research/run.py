@@ -3,6 +3,7 @@ import argparse, pathlib, types
 from registry import load_registry, runnable
 from validators.calibration import CalibrationValidator
 from validators.flb import FLBValidator
+from validators.supervised import SupervisedValidator
 from scoreboard import render_markdown, render_csv
 
 # Primary hypothesis_id → validator factory. A validator may emit several slices
@@ -10,7 +11,8 @@ from scoreboard import render_markdown, render_csv
 # id is not a key here are either those slices (covered by their primary) or
 # hypotheses without a validator yet (reported as `pending`, never dropped).
 # Extended as sub-projects B/C land validators.
-VALIDATORS = {"H-CAL-1": CalibrationValidator, "H-INE-1": FLBValidator}
+VALIDATORS = {"H-CAL-1": CalibrationValidator, "H-INE-1": FLBValidator,
+              "H-SUP-1": SupervisedValidator}
 
 
 def _ctx(datasets, computed_at):

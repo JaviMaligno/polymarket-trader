@@ -10,6 +10,7 @@ def _panel():
         "outcome_yes": (rng.uniform(size=n) < 0.18).astype(int),
         "market_type": ["event_long"] * n, "ttr_days": [10.0] * n,
         "market_score": [0.5] * n,
+        "snapshot_at": pd.date_range("2026-05-01", periods=n, freq="h"),
     })
 
 def test_run_dispatches_calibration_and_is_deterministic():
@@ -22,8 +23,8 @@ def test_run_dispatches_calibration_and_is_deterministic():
     assert any(b["id"] == "H-MM-1" for b in r1["blocked"])
 
 def test_run_reports_pending_for_runnable_hypothesis_without_validator():
-    # H-SUP-1 needs market_panel_resolved (available) but has no validator yet →
+    # H-INE-5 needs market_panel_resolved (available) but has no validator yet →
     # it must be reported as pending, never silently dropped.
     datasets = {"market_panel_resolved": _panel()}
     res = run_validators(datasets, computed_at="t")
-    assert any(p["id"] == "H-SUP-1" for p in res["pending"])
+    assert any(p["id"] == "H-INE-5" for p in res["pending"])
