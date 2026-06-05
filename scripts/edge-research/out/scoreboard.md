@@ -2,9 +2,9 @@
 
 | id | class | n | edge_net% | insample% | sig | status | caveats |
 |----|-------|---|-----------|-----------|-----|--------|---------|
-| H-CAL-2 | calibration | 1158 | -0.24 | -0.24 | 0.01 | pass |  |
-| H-CAL-1 | calibration | 1178 | -0.29 | -0.29 | 0.01 | pass |  |
+| H-CAL-1 | calibration | 1178 |  |  |  | fail |  |
 | H-CAL-2 | calibration | 18 |  |  |  | inconclusive | n=18 below floor 200 |
+| H-CAL-2 | calibration | 1158 |  |  |  | fail |  |
 | H-CAL-2 | calibration | 2 |  |  |  | inconclusive | n=2 below floor 200 |
 | H-CAL-3 | calibration | 175 |  |  |  | inconclusive | n=175 below floor 200 |
 | H-CAL-3 | calibration | 164 |  |  |  | inconclusive | n=164 below floor 200 |
