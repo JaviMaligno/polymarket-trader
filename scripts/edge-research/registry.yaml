@@ -1,0 +1,16 @@
+- {id: H-CAL-1, class: calibration, name: Price calibration by price band, required_data: [market_panel_resolved], status: planned, priority: 1, depends_on: []}
+- {id: H-CAL-2, class: calibration, name: Calibration by market_type, required_data: [market_panel_resolved], status: planned, priority: 2, depends_on: []}
+- {id: H-CAL-3, class: calibration, name: Calibration by TTR bucket, required_data: [market_panel_resolved], status: planned, priority: 2, depends_on: []}
+- {id: H-CAL-4, class: calibration, name: Calibration by liquidity, required_data: [market_panel_resolved], status: planned, priority: 3, depends_on: []}
+- {id: H-SUP-1, class: supervised, name: Supervised model prob vs price, required_data: [market_panel_resolved], status: planned, priority: 2, depends_on: []}
+- {id: H-HOR-1, class: horizon, name: Optimal-hold sweep, required_data: [price_history_resolved], status: planned, priority: 3, depends_on: []}
+- {id: H-INE-1, class: inefficiency, name: Favorite-longshot hold-to-resolution, required_data: [flb_backtest_prices], status: pass_insample, priority: 1, depends_on: []}
+- {id: H-INE-2, class: inefficiency, name: Resolution-day discovery gap, required_data: [market_panel_resolved, price_history_resolved], status: planned, priority: 2, depends_on: []}
+- {id: H-INE-3, class: inefficiency, name: News-event price lag, required_data: [price_history_resolved, news], status: planned, priority: 3, depends_on: []}
+- {id: H-INE-4, class: inefficiency, name: Conditional markets not updating, required_data: [markets, manual_mapping], status: planned, priority: 4, depends_on: []}
+- {id: H-INE-5, class: inefficiency, name: Time-decay extreme band, required_data: [market_panel_resolved], status: planned, priority: 3, depends_on: []}
+- {id: H-MM-1, class: market_making, name: Spread capture net of adverse selection, required_data: [price_history_bidask], status: planned, priority: 2, depends_on: []}
+- {id: H-MM-2, class: market_making, name: Liquidity-rewards subsidy, required_data: [gamma_rewards], status: planned, priority: 3, depends_on: []}
+- {id: H-ENS-1, class: ensemble, name: Combination of validated signals, required_data: [derived], status: planned, priority: 2, depends_on: []}
+- {id: H-ARB-1, class: arbitrage, name: Cross-venue, required_data: [], status: closed, priority: 9, depends_on: []}
+- {id: H-ARB-2, class: arbitrage, name: Same-venue structural sum-arb, required_data: [], status: closed, priority: 9, depends_on: []}

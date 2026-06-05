@@ -497,6 +497,22 @@ git add scripts/edge-research/validators/calibration.py scripts/edge-research/te
 git commit -m "feat(edge-research): calibration validator — overall reliability + cost-gated edge"
 ```
 
+> **Corrections applied during execution (review findings).** The reference
+> snippet above has three defects, fixed in follow-up commits — apply them if
+> re-running this plan:
+> 1. **Significance** must come from the winning bin's real per-row CI, not
+>    `bootstrap_ci(np.full(bn, dev))` (a constant → zero width → meaningless
+>    `1e-9`). Carry `(lo, hi)` through `best` and report `(hi - lo) / 2`; drop
+>    the `or 1e-9` mask.
+> 2. **`edge_insample_pct == edge_net_pct`** for this descriptive `split="full"`
+>    validator (no train/holdout split = no in-sample/OOS gap). Pass `signed`
+>    for both, not `dev` for insample.
+> 3. **`pass` requires a POSITIVE net edge.** The gate must be `net = dev - cost;
+>    if net <= 0: continue` and `if lo <= 0: continue` (not `abs(dev)` /
+>    `lo <= 0 <= hi`). An overpriced favourite bin (dev<0) is the known
+>    anti-edge (SHORT-resolves-NO) and must be `fail`, never a negative-edge
+>    `pass`.
+
 ---
 
 ## Task 6: Calibration conditioning (type / TTR / liquidity)
