@@ -174,7 +174,13 @@ jobs:
             echo "You have access to gh CLI (authenticated), gcloud CLI, and node."
             echo ""
             echo "=== PRE-REVIEW TEST STATE ==="
-            cat test-results.txt
+            # Summarize, don't dump: the raw test-results.txt is ~6.6k lines /
+            # 440 KB (~110k tokens) of pino noise + per-test stdout. cat-ing it
+            # whole overflowed the Sonnet context ("Prompt is too long", #308).
+            # The summarizer keeps counts + failures (~10 lines); full log is a
+            # CI artifact. Fail-soft to the raw tail if the script is missing.
+            node scripts/summarize-test-output.js test-results.txt 2>/dev/null \
+              || tail -40 test-results.txt
             echo "==========================="
             echo ""
             echo "IMPORTANT: Create the GitHub Issue and implement fixes as PRs (deploy to VM to verify each, then rollback to main). Do NOT send email or Slack — the workflow handles notifications automatically."
