@@ -47,6 +47,14 @@ def test_determinism():  # P5
     b = CalibrationValidator().run(Ctx(df))[0]
     assert a == b
 
+def test_overpriced_favourite_bin_is_not_pass():  # short/anti-edge side must not pass
+    rng = np.random.default_rng(9)
+    # price 0.90 but true prob ~0.70 → dev ~ -0.20 (overpriced); must be fail, not pass
+    v = CalibrationValidator().run(Ctx(_frame(np.full(3000, 0.90),
+        (rng.uniform(size=3000) < 0.70).astype(int))))[0]
+    assert v.status == "fail"
+    assert v.edge_net_pct is None
+
 def test_significance_real_ci_and_insample_equals_net():  # P6 — regression for Fix 1 & Fix 2
     # Clear-edge frame: price 0.10, true prob 0.18, n=3000 → FLB longshot bin passes CI
     rng = np.random.default_rng(42)

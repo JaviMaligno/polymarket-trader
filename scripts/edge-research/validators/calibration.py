@@ -35,22 +35,21 @@ class CalibrationValidator:
         brier = float(np.mean((p - y) ** 2))
         edges = np.linspace(0.0, 1.0, ctx.n_bins + 1)
         idx = np.clip(np.digitize(p, edges[1:-1]), 0, ctx.n_bins - 1)
-        best = None  # (abs_excess, signed_edge, bin_dev, bin_n, ci_lo, ci_hi)
+        best = None  # (net, net, bin_dev, bin_n, ci_lo, ci_hi)
         for b in range(ctx.n_bins):
             m = idx == b
             bn = int(m.sum())
             if bn < ctx.min_n:
                 continue
-            dev = float(y[m].mean() - p[m].mean())  # outcome - price, payoff units
-            excess = abs(dev) - ctx.cost
-            if excess <= 0:
+            dev = float(y[m].mean() - p[m].mean())  # outcome - price; >0 = underpriced
+            net = dev - ctx.cost                      # net LONG edge after entry cost
+            if net <= 0:                              # overpriced/short side never passes
                 continue
             lo, hi = bootstrap_ci(y[m] - p[m], seed=ctx.seed)
-            if lo <= 0 <= hi:   # not significant
+            if lo <= 0:                               # CI must exclude 0 on the positive side
                 continue
-            signed = dev - np.sign(dev) * ctx.cost  # net edge per share, signed
-            if best is None or abs(signed) > abs(best[1]):
-                best = (excess, signed, dev, bn, lo, hi)
+            if best is None or net > best[1]:
+                best = (net, net, dev, bn, lo, hi)
         if best is None:
             return Verdict(hid, self.hclass, n, None, None, None,
                            "full", {"brier": brier, **extra_metric}, f"entry_only_{ctx.cost}",
