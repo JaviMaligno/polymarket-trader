@@ -51,3 +51,16 @@ Run over 1,178 markets (earliest snapshot per market; 96% event_long). Findings:
 
 All other hypotheses (H-SUP/H-HOR/H-INE/H-MM/H-ENS) show as `blocked` in v1 —
 their validators arrive in Sub-projects B/C.
+
+## Known follow-ups (hardening, deferred to B)
+
+- Conditioned slices (`groupby` on TTR bucket / liquidity quartile) use pandas'
+  default `dropna=True`, so rows with NaN/negative `ttr_days` or null
+  `market_type`/`market_score` vanish from H-CAL-3/4 without a caveat. Filter +
+  emit an `n_caveats` note, or `dropna=False` with explicit NaN handling.
+- The bootstrap seed is identical across every bin/slice (`seed=ctx.seed`):
+  deterministic but the per-bin CIs share index draws. Mix the bin index into
+  the seed before pooling CI widths.
+- `scoreboard` has no NaN guard on `significance` formatting/sort — currently
+  unreachable, but harden when B/C validators populate `significance` on more
+  paths.
