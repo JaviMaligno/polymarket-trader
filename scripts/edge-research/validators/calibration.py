@@ -12,15 +12,16 @@ class CalibrationValidator:
         return ["market_panel_resolved"]
 
     def run(self, ctx) -> list[Verdict]:
-        out = [self._slice(ctx, ctx.df, "H-CAL-1", {})]
-        for mt, sub in ctx.df.groupby("market_type"):
+        df = ctx.datasets["market_panel_resolved"]
+        out = [self._slice(ctx, df, "H-CAL-1", {})]
+        for mt, sub in df.groupby("market_type"):
             out.append(self._slice(ctx, sub, "H-CAL-2", {"slice": f"type={mt}"}))
-        ttr_bucket = pd.cut(ctx.df["ttr_days"], bins=[-1, 2, 7, 30, 1e9],
+        ttr_bucket = pd.cut(df["ttr_days"], bins=[-1, 2, 7, 30, 1e9],
                             labels=["<=2d", "2-7d", "7-30d", ">30d"])
-        for b, sub in ctx.df.groupby(ttr_bucket, observed=True):
+        for b, sub in df.groupby(ttr_bucket, observed=True):
             out.append(self._slice(ctx, sub, "H-CAL-3", {"slice": f"ttr={b}"}))
-        q = pd.qcut(ctx.df["market_score"].rank(method="first"), 4, labels=False, duplicates="drop")
-        for b, sub in ctx.df.groupby(q, observed=True):
+        q = pd.qcut(df["market_score"].rank(method="first"), 4, labels=False, duplicates="drop")
+        for b, sub in df.groupby(q, observed=True):
             out.append(self._slice(ctx, sub, "H-CAL-4", {"slice": f"liq_q={int(b)}"}))
         return out
 

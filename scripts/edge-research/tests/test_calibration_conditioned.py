@@ -3,7 +3,7 @@ from validators.calibration import CalibrationValidator
 
 class Ctx:
     def __init__(self, df):
-        self.df = df; self.cost = 0.005; self.computed_at = "t"
+        self.datasets = {"market_panel_resolved": df}; self.cost = 0.005; self.computed_at = "t"
         self.n_bins = 10; self.min_n = 50; self.seed = 7
 
 def test_emits_one_verdict_per_slice():
