@@ -8,8 +8,13 @@ from scoreboard import render_markdown, render_csv
 VALIDATORS = {"calibration": CalibrationValidator}
 
 def _ctx(df, computed_at):
+    # min_n=200: the first smoke run (2026-06-05) showed the only `pass` rows at
+    # min_n=50 rested on thin ~66-market favourite bins reading -23% (the known
+    # anti-edge side, noisy). At min_n=200 only robust bins (n~735) survive and
+    # the calibration edge collapses to -0.3% — within friction. 200 keeps the
+    # scoreboard honest. (Synthetic tests pass their own Ctx with min_n=50.)
     return types.SimpleNamespace(df=df, cost=0.005, computed_at=computed_at,
-                                 n_bins=10, min_n=50, seed=7)
+                                 n_bins=10, min_n=200, seed=7)
 
 def run_validators(df, available: set[str], computed_at: str) -> dict:
     entries = load_registry()

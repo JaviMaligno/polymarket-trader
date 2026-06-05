@@ -87,3 +87,6 @@ slack.json
 
 # Wrong package manager — this project uses pnpm (pnpm-lock.yaml)
 package-lock.json
+
+# Edge-research regenerable CSV (the .md scoreboard is committed as the baseline)
+scripts/edge-research/out/*.csv
