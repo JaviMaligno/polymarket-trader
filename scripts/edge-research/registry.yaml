@@ -4,7 +4,7 @@
 - {id: H-CAL-4, class: calibration, name: Calibration by liquidity, required_data: [market_panel_resolved], status: planned, priority: 3, depends_on: []}
 - {id: H-SUP-1, class: supervised, name: Supervised model prob vs price, required_data: [market_panel_resolved], status: planned, priority: 2, depends_on: []}
 - {id: H-HOR-1, class: horizon, name: Optimal-hold sweep, required_data: [price_history_resolved], status: planned, priority: 3, depends_on: []}
-- {id: H-INE-1, class: inefficiency, name: Favorite-longshot hold-to-resolution, required_data: [flb_backtest_prices], status: pass_insample, priority: 1, depends_on: []}
+- {id: H-INE-1, class: inefficiency, name: Favorite-longshot hold-to-resolution, required_data: [flb_shadow_signals], status: planned, priority: 1, depends_on: []}
 - {id: H-INE-2, class: inefficiency, name: Resolution-day discovery gap, required_data: [market_panel_resolved, price_history_resolved], status: planned, priority: 2, depends_on: []}
 - {id: H-INE-3, class: inefficiency, name: News-event price lag, required_data: [price_history_resolved, news], status: planned, priority: 3, depends_on: []}
 - {id: H-INE-4, class: inefficiency, name: Conditional markets not updating, required_data: [markets, manual_mapping], status: planned, priority: 4, depends_on: []}
