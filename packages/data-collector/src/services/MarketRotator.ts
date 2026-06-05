@@ -455,9 +455,9 @@ export class MarketRotator {
    * The merit-based rotator ranks cold candidates by market_score, which is
    * volume/tradeability-biased: tail-band and near-resolution markets score low
    * and are never promoted. That starves the Sprint 2 generators
-   * (favorite_longshot_bias, resolution_prior_v2) of their target markets, so
-   * they cannot accumulate the sample size needed for cost-aware edge
-   * measurement. This bypass pins a curated cohort to `active` directly.
+   * (favorite_longshot_bias) of their target markets, so they cannot accumulate
+   * the sample size needed for cost-aware edge measurement. This bypass pins a
+   * curated cohort to `active` directly.
    *
    * Only valid markets are promoted — active, not resolved, not past end_date.
    * Already-active markets and the eviction step keep resolved cohort markets

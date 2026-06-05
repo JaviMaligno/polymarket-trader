@@ -84,14 +84,10 @@ services:
       #    (Yes price 0.03–0.09) pinned to `active` so `favorite_longshot_bias`
       #    accumulates cost-aware measurement. TTRs range 41–590d (hold-to-resolution
       #    horizon). Prune as markets resolve.
-      # 2) TTR-≤7d cohort (RPv2 target, 2026-05-20) — 6 near-resolution markets with
-      #    volume_24h ≥ 2k, TTR 2.5–6.5 days, mixed types. `resolution_prior_v2`
-      #    only fires within cutoffDays=7, so without this slice the generator
-      #    has zero supply (3-week observation: 50 predictions / 1 market in 7d,
-      #    that market resolved 2026-05-19). These rotate fast (resolve within
-      #    days) — REFRESH WEEKLY (or whenever a market in this slice resolves).
-      #    Selection 2026-05-20: 566188, 578530, 1835896, 572847, 1004371, 1004373.
-      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270,566188,578530,1835896,572847,1004371,1004373"
+      # NOTE: the former TTR-≤7d RPv2 sub-cohort was removed 2026-06-05 — the
+      # resolution_prior_v2 generator was deleted (no demonstrable cost-aware
+      # edge: LONG 3.7% hit, SHORT = SHORT-resolves-NO artefact, n=8 markets).
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
       DB_POOL_MAX: "8"
       DB_IDLE_TIMEOUT_MS: "60000"
       DB_CONNECTION_TIMEOUT_MS: "30000"
@@ -173,9 +169,9 @@ services:
       SIGNAL_SLOTS_PER_TYPE: "crypto_daily:8,event_financial:16,event_short:16,event_long:10"
       # Force-tracked experiment cohort — same list as the data-collector.
       # MarketSelector pins these to the signal-selection pool so the
-      # FLB tail-band markets + the TTR-≤7d RPv2 markets both receive
-      # predictions. See the data-collector comment for the cohort breakdown.
-      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270,566188,578530,1835896,572847,1004371,1004373"
+      # FLB tail-band markets receive predictions. See the data-collector
+      # comment for the cohort breakdown.
+      FORCE_INCLUDE_MARKET_IDS: "616905,616906,948956,948957,1144471,1654959,1294363,1032269,951180,1652691,1818152,1032270"
       ENABLE_OPTIMIZATION: "true"
       OPTIMIZER_URL: "https://polymarket-optimizer-server.onrender.com"
       # Min Sharpe lift required to flip direction_multiplier per market_type.

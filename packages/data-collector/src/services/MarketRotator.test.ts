@@ -796,7 +796,7 @@ describe('MarketRotator', () => {
 //
 // The data-collector's volume/score-biased rotation never promotes
 // tail-band or near-resolution markets (low market_score, low volume),
-// so the Sprint 2 generators (favorite_longshot_bias, resolution_prior_v2)
+// so the Sprint 2 generators (favorite_longshot_bias)
 // are starved of their target markets and cannot accumulate the sample
 // size needed for cost-aware edge measurement. FORCE_INCLUDE_MARKET_IDS
 // pins a curated cohort to `active` regardless of score — a measurement

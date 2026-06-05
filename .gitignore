@@ -79,5 +79,11 @@ tmp-*
 review-history.json
 vercel-check.png
 
+# Daily-review generated artifacts (built by scripts/format-review.js at runtime)
+review-data.json
+report.md
+email.html
+slack.json
+
 # Wrong package manager — this project uses pnpm (pnpm-lock.yaml)
 package-lock.json
