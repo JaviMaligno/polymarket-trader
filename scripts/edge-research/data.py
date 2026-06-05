@@ -1,6 +1,8 @@
 from __future__ import annotations
 import os, pandas as pd
 
+# --- market_panel: resolved, earliest snapshot per market (calibration, supervised) ---
+
 RESOLVED_SQL = """
   SELECT market_id, snapshot_at, end_date, yes_price, market_type,
          market_score, outcome_yes
@@ -15,20 +17,65 @@ def shape_panel(raw: pd.DataFrame) -> pd.DataFrame:
         (earliest["end_date"] - earliest["snapshot_at"]).dt.total_seconds() / 86400.0
     )
     earliest["outcome_yes"] = earliest["outcome_yes"].astype(int)
+    # snapshot_at kept for the supervised validator's temporal train/holdout split.
     return earliest[["market_id", "yes_price", "outcome_yes", "market_type",
-                     "ttr_days", "market_score"]]
+                     "ttr_days", "market_score", "snapshot_at"]]
 
 def load_market_panel(database_url: str | None = None) -> pd.DataFrame:
+    return shape_panel(_read(RESOLVED_SQL, database_url))
+
+
+# --- market_panel: ALL snapshots per market (horizon sweep) ---
+
+def shape_panel_full(raw: pd.DataFrame) -> pd.DataFrame:
+    raw = raw.sort_values(["market_id", "snapshot_at"]).copy()
+    raw["ttr_days"] = (
+        (raw["end_date"] - raw["snapshot_at"]).dt.total_seconds() / 86400.0
+    )
+    raw["outcome_yes"] = raw["outcome_yes"].astype(int)
+    return raw[["market_id", "snapshot_at", "yes_price", "outcome_yes",
+                "market_type", "ttr_days", "market_score"]]
+
+def load_market_panel_full(database_url: str | None = None) -> pd.DataFrame:
+    return shape_panel_full(_read(RESOLVED_SQL, database_url))
+
+
+# --- flb_shadow_signals: FLB measured at real cost (FLB validator) ---
+
+FLB_SQL = """
+  SELECT market_id, entry_yes_price, market_type, net_pnl, net_pnl_real,
+         entry_cost_real, resolved_at
+  FROM flb_shadow_signals
+  WHERE net_pnl_real IS NOT NULL
+"""
+
+def load_flb_shadow(database_url: str | None = None) -> pd.DataFrame:
+    return _read(FLB_SQL, database_url)
+
+
+# --- shared ---
+
+def _read(sql: str, database_url: str | None) -> pd.DataFrame:
     import psycopg2
     url = database_url or os.environ["DATABASE_URL"]
     with psycopg2.connect(url) as conn:
-        raw = pd.read_sql(RESOLVED_SQL, conn)
-    return shape_panel(raw)
+        return pd.read_sql(sql, conn)
 
-def available_data(database_url: str | None = None) -> set[str]:
-    """Which registry required_data tokens are satisfiable. v1: only the panel."""
-    try:
-        df = load_market_panel(database_url)
-        return {"market_panel_resolved"} if len(df) else set()
-    except Exception:
-        return set()
+# token → loader. A validator's required_data token must be a key here to run.
+_LOADERS = {
+    "market_panel_resolved": load_market_panel,
+    "market_panel_full": load_market_panel_full,
+    "flb_shadow_signals": load_flb_shadow,
+}
+
+def load_all_datasets(database_url: str | None = None) -> dict:
+    """Load every known dataset; a loader that errors or returns empty maps to
+    None so the runner treats its hypotheses as blocked (never crashes)."""
+    out = {}
+    for token, loader in _LOADERS.items():
+        try:
+            df = loader(database_url)
+            out[token] = df if df is not None and len(df) else None
+        except Exception:
+            out[token] = None
+    return out

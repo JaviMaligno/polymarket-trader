@@ -6,7 +6,7 @@ def _sort_key(v):
     return (v.edge_net_pct if v.edge_net_pct is not None else float("-inf"))
 
 
-def render_markdown(verdicts: list, blocked: list[dict]) -> str:
+def render_markdown(verdicts: list, blocked: list[dict], pending: list[dict] | None = None) -> str:
     rows = sorted(verdicts, key=_sort_key, reverse=True)
     lines = ["# Edge Research scoreboard", "",
              "| id | class | n | edge_net% | insample% | sig | status | caveats |",
@@ -17,6 +17,10 @@ def render_markdown(verdicts: list, blocked: list[dict]) -> str:
         sig = "" if v.significance is None else f"{v.significance:.2f}"
         cav = "; ".join(v.n_caveats)
         lines.append(f"| {v.hypothesis_id} | {v.hclass} | {v.n} | {e} | {ins} | {sig} | {v.status} | {cav} |")
+    if pending:
+        lines += ["", "## Pending (data available, validator not implemented yet)", ""]
+        for p in pending:
+            lines.append(f"- {p['id']} — {p.get('name','')} (pending)")
     if blocked:
         lines += ["", "## Blocked (data not available)", ""]
         for b in blocked:

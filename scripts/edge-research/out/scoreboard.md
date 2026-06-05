@@ -2,6 +2,9 @@
 
 | id | class | n | edge_net% | insample% | sig | status | caveats |
 |----|-------|---|-----------|-----------|-----|--------|---------|
+| H-INE-1 | inefficiency | 101 | -0.28 | -0.28 | 0.03 | fail |  |
+| H-SUP-1 | supervised | 434 | -1.30 | 5.19 | 0.02 | fail |  |
+| H-INE-1 | inefficiency | 54 | -1.35 | -1.35 | 0.07 | fail |  |
 | H-CAL-1 | calibration | 1178 |  |  |  | fail |  |
 | H-CAL-2 | calibration | 18 |  |  |  | inconclusive | n=18 below floor 200 |
 | H-CAL-2 | calibration | 1158 |  |  |  | fail |  |
@@ -14,14 +17,19 @@
 | H-CAL-4 | calibration | 294 |  |  |  | fail |  |
 | H-CAL-4 | calibration | 294 |  |  |  | fail |  |
 | H-CAL-4 | calibration | 295 |  |  |  | fail |  |
+| H-INE-1 | inefficiency | 0 |  |  |  | inconclusive | n=0 below floor 30 |
+| H-INE-1 | inefficiency | 5 |  |  |  | inconclusive | n=5 below floor 30 |
+| H-ENS-1 | ensemble | 0 |  |  |  | inconclusive | fewer than 2 passing components — nothing to combine |
+
+## Pending (data available, validator not implemented yet)
+
+- H-INE-5 — Time-decay extreme band (pending)
 
 ## Blocked (data not available)
 
 - H-HOR-1 — Optimal-hold sweep (blocked)
-- H-INE-1 — Favorite-longshot hold-to-resolution (blocked)
 - H-INE-2 — Resolution-day discovery gap (blocked)
 - H-INE-3 — News-event price lag (blocked)
 - H-INE-4 — Conditional markets not updating (blocked)
 - H-MM-1 — Spread capture net of adverse selection (blocked)
 - H-MM-2 — Liquidity-rewards subsidy (blocked)
-- H-ENS-1 — Combination of validated signals (blocked)

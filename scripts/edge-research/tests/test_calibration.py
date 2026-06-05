@@ -11,7 +11,7 @@ def _frame(prices, outcomes):
 
 class Ctx:
     def __init__(self, df, cost=0.005, ts="2026-06-05T00:00:00Z"):
-        self.df = df; self.cost = cost; self.computed_at = ts
+        self.datasets = {"market_panel_resolved": df}; self.cost = cost; self.computed_at = ts
         self.n_bins = 10; self.min_n = 50; self.seed = 7
 
 def test_well_calibrated_has_no_edge():  # P2

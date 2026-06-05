@@ -2,45 +2,64 @@ from __future__ import annotations
 import argparse, pathlib, types
 from registry import load_registry, runnable
 from validators.calibration import CalibrationValidator
+from validators.flb import FLBValidator
+from validators.supervised import SupervisedValidator
+from validators.ensemble import EnsembleValidator
 from scoreboard import render_markdown, render_csv
 
-# class → validator factory. Extended in sub-projects B/C.
-VALIDATORS = {"calibration": CalibrationValidator}
+# Primary hypothesis_id → validator factory. A validator may emit several slices
+# (CalibrationValidator registered under H-CAL-1 emits H-CAL-1..4). Entries whose
+# id is not a key here are either those slices (covered by their primary) or
+# hypotheses without a validator yet (reported as `pending`, never dropped).
+# Extended as sub-projects B/C land validators.
+VALIDATORS = {"H-CAL-1": CalibrationValidator, "H-INE-1": FLBValidator,
+              "H-SUP-1": SupervisedValidator, "H-ENS-1": EnsembleValidator}
 
-def _ctx(df, computed_at):
+
+def _ctx(datasets, computed_at):
     # min_n=200: the first smoke run (2026-06-05) showed the only `pass` rows at
     # min_n=50 rested on thin ~66-market favourite bins reading -23% (the known
-    # anti-edge side, noisy). At min_n=200 only robust bins (n~735) survive and
-    # the calibration edge collapses to -0.3% — within friction. 200 keeps the
-    # scoreboard honest. (Synthetic tests pass their own Ctx with min_n=50.)
-    return types.SimpleNamespace(df=df, cost=0.005, computed_at=computed_at,
+    # anti-edge side, noisy). At 200 only robust bins survive. (Synthetic tests
+    # pass their own ctx with min_n=50.)
+    return types.SimpleNamespace(datasets=datasets, cost=0.005, computed_at=computed_at,
                                  n_bins=10, min_n=200, seed=7)
 
-def run_validators(df, available: set[str], computed_at: str) -> dict:
+
+def run_validators(datasets: dict, computed_at: str) -> dict:
+    """datasets: {required_data_token: DataFrame|None}. Returns verdicts, the
+    blocked entries (data unavailable), and pending entries (data available but
+    no validator implemented yet)."""
+    available = {k for k, v in datasets.items() if v is not None and len(v)}
     entries = load_registry()
     run_entries, blocked = runnable(entries, available)
     verdicts = []
-    seen_classes = set()
+    seen = set()
     for e in run_entries:
-        cls = VALIDATORS.get(e["class"])
-        if cls is None or e["class"] in seen_classes:
-            continue  # one validator instance per class emits all its slices
-        seen_classes.add(e["class"])
-        verdicts.extend(cls().run(_ctx(df, computed_at)))
-    return {"verdicts": verdicts, "blocked": blocked}
+        cls = VALIDATORS.get(e["id"])
+        if cls is None or e["id"] in seen:
+            continue
+        seen.add(e["id"])
+        verdicts.extend(cls().run(_ctx(datasets, computed_at)))
+    emitted = {v.hypothesis_id for v in verdicts}
+    pending = [e for e in run_entries if e["id"] not in VALIDATORS and e["id"] not in emitted]
+    return {"verdicts": verdicts, "blocked": blocked, "pending": pending}
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="scripts/edge-research/out")
     ap.add_argument("--computed-at", required=True, help="ISO timestamp (pass explicitly for determinism)")
     args = ap.parse_args()
-    from data import load_market_panel, available_data
-    df = load_market_panel()
-    res = run_validators(df, available_data(), args.computed_at)
+    from data import load_all_datasets
+    datasets = load_all_datasets()
+    res = run_validators(datasets, args.computed_at)
     outdir = pathlib.Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
-    (outdir / "scoreboard.md").write_text(render_markdown(res["verdicts"], res["blocked"]))
+    (outdir / "scoreboard.md").write_text(
+        render_markdown(res["verdicts"], res["blocked"], res.get("pending", [])))
     (outdir / "scoreboard.csv").write_text(render_csv(res["verdicts"]))
-    print(f"Wrote {outdir}/scoreboard.md ({len(res['verdicts'])} verdicts, {len(res['blocked'])} blocked)")
+    print(f"Wrote {outdir}/scoreboard.md ({len(res['verdicts'])} verdicts, "
+          f"{len(res['blocked'])} blocked, {len(res.get('pending', []))} pending)")
+
 
 if __name__ == "__main__":
     main()
