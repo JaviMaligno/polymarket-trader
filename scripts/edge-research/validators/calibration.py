@@ -12,14 +12,23 @@ class CalibrationValidator:
         return ["market_panel_resolved"]
 
     def run(self, ctx) -> list[Verdict]:
-        return [self._overall(ctx)]
+        out = [self._slice(ctx, ctx.df, "H-CAL-1", {})]
+        for mt, sub in ctx.df.groupby("market_type"):
+            out.append(self._slice(ctx, sub, "H-CAL-2", {"slice": f"type={mt}"}))
+        ttr_bucket = pd.cut(ctx.df["ttr_days"], bins=[-1, 2, 7, 30, 1e9],
+                            labels=["<=2d", "2-7d", "7-30d", ">30d"])
+        for b, sub in ctx.df.groupby(ttr_bucket, observed=True):
+            out.append(self._slice(ctx, sub, "H-CAL-3", {"slice": f"ttr={b}"}))
+        q = pd.qcut(ctx.df["market_score"].rank(method="first"), 4, labels=False, duplicates="drop")
+        for b, sub in ctx.df.groupby(q, observed=True):
+            out.append(self._slice(ctx, sub, "H-CAL-4", {"slice": f"liq_q={int(b)}"}))
+        return out
 
-    def _overall(self, ctx) -> Verdict:
-        df = ctx.df
+    def _slice(self, ctx, df, hid, extra_metric) -> Verdict:
         n = len(df)
         if n < ctx.min_n:
-            return Verdict(self.hypothesis_id, self.hclass, n, None, None, None,
-                           "full", {}, f"entry_only_{ctx.cost}", "inconclusive",
+            return Verdict(hid, self.hclass, n, None, None, None,
+                           "full", {**extra_metric}, f"entry_only_{ctx.cost}", "inconclusive",
                            [f"n={n} below floor {ctx.min_n}"], ctx.computed_at)
         p = df["yes_price"].to_numpy(float)
         y = df["outcome_yes"].to_numpy(float)
@@ -43,11 +52,11 @@ class CalibrationValidator:
             if best is None or abs(signed) > abs(best[1]):
                 best = (excess, signed, dev, bn, lo, hi)
         if best is None:
-            return Verdict(self.hypothesis_id, self.hclass, n, None, None, None,
-                           "full", {"brier": brier}, f"entry_only_{ctx.cost}",
+            return Verdict(hid, self.hclass, n, None, None, None,
+                           "full", {"brier": brier, **extra_metric}, f"entry_only_{ctx.cost}",
                            "fail", [], ctx.computed_at)
         _, signed, dev, bn, lo, hi = best
-        return Verdict(self.hypothesis_id, self.hclass, n, float(signed), float(signed),
+        return Verdict(hid, self.hclass, n, float(signed), float(signed),
                        float((hi - lo) / 2), "full",
-                       {"brier": brier, "edged_bin_n": bn}, f"entry_only_{ctx.cost}",
+                       {"brier": brier, "edged_bin_n": bn, **extra_metric}, f"entry_only_{ctx.cost}",
                        "pass", [], ctx.computed_at)
