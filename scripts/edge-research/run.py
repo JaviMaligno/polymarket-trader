@@ -5,6 +5,7 @@ from validators.calibration import CalibrationValidator
 from validators.flb import FLBValidator
 from validators.supervised import SupervisedValidator
 from validators.ensemble import EnsembleValidator
+from validators.ine5 import TimeDecayExtremeBandValidator
 from scoreboard import render_markdown, render_csv
 
 # Primary hypothesis_id → validator factory. A validator may emit several slices
@@ -13,7 +14,8 @@ from scoreboard import render_markdown, render_csv
 # hypotheses without a validator yet (reported as `pending`, never dropped).
 # Extended as sub-projects B/C land validators.
 VALIDATORS = {"H-CAL-1": CalibrationValidator, "H-INE-1": FLBValidator,
-              "H-SUP-1": SupervisedValidator, "H-ENS-1": EnsembleValidator}
+              "H-SUP-1": SupervisedValidator, "H-ENS-1": EnsembleValidator,
+              "H-INE-5": TimeDecayExtremeBandValidator}
 
 
 def _ctx(datasets, computed_at):
@@ -49,14 +51,24 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="scripts/edge-research/out")
     ap.add_argument("--computed-at", required=True, help="ISO timestamp (pass explicitly for determinism)")
+    ap.add_argument("--datasets-dir", default=None,
+                    help="Load datasets from raw CSVs in this dir instead of the DB "
+                         "(offline runner mode; no DATABASE_URL / psycopg2 needed).")
     args = ap.parse_args()
-    from data import load_all_datasets
-    datasets = load_all_datasets()
+    if args.datasets_dir:
+        from data import load_all_datasets_from_dir
+        datasets = load_all_datasets_from_dir(args.datasets_dir)
+    else:
+        from data import load_all_datasets
+        datasets = load_all_datasets()
     res = run_validators(datasets, args.computed_at)
     outdir = pathlib.Path(args.out); outdir.mkdir(parents=True, exist_ok=True)
+    # encoding pinned: the scoreboard contains em-dashes; the default write_text
+    # encoding is the platform locale (cp1252 on Windows) which mangles them.
     (outdir / "scoreboard.md").write_text(
-        render_markdown(res["verdicts"], res["blocked"], res.get("pending", [])))
-    (outdir / "scoreboard.csv").write_text(render_csv(res["verdicts"]))
+        render_markdown(res["verdicts"], res["blocked"], res.get("pending", [])),
+        encoding="utf-8")
+    (outdir / "scoreboard.csv").write_text(render_csv(res["verdicts"]), encoding="utf-8")
     print(f"Wrote {outdir}/scoreboard.md ({len(res['verdicts'])} verdicts, "
           f"{len(res['blocked'])} blocked, {len(res.get('pending', []))} pending)")
 

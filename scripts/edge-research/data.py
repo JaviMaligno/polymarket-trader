@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, pandas as pd
+import os, pathlib, pandas as pd
 
 # --- market_panel: resolved, earliest snapshot per market (calibration, supervised) ---
 
@@ -78,4 +78,40 @@ def load_all_datasets(database_url: str | None = None) -> dict:
             out[token] = df if df is not None and len(df) else None
         except Exception:
             out[token] = None
+    return out
+
+
+# --- offline CSV mode (--datasets-dir): drive the harness without DB access ---
+#
+# The dashboard container is Node/Alpine (no Python, no psycopg2), so the weekly
+# GHA runner exports each raw query to CSV on the VM, then runs run.py against
+# the CSV dir. A CSV mirrors the RAW SQL output; the same shape_* transforms run
+# on it, so the resulting frames are identical to the DB path.
+
+def _read_raw_csv(path: pathlib.Path, date_cols: list[str]) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    for c in date_cols:
+        if c in df.columns:
+            df[c] = pd.to_datetime(df[c], utc=True)
+    return df
+
+def load_all_datasets_from_dir(datasets_dir: str) -> dict:
+    """Mirror of load_all_datasets, reading raw CSVs from `datasets_dir` instead
+    of the DB. Expected files: market_panel.csv (raw RESOLVED_SQL columns) and
+    flb_shadow_signals.csv (raw FLB_SQL columns). A missing/empty/invalid file
+    maps its token(s) to None, same contract as the DB path."""
+    d = pathlib.Path(datasets_dir)
+    out: dict = {}
+    try:
+        raw = _read_raw_csv(d / "market_panel.csv", ["snapshot_at", "end_date"])
+        out["market_panel_resolved"] = shape_panel(raw) if len(raw) else None
+        out["market_panel_full"] = shape_panel_full(raw) if len(raw) else None
+    except Exception:
+        out["market_panel_resolved"] = None
+        out["market_panel_full"] = None
+    try:
+        flb = _read_raw_csv(d / "flb_shadow_signals.csv", ["resolved_at"])
+        out["flb_shadow_signals"] = flb if len(flb) else None
+    except Exception:
+        out["flb_shadow_signals"] = None
     return out
