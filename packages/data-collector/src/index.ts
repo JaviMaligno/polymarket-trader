@@ -2,6 +2,7 @@ import 'dotenv/config';
 import http from 'node:http';
 import { pino } from 'pino';
 import { healthCheck, closePool } from './database/connection.js';
+import { ensureRuntimeSchema } from './database/runtimeSchema.js';
 import { getScheduler } from './services/Scheduler.js';
 import { getRateLimiter } from './services/RateLimiter.js';
 import { AdaptiveSyncManager } from './services/AdaptiveSyncManager.js';
@@ -33,6 +34,8 @@ async function main(): Promise<void> {
   }
 
   logger.info('Database connection successful');
+
+  await ensureRuntimeSchema();
 
   // Initialize rate limiter
   const rateLimiter = getRateLimiter();

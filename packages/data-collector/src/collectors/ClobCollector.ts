@@ -8,6 +8,13 @@ const logger = pino({ name: 'clob-collector' });
 
 const CLOB_API_URL = process.env.CLOB_API_URL || 'https://clob.polymarket.com';
 
+type TradeSyncMarket = {
+  id: string;
+  condition_id: string;
+  clob_token_id_yes: string;
+  clob_token_id_no: string | null;
+};
+
 interface PriceHistoryResponse {
   history: PriceHistory[];
 }
@@ -187,12 +194,7 @@ export class ClobCollector {
    * the market's two known tokens. Dedupes via the unique (time, tx_hash, token_id,
    * side, price, size) index.
    */
-  async syncTradesToDb(market: {
-    id: string;
-    condition_id: string;
-    clob_token_id_yes: string;
-    clob_token_id_no: string | null;
-  }): Promise<{ inserted: number }> {
+  async syncTradesToDb(market: TradeSyncMarket): Promise<{ inserted: number }> {
     const cacheKey = `trades:${market.id}`;
     const lastSync = this.lastSyncTimeCache.get(cacheKey);
 
@@ -242,7 +244,7 @@ export class ClobCollector {
       const result = await query(
         `INSERT INTO trades (time, market_id, token_id, side, price, size, maker_address, tx_hash)
          VALUES ${placeholders.join(', ')}
-         ON CONFLICT (time, tx_hash, token_id, side, price, size) DO NOTHING`,
+         ON CONFLICT DO NOTHING`,
         values
       );
       const inserted = result.rowCount || 0;
@@ -270,18 +272,13 @@ export class ClobCollector {
        ORDER BY market_score DESC NULLS LAST`
     );
 
-    const markets = marketsResult.rows;
+    const markets = marketsResult.rows as TradeSyncMarket[];
     let totalInserted = 0;
     let errors = 0;
 
     for (const market of markets) {
       try {
-        const res = await this.syncTradesToDb(market as {
-          id: string;
-          condition_id: string;
-          clob_token_id_yes: string;
-          clob_token_id_no: string | null;
-        });
+        const res = await this.syncTradesToDb(market);
         totalInserted += res.inserted;
       } catch (error) {
         logger.error({ error, marketId: market.id }, 'Error syncing trades');

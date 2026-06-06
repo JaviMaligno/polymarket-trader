@@ -70,6 +70,32 @@ describe('ClobCollector.syncTradesToDb', () => {
     const c = new ClobCollector();
     await c.syncTradesToDb(market);
     const insertCall = (query as any).mock.calls.find((c0: any[]) => /INSERT INTO trades/.test(c0[0]));
-    expect(insertCall[0]).toMatch(/ON CONFLICT \(time, tx_hash, token_id, side, price, size\) DO NOTHING/);
+    expect(insertCall[0]).toMatch(/ON CONFLICT DO NOTHING/);
+  });
+
+  it('skips trades older than the last sync (no insert on the second pass)', async () => {
+    const c = new ClobCollector();
+    const nowSec = Math.floor(Date.now() / 1000);
+    (axios.get as any).mockResolvedValue({ data: [ trade(YES, 'BUY', '0.93', nowSec, '0xa') ] });
+    await c.syncTradesToDb(market);            // first pass populates the cache
+    (query as any).mockClear();
+    (axios.get as any).mockResolvedValue({ data: [ trade(YES, 'BUY', '0.93', 1000, '0xold') ] }); // 1970
+    const res = await c.syncTradesToDb(market);
+    expect(res.inserted).toBe(0);
+    const insertCall = (query as any).mock.calls.find((c0: any[]) => /INSERT INTO trades/.test(c0[0]));
+    expect(insertCall).toBeFalsy();
+  });
+
+  it('maps trade side BUY->buy and SELL->sell', async () => {
+    (axios.get as any).mockResolvedValue({ data: [
+      trade(YES, 'BUY', '0.93', 1000, '0xa'),
+      trade(NO, 'SELL', '0.07', 1001, '0xb'),
+    ] });
+    const c = new ClobCollector();
+    await c.syncTradesToDb(market);
+    const insertCall = (query as any).mock.calls.find((c0: any[]) => /INSERT INTO trades/.test(c0[0]));
+    const params = insertCall[1] as any[];
+    expect(params).toContain('buy');
+    expect(params).toContain('sell');
   });
 });
