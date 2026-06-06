@@ -2,8 +2,16 @@ name: Daily Trade Review (Claude Analysis)
 
 on:
   schedule:
+    # Runs daily at 8:00 UTC. The deterministic watchdog (gather + invariants/
+    # coverage/FLB-sentinel via format-review.js → email/Slack) runs every day.
+    # The expensive LLM analysis (Claude → issue + PRs) is gated to Mondays only
+    # (see the "Decide review mode" step). Rationale: the system is in a
+    # no-edge / no-trading steady state — the LLM concluded "healthy, no action"
+    # daily for weeks while its own fragility (prompt overflow, etc.) generated
+    # the only findings. Revert to daily LLM on the next regime change
+    # (market-making deployed / FLB executor enabled / real trading on).
     - cron: '0 8 * * *'   # 8:00 UTC daily
-  workflow_dispatch:        # Manual trigger for testing
+  workflow_dispatch:        # Manual trigger — always runs the full LLM analysis
 
 concurrency:
   group: daily-review
@@ -38,6 +46,20 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Decide review mode (deterministic daily vs full LLM weekly)
+        id: decide_mode
+        run: |
+          # run_llm=true → run Claude analysis + issue/PR creation/merge.
+          # run_llm=false → deterministic watchdog only (gather + notifications).
+          # LLM runs on Mondays (date -u +%u == 1) or any manual dispatch.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(date -u +%u)" = "1" ]; then
+            echo "run_llm=true" >> $GITHUB_OUTPUT
+            echo "Review mode: FULL LLM analysis (Monday or manual dispatch)"
+          else
+            echo "run_llm=false" >> $GITHUB_OUTPUT
+            echo "Review mode: deterministic watchdog only (gather + notifications)"
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -92,6 +114,7 @@ jobs:
 
       - name: Run pre-review tests
         id: pre_tests
+        if: steps.decide_mode.outputs.run_llm == 'true'
         run: |
           # Unit tests — catch any regressions before review starts.
           # Track status in shell locals: step outputs are NOT readable inside
@@ -164,7 +187,7 @@ jobs:
           echo "data_collected=true" >> $GITHUB_OUTPUT
 
       - name: Run Claude Code Analysis
-        if: steps.gather.outputs.data_collected == 'true'
+        if: steps.gather.outputs.data_collected == 'true' && steps.decide_mode.outputs.run_llm == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GH_TOKEN: ${{ github.token }}
@@ -200,7 +223,7 @@ jobs:
 
       - name: Verify daily-review issue was created
         id: verify_issue
-        if: always() && steps.gather.outputs.data_collected == 'true'
+        if: always() && steps.gather.outputs.data_collected == 'true' && steps.decide_mode.outputs.run_llm == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -346,7 +369,7 @@ jobs:
 
       - name: Verify PR branches pass tests
         id: verify_prs
-        if: always()
+        if: always() && steps.decide_mode.outputs.run_llm == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -437,7 +460,7 @@ jobs:
           fi
 
       - name: Auto-merge small daily-review PRs
-        if: always() && steps.gather.outputs.data_collected == 'true'
+        if: always() && steps.gather.outputs.data_collected == 'true' && steps.decide_mode.outputs.run_llm == 'true'
         env:
           # Use a PAT instead of github.token so the merge push triggers
           # downstream workflows (deploy). GitHub's security policy blocks
@@ -525,7 +548,7 @@ jobs:
         # The step is best-effort: any failure logs a warning but does not fail the
         # workflow. The auto-merge step above already uses MERGE_PAT to push, which
         # normally triggers Deploy on its own; this step is a backstop.
-        if: always()
+        if: always() && steps.decide_mode.outputs.run_llm == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           MERGE_PAT: ${{ secrets.MERGE_PAT }}
