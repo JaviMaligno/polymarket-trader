@@ -173,6 +173,11 @@ CREATE INDEX IF NOT EXISTS idx_trades_market ON trades (market_id, time DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_maker ON trades (maker_address, time DESC) WHERE maker_address IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_trades_taker ON trades (taker_address, time DESC) WHERE taker_address IS NOT NULL;
 
+-- Dedup key for ON CONFLICT in ClobCollector.syncTradesToDb. Must include the
+-- hypertable partition column (time). Rows with a NULL tx_hash are not deduped.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_dedup
+  ON trades (time, tx_hash, token_id, side, price, size);
+
 -- ============================================
 -- WALLETS
 -- ============================================
