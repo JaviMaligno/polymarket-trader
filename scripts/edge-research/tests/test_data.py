@@ -47,8 +47,11 @@ def _write_csvs(d):
 def test_load_from_dir_matches_db_shaping(tmp_path):
     _write_csvs(tmp_path)
     out = load_all_datasets_from_dir(str(tmp_path))
-    # Same three tokens the DB path produces.
-    assert set(out) == {"market_panel_resolved", "market_panel_full", "flb_shadow_signals"}
+    # The CSV path produces the DB-path tokens plus the CSV-only mm_trade_spreads
+    # token (None here, since no mm_trade_spreads.csv was written).
+    assert set(out) == {"market_panel_resolved", "market_panel_full",
+                        "flb_shadow_signals", "mm_trade_spreads"}
+    assert out["mm_trade_spreads"] is None
     res = out["market_panel_resolved"]
     assert len(res) == 2                                  # one row per market (earliest)
     m1 = res[res.market_id == "m1"].iloc[0]
@@ -71,3 +74,33 @@ def test_load_from_dir_missing_file_maps_to_none(tmp_path):
     assert out["market_panel_resolved"] is None
     assert out["market_panel_full"] is None
     assert out["flb_shadow_signals"] is not None
+
+
+def test_load_from_dir_reads_mm_trade_spreads(tmp_path):
+    pd.DataFrame({
+        "market_id": ["a", "b"],
+        "market_type": ["crypto_intraday", "event_long"],
+        "token_id": ["t1", "t2"],
+        "time": ["2026-06-04T10:00:00Z", "2026-06-04T10:05:00Z"],
+        "size": [100.0, 50.0],
+        "eff_half": [0.012, 0.020],
+        "real_half": [0.004, -0.001],
+        "impact_half": [0.008, 0.021],
+    }).to_csv(tmp_path / "mm_trade_spreads.csv", index=False)
+    out = load_all_datasets_from_dir(str(tmp_path))
+    mm = out["mm_trade_spreads"]
+    assert mm is not None
+    assert len(mm) == 2
+    assert set(["market_type", "real_half", "eff_half", "impact_half", "size"]).issubset(mm.columns)
+    assert abs(float(mm.iloc[0]["real_half"]) - 0.004) < 1e-9
+
+
+def test_load_from_dir_mm_missing_maps_to_none(tmp_path):
+    pd.DataFrame({
+        "market_id": ["m1"], "snapshot_at": ["2026-05-19"], "end_date": ["2026-05-29"],
+        "yes_price": [0.10], "market_type": ["event_long"], "market_score": [0.5],
+        "outcome_yes": [1],
+    }).to_csv(tmp_path / "market_panel.csv", index=False)
+    out = load_all_datasets_from_dir(str(tmp_path))
+    assert out["mm_trade_spreads"] is None
+    assert out["market_panel_resolved"] is not None

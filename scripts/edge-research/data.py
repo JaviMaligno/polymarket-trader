@@ -114,4 +114,9 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
         out["flb_shadow_signals"] = flb if len(flb) else None
     except Exception:
         out["flb_shadow_signals"] = None
+    try:
+        mm = _read_raw_csv(d / "mm_trade_spreads.csv", ["time"])
+        out["mm_trade_spreads"] = mm if len(mm) else None
+    except Exception:
+        out["mm_trade_spreads"] = None
     return out
