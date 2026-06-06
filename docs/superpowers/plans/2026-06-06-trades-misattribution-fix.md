@@ -12,6 +12,14 @@
 
 **Branch:** `fix-trades-misattribution` (already created off `main`).
 
+**Post-review revision (applied):** the INSERT uses **bare** `ON CONFLICT DO NOTHING`
+(not an explicit column target, which would raise `42P10` and silently insert zero
+trades on the live DB where the index is absent). The index is delivered to
+already-initialised volumes by a startup `ensureRuntimeSchema()`
+(`database/runtimeSchema.ts`, wired in `index.ts`), in addition to `001_schema.sql`
+for fresh installs. Task 3's ops sequence is correspondingly: deploy → `TRUNCATE
+trades` → restart data-collector (startup ensure creates the index on the empty table).
+
 **Background the implementer needs:**
 - Root cause: `ClobCollector.fetchTrades(tokenId)` called `data-api/trades?asset_id=<tokenId>`, but the data-api IGNORES `asset_id` and returns a GLOBAL feed of recent trades across all markets; `syncTradesToDb` tagged every one with the queried token. Only `market=<conditionId>` filters correctly.
 - A data-api trade object has these relevant fields: `asset` (the CLOB token id the trade belongs to), `side` (`BUY`/`SELL`), `price` (string), `size` (string), `timestamp` (unix **seconds**), `transactionHash`, `proxyWallet`, `outcome`, `conditionId`.
@@ -330,7 +338,10 @@ Expected: the merge commit is present and `polymarket-data-collector` is `Up (he
 ```bash
 gcloud compute ssh polymarket-vm --zone=us-east1-b -- "docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading -c 'TRUNCATE trades;' -c 'CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_dedup ON trades (time, tx_hash, token_id, side, price, size);'"
 ```
-Expected: `TRUNCATE TABLE` then `CREATE INDEX`.
+Expected: `TRUNCATE TABLE` then `CREATE INDEX`. (Creating the index manually here is
+equivalent to restarting the data-collector so its `ensureRuntimeSchema()` builds it
+on the now-empty table — do either. The index must be built *after* the truncate; on
+the contaminated table it would fail on the existing duplicates.)
 
 - [ ] **Step 3: Wait for repopulation, then verify reconciliation**
 

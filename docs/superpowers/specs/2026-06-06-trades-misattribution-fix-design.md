@@ -68,24 +68,40 @@ measurement becomes computable). One focused PR + a one-time VM ops step.
   (one `market=` query returns both sides). Keep the `lastSyncTimeCache` newer-than
   filter, keyed per market.
 
-### 2. Dedup (make `ON CONFLICT` real)
+### 2. Dedup (make `ON CONFLICT` real, robustly)
 
 Add a unique index that includes the hypertable partition column `time`:
-`UNIQUE (time, tx_hash, token_id, side, price, size)`, and change the insert to
-`ON CONFLICT (time, tx_hash, token_id, side, price, size) DO NOTHING`. This stops the
-re-insertion of overlapping recent trades each poll. (`tx_hash` from the data-api
-`transactionHash`; trades with a null `tx_hash` are not deduped — acceptable.) The
-index goes in `001_schema.sql` for fresh installs; on the existing VM volume it is
-applied manually (init SQL only runs on first volume init).
+`UNIQUE (time, tx_hash, token_id, side, price, size)`, and use **bare**
+`ON CONFLICT DO NOTHING` (no explicit column target). This stops the re-insertion of
+overlapping recent trades each poll once the index exists. (`tx_hash` from the
+data-api `transactionHash`; trades with a null `tx_hash` are not deduped — acceptable.)
+
+**Index delivery (critical).** An explicit `ON CONFLICT (cols)` target would raise
+`42P10` on any DB lacking that exact index — and `001_schema.sql` only runs on a
+*fresh* volume, so the live DB would error on every insert and silently insert zero
+trades. Two safeguards:
+- The INSERT uses **bare** `ON CONFLICT DO NOTHING`, which never errors whether or not
+  the index exists (it just doesn't dedup until it does).
+- A startup `ensureRuntimeSchema()` (`database/runtimeSchema.ts`, called from
+  `index.ts` after the DB health check) runs `CREATE UNIQUE INDEX IF NOT EXISTS
+  idx_trades_dedup ...` in a try/catch — so the index lands on already-initialised
+  volumes, not just fresh installs. If pre-existing duplicates block creation it logs
+  and continues (the purge in §3 clears them; the index is then created on the next
+  start). The index also stays in `001_schema.sql` for fresh installs.
 
 ### 3. Purge contaminated history (VM ops, one-time)
 
 Every existing `trades` row is contaminated, so after the fixed collector deploys,
 run once on the VM: `TRUNCATE trades;` (`paper_trades` / `shadow_trades` untouched).
-The collector repopulates correct, per-token trades within minutes. **Order matters:
-deploy fix → `TRUNCATE trades` → create the unique index.** The index must be created
-on the empty table — building it on the contaminated table would fail, since the
-existing duplicates violate the uniqueness constraint.
+The collector repopulates correct, per-token trades within minutes.
+
+With bare `ON CONFLICT` (§2) there is **no silent-zero-insert window**: the deployed
+collector inserts correctly even before the index exists. The index is created by
+`ensureRuntimeSchema()` — but on a contaminated table that call fails (duplicates), so
+the sequence is: **deploy → `TRUNCATE trades` → restart the data-collector** (its
+startup `ensureRuntimeSchema()` then creates `idx_trades_dedup` on the now-empty
+table). Equivalently, create the index manually right after the truncate. Building the
+index on the still-contaminated table would fail on the existing duplicates.
 
 ### 4. No signal gate (justified by code)
 
@@ -129,6 +145,9 @@ check (CI also has a Postgres service if an integration test is wanted later).
   (`fetchTrades`, `syncTradesToDb`, `syncAllTrades`).
 - **Modify:** `packages/data-collector/src/database/init/001_schema.sql` (add the
   unique index for fresh installs).
+- **Create:** `packages/data-collector/src/database/runtimeSchema.ts` +
+  `runtimeSchema.test.ts` (startup `ensureRuntimeSchema()` that lands the index on
+  already-initialised volumes); wire the call into `packages/data-collector/src/index.ts`.
 - **Create:** `packages/data-collector/src/collectors/ClobCollector.test.ts` (if absent).
 - **VM ops (post-deploy):** `TRUNCATE trades`, then `CREATE UNIQUE INDEX` on the empty table.
 - **Memory:** record root cause, fix, and the OFI/Hawkes edge re-measurement follow-up.
