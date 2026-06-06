@@ -115,6 +115,10 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
     except Exception:
         out["flb_shadow_signals"] = None
     try:
+        # CSV-mode only: the asof-join that builds mm_trade_spreads runs in SQL on
+        # the VM (see mm_trade_spreads.sql) and is too heavy for the DB-mode
+        # load_all_datasets, so there is deliberately no _LOADERS entry. H-MM-1
+        # is therefore blocked in DB mode and runs only from this CSV export.
         mm = _read_raw_csv(d / "mm_trade_spreads.csv", ["time"])
         out["mm_trade_spreads"] = mm if len(mm) else None
     except Exception:
