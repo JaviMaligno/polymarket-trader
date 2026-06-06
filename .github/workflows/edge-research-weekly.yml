@@ -1,0 +1,122 @@
+name: Edge Research Weekly Scoreboard
+
+# Re-runs the edge-research harness against the live panel once a week (after the
+# market_panel forward snapshot accrues), commits the refreshed scoreboard, and
+# alerts only when a CLEAN pass appears (status=pass with NO caveat) — a new
+# tradeable edge. The harness itself runs offline from CSVs exported on the VM
+# (the dashboard container is Node/Alpine; no Python/psycopg2), via
+# `run.py --datasets-dir`.
+
+on:
+  schedule:
+    - cron: '0 9 * * 1'    # Mondays 09:00 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: edge-research-weekly
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  scoreboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/992492426638/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'github-deploy@project-94e9f6f2-aba7-4cb6-afc.iam.gserviceaccount.com'
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Cleanup stale SSH keys in project metadata
+        # Mirrors daily-review: each `gcloud compute ssh` uploads a key; without
+        # pruning, metadata grows unbounded and delays key propagation past the
+        # ConnectTimeout, causing `Permission denied (publickey)`.
+        run: |
+          set -euo pipefail
+          tmp=$(mktemp)
+          gcloud compute project-info describe --format=json \
+            | jq -r '.commonInstanceMetadata.items[]? | select(.key == "ssh-keys") | .value' \
+            | awk -F: '{ lines[$1]=$0 } END { for (k in lines) if (k != "") print lines[k] }' \
+            > "$tmp"
+          if [ -s "$tmp" ]; then
+            gcloud compute project-info add-metadata --metadata-from-file=ssh-keys="$tmp"
+          fi
+          rm -f "$tmp"
+
+      - name: Export datasets from VM as CSV
+        run: |
+          set -euo pipefail
+          mkdir -p datasets
+          PSQL="docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading -c"
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL \"\\copy (SELECT market_id, snapshot_at, end_date, yes_price, market_type, market_score, outcome_yes FROM market_panel WHERE outcome_yes IS NOT NULL) TO STDOUT WITH CSV HEADER\"" > datasets/market_panel.csv
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL \"\\copy (SELECT market_id, entry_yes_price, market_type, net_pnl, net_pnl_real, entry_cost_real, resolved_at FROM flb_shadow_signals WHERE net_pnl_real IS NOT NULL) TO STDOUT WITH CSV HEADER\"" > datasets/flb_shadow_signals.csv
+          echo "market_panel rows: $(($(wc -l < datasets/market_panel.csv) - 1))"
+          echo "flb rows: $(($(wc -l < datasets/flb_shadow_signals.csv) - 1))"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install deps
+        run: pip install pandas numpy
+
+      - name: Run harness
+        run: |
+          python scripts/edge-research/run.py \
+            --datasets-dir datasets \
+            --out scripts/edge-research/out \
+            --computed-at "$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+
+      - name: Detect clean passes (tradeable edge, no caveat)
+        id: passes
+        run: |
+          # A clean pass = status==pass AND caveats column empty. H-INE-5's
+          # flat-cost pass carries a caveat, so it does NOT trigger here.
+          CLEAN=$(python - <<'PY'
+          import csv
+          rows = list(csv.DictReader(open("scripts/edge-research/out/scoreboard.csv")))
+          clean = [r for r in rows if r["status"] == "pass" and not r["caveats"].strip()]
+          for r in clean:
+              print(f"{r['id']} ({r['class']}) edge_net={r['edge_net_pct']} n={r['n']}")
+          PY
+          )
+          if [ -n "$CLEAN" ]; then
+            echo "found=true" >> $GITHUB_OUTPUT
+            { echo 'detail<<EOF'; echo "$CLEAN"; echo 'EOF'; } >> $GITHUB_OUTPUT
+          else
+            echo "found=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Alert on clean pass
+        if: steps.passes.outputs.found == 'true' && env.SLACK_WEBHOOK_URL != ''
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          MSG="🟢 Edge-research: a CLEAN pass (tradeable, no caveat) appeared on the scoreboard:\n${{ steps.passes.outputs.detail }}"
+          curl -fsS -X POST -H 'Content-type: application/json' \
+            --data "$(python -c "import json,sys; print(json.dumps({'text': sys.argv[1]}))" "$MSG")" \
+            "$SLACK_WEBHOOK_URL" || echo "Slack post failed (non-fatal)"
+
+      - name: Commit refreshed scoreboard
+        continue-on-error: true
+        run: |
+          git config user.name "Edge Research (weekly)"
+          git config user.email "noreply@anthropic.com"
+          git add scripts/edge-research/out/scoreboard.md   # .csv is gitignored by design
+          if git diff --cached --quiet; then
+            echo "Scoreboard unchanged."
+          else
+            git commit -m "chore(edge-research): weekly scoreboard refresh [skip ci]"
+            git push origin HEAD:main
+          fi

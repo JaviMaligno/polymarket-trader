@@ -2,6 +2,7 @@
 
 | id | class | n | edge_net% | insample% | sig | status | caveats |
 |----|-------|---|-----------|-----------|-----|--------|---------|
+| H-INE-5 | inefficiency | 154 | 1.50 | 1.50 | 0.00 | pass | flat cost; real-cost refuted for this side by H-INE-1 (FLB) |
 | H-INE-1 | inefficiency | 101 | -0.28 | -0.28 | 0.03 | fail |  |
 | H-SUP-1 | supervised | 434 | -1.30 | 5.19 | 0.02 | fail |  |
 | H-INE-1 | inefficiency | 54 | -1.35 | -1.35 | 0.07 | fail |  |
@@ -19,11 +20,8 @@
 | H-CAL-4 | calibration | 295 |  |  |  | fail |  |
 | H-INE-1 | inefficiency | 0 |  |  |  | inconclusive | n=0 below floor 30 |
 | H-INE-1 | inefficiency | 5 |  |  |  | inconclusive | n=5 below floor 30 |
+| H-INE-5 | inefficiency | 10 |  |  |  | inconclusive | n=10 below floor 50 |
 | H-ENS-1 | ensemble | 0 |  |  |  | inconclusive | fewer than 2 passing components — nothing to combine |
-
-## Pending (data available, validator not implemented yet)
-
-- H-INE-5 — Time-decay extreme band (pending)
 
 ## Blocked (data not available)
 

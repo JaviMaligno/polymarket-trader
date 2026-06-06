@@ -1,3 +1,4 @@
+import subprocess, sys, pathlib
 import numpy as np, pandas as pd
 from run import run_validators
 
@@ -19,12 +20,36 @@ def test_run_dispatches_calibration_and_is_deterministic():
     r2 = run_validators(datasets, computed_at="t")
     assert [v.to_json() for v in r1["verdicts"]] == [v.to_json() for v in r2["verdicts"]]
     assert any(v.hypothesis_id == "H-CAL-1" for v in r1["verdicts"])
-    # H-MM-1 needs gamma_rewards → blocked when only the panel is available
+    # H-INE-5 (time-decay extreme band) now has a validator → it emits a verdict
+    assert any(v.hypothesis_id == "H-INE-5" for v in r1["verdicts"])
+    # H-MM-1 needs price_history_bidask → blocked when only the panel is available
     assert any(b["id"] == "H-MM-1" for b in r1["blocked"])
 
 def test_run_reports_pending_for_runnable_hypothesis_without_validator():
-    # H-INE-5 needs market_panel_resolved (available) but has no validator yet →
-    # it must be reported as pending, never silently dropped.
-    datasets = {"market_panel_resolved": _panel()}
+    # H-INE-2 needs market_panel_resolved + price_history_resolved (both supplied)
+    # but has no validator yet → it must be reported as pending, never dropped.
+    datasets = {"market_panel_resolved": _panel(),
+                "price_history_resolved": _panel()}
     res = run_validators(datasets, computed_at="t")
-    assert any(p["id"] == "H-INE-5" for p in res["pending"])
+    assert any(p["id"] == "H-INE-2" for p in res["pending"])
+
+def test_main_datasets_dir_mode_writes_scoreboard(tmp_path):
+    # Offline CSV mode end-to-end: a tiny market_panel.csv drives run.py without
+    # a DB, and a scoreboard is produced.
+    pd.DataFrame({
+        "market_id": [f"m{i}" for i in range(300)],
+        "snapshot_at": ["2026-05-19"] * 300,
+        "end_date": ["2026-05-22"] * 300,
+        "yes_price": [0.10] * 300,
+        "market_type": ["event_short"] * 300,
+        "market_score": [0.5] * 300,
+        "outcome_yes": ([0] * 294) + ([1] * 6),   # 2% YES → longshot SHORT edge
+    }).to_csv(tmp_path / "market_panel.csv", index=False)
+    root = pathlib.Path(__file__).resolve().parents[1]
+    res = subprocess.run(
+        [sys.executable, str(root / "run.py"), "--datasets-dir", str(tmp_path),
+         "--out", str(tmp_path / "out"), "--computed-at", "t"],
+        capture_output=True, text=True, cwd=str(root))
+    assert res.returncode == 0, res.stderr
+    assert (tmp_path / "out" / "scoreboard.md").exists()
+    assert "H-INE-5" in (tmp_path / "out" / "scoreboard.md").read_text()
