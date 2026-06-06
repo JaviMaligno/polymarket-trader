@@ -9,7 +9,7 @@
 - {id: H-INE-3, class: inefficiency, name: News-event price lag, required_data: [price_history_resolved, news], status: planned, priority: 3, depends_on: []}
 - {id: H-INE-4, class: inefficiency, name: Conditional markets not updating, required_data: [markets, manual_mapping], status: planned, priority: 4, depends_on: []}
 - {id: H-INE-5, class: inefficiency, name: Time-decay extreme band, required_data: [market_panel_resolved], status: planned, priority: 3, depends_on: []}
-- {id: H-MM-1, class: market_making, name: Spread capture net of adverse selection, required_data: [price_history_bidask], status: planned, priority: 2, depends_on: []}
+- {id: H-MM-1, class: market_making, name: Spread capture net of adverse selection, required_data: [mm_trade_spreads], status: planned, priority: 2, depends_on: []}
 - {id: H-MM-2, class: market_making, name: Liquidity-rewards subsidy, required_data: [gamma_rewards], status: planned, priority: 3, depends_on: []}
 - {id: H-ENS-1, class: ensemble, name: Combination of validated signals, required_data: [], status: planned, priority: 2, depends_on: []}
 - {id: H-ARB-1, class: arbitrage, name: Cross-venue, required_data: [], status: closed, priority: 9, depends_on: []}
