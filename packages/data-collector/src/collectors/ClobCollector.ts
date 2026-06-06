@@ -160,14 +160,16 @@ export class ClobCollector {
   }
 
   /**
-   * Fetch recent trades for a token from Data API (public, no auth required)
+   * Fetch recent trades for a MARKET from the Data API (public, no auth).
+   * NOTE: the data-api ignores `asset_id` (returns a global feed); only `market`
+   * (the conditionId) filters. Each returned trade carries its real `asset`.
    */
-  async fetchTrades(tokenId: string): Promise<any[]> {
+  async fetchTrades(conditionId: string): Promise<any[]> {
     await this.rateLimiter.acquire('data_trades');
 
     try {
       const response = await axios.get('https://data-api.polymarket.com/trades', {
-        params: { asset_id: tokenId, limit: '100' },
+        params: { market: conditionId, limit: '100' },
         timeout: 15000,
       });
       return Array.isArray(response.data) ? response.data : [];
@@ -180,83 +182,77 @@ export class ClobCollector {
   }
 
   /**
-   * Sync trades for a single token to database
-   * Uses in-memory cache to avoid re-fetching old trades
+   * Sync a market's trades to the DB. One `market=conditionId` query returns both
+   * outcomes' trades; each is stored under its real `asset` (token_id). Guards to
+   * the market's two known tokens. Dedupes via the unique (time, tx_hash, token_id,
+   * side, price, size) index.
    */
-  async syncTradesToDb(
-    marketId: string,
-    tokenId: string
-  ): Promise<{ inserted: number }> {
-    // Use cache to determine how far back to fetch
-    const lastSync = this.lastSyncTimeCache.get(`trades:${tokenId}`);
+  async syncTradesToDb(market: {
+    id: string;
+    condition_id: string;
+    clob_token_id_yes: string;
+    clob_token_id_no: string | null;
+  }): Promise<{ inserted: number }> {
+    const cacheKey = `trades:${market.id}`;
+    const lastSync = this.lastSyncTimeCache.get(cacheKey);
 
-    const trades = await this.fetchTrades(tokenId);
-
+    const trades = await this.fetchTrades(market.condition_id);
     if (trades.length === 0) {
-      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
+      this.lastSyncTimeCache.set(cacheKey, new Date());
       return { inserted: 0 };
     }
 
-    // Filter trades newer than last sync
-    // data-api returns timestamp as unix seconds
-    const newTrades = lastSync
-      ? trades.filter((t: any) => {
-          const tradeTime = new Date(t.timestamp * 1000);
-          return tradeTime > lastSync;
-        })
-      : trades;
+    const validTokens = new Set(
+      [market.clob_token_id_yes, market.clob_token_id_no].filter(Boolean) as string[]
+    );
+
+    const newTrades = trades.filter((t: any) => {
+      if (!validTokens.has(String(t.asset))) return false;
+      if (lastSync) return new Date((t.timestamp || 0) * 1000) > lastSync;
+      return true;
+    });
 
     if (newTrades.length === 0) {
-      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
+      this.lastSyncTimeCache.set(cacheKey, new Date());
       return { inserted: 0 };
     }
 
-    // Batch insert
     const values: any[] = [];
     const placeholders: string[] = [];
-
-    newTrades.forEach((trade: any, idx: number) => {
+    newTrades.forEach((t: any, idx: number) => {
       const baseIdx = idx * 8;
       placeholders.push(
         `($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, $${baseIdx + 5}, $${baseIdx + 6}, $${baseIdx + 7}, $${baseIdx + 8})`
       );
-
-      // data-api fields: timestamp (unix s), side, price, size, proxyWallet, transactionHash
-      const tradeTime = new Date((trade.timestamp || 0) * 1000);
-      const side = (trade.side || 'BUY').toUpperCase() === 'BUY' ? 'buy' : 'sell';
-
+      const tradeTime = new Date((t.timestamp || 0) * 1000);
+      const side = (t.side || 'BUY').toUpperCase() === 'BUY' ? 'buy' : 'sell';
       values.push(
-        tradeTime,                                // time
-        marketId,                                 // market_id
-        tokenId,                                  // token_id
-        side,                                     // side
-        parseFloat(trade.price) || 0,             // price
-        parseFloat(trade.size) || 0,              // size
-        trade.proxyWallet || null,                // maker_address
-        trade.transactionHash || null,            // tx_hash
+        tradeTime,
+        market.id,
+        String(t.asset),
+        side,
+        parseFloat(t.price) || 0,
+        parseFloat(t.size) || 0,
+        t.proxyWallet || null,
+        t.transactionHash || null,
       );
     });
 
     try {
-      const insertResult = await query(
+      const result = await query(
         `INSERT INTO trades (time, market_id, token_id, side, price, size, maker_address, tx_hash)
          VALUES ${placeholders.join(', ')}
-         ON CONFLICT DO NOTHING`,
+         ON CONFLICT (time, tx_hash, token_id, side, price, size) DO NOTHING`,
         values
       );
-
-      const inserted = insertResult.rowCount || 0;
-
-      // Update cache
-      this.lastSyncTimeCache.set(`trades:${tokenId}`, new Date());
-
+      const inserted = result.rowCount || 0;
+      this.lastSyncTimeCache.set(cacheKey, new Date());
       if (inserted > 0) {
-        logger.debug({ tokenId, inserted, total: newTrades.length }, 'Synced trades');
+        logger.debug({ marketId: market.id, inserted, total: newTrades.length }, 'Synced trades');
       }
-
       return { inserted };
     } catch (error) {
-      logger.error({ error, tokenId }, 'Error inserting trades');
+      logger.error({ error, marketId: market.id }, 'Error inserting trades');
       return { inserted: 0 };
     }
   }
@@ -267,10 +263,10 @@ export class ClobCollector {
    */
   async syncAllTrades(): Promise<{ markets: number; totalInserted: number; errors: number }> {
     const marketsResult = await query(
-      `SELECT id, clob_token_id_yes, clob_token_id_no
+      `SELECT id, condition_id, clob_token_id_yes, clob_token_id_no
        FROM markets
        WHERE tracking_status IN ('warming', 'active', 'cooling')
-         AND clob_token_id_yes IS NOT NULL
+         AND condition_id IS NOT NULL
        ORDER BY market_score DESC NULLS LAST`
     );
 
@@ -280,13 +276,13 @@ export class ClobCollector {
 
     for (const market of markets) {
       try {
-        const yesResult = await this.syncTradesToDb(market.id, market.clob_token_id_yes);
-        totalInserted += yesResult.inserted;
-
-        if (market.clob_token_id_no) {
-          const noResult = await this.syncTradesToDb(market.id, market.clob_token_id_no);
-          totalInserted += noResult.inserted;
-        }
+        const res = await this.syncTradesToDb(market as {
+          id: string;
+          condition_id: string;
+          clob_token_id_yes: string;
+          clob_token_id_no: string | null;
+        });
+        totalInserted += res.inserted;
       } catch (error) {
         logger.error({ error, marketId: market.id }, 'Error syncing trades');
         errors++;
