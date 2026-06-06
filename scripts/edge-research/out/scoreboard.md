@@ -21,6 +21,9 @@
 | H-INE-1 | inefficiency | 0 |  |  |  | inconclusive | n=0 below floor 30 |
 | H-INE-1 | inefficiency | 5 |  |  |  | inconclusive | n=5 below floor 30 |
 | H-INE-5 | inefficiency | 10 |  |  |  | inconclusive | n=10 below floor 50 |
+| H-MM-1 | market_making | 15 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=15 below floor 200 |
+| H-MM-1 | market_making | 15 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=15 below floor 200 |
+| H-MM-1 | market_making | 10 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=10 below floor 200 |
 | H-ENS-1 | ensemble | 0 |  |  |  | inconclusive | fewer than 2 passing components — nothing to combine |
 
 ## Blocked (data not available)
@@ -29,5 +32,4 @@
 - H-INE-2 — Resolution-day discovery gap (blocked)
 - H-INE-3 — News-event price lag (blocked)
 - H-INE-4 — Conditional markets not updating (blocked)
-- H-MM-1 — Spread capture net of adverse selection (blocked)
 - H-MM-2 — Liquidity-rewards subsidy (blocked)
