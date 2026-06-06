@@ -22,7 +22,7 @@ def test_run_dispatches_calibration_and_is_deterministic():
     assert any(v.hypothesis_id == "H-CAL-1" for v in r1["verdicts"])
     # H-INE-5 (time-decay extreme band) now has a validator → it emits a verdict
     assert any(v.hypothesis_id == "H-INE-5" for v in r1["verdicts"])
-    # H-MM-1 needs price_history_bidask → blocked when only the panel is available
+    # H-MM-1 needs mm_trade_spreads → blocked when only the panel is available
     assert any(b["id"] == "H-MM-1" for b in r1["blocked"])
 
 def test_run_reports_pending_for_runnable_hypothesis_without_validator():
@@ -32,6 +32,21 @@ def test_run_reports_pending_for_runnable_hypothesis_without_validator():
                 "price_history_resolved": _panel()}
     res = run_validators(datasets, computed_at="t")
     assert any(p["id"] == "H-INE-2" for p in res["pending"])
+
+def test_run_dispatches_mm_when_trade_spreads_available():
+    mm = pd.DataFrame({
+        "market_id": [f"m{i}" for i in range(300)],
+        "market_type": ["crypto_intraday"] * 300,
+        "token_id": ["tk"] * 300,
+        "time": ["2026-06-04T10:00:00Z"] * 300,
+        "size": [100.0] * 300,
+        "eff_half": [0.012] * 300,
+        "real_half": [0.004] * 300,
+        "impact_half": [0.008] * 300,
+    })
+    res = run_validators({"mm_trade_spreads": mm}, computed_at="t")
+    assert any(v.hypothesis_id == "H-MM-1" for v in res["verdicts"])
+    assert not any(b["id"] == "H-MM-1" for b in res["blocked"])
 
 def test_main_datasets_dir_mode_writes_scoreboard(tmp_path):
     # Offline CSV mode end-to-end: a tiny market_panel.csv drives run.py without
