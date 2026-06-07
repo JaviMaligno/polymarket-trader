@@ -62,8 +62,11 @@ Four units, each with one purpose, a defined interface, and independently testab
   `price_change` (bid/ask updates), `best_bid_ask` (clean top-of-book), `last_trade_price`
   (trade prints). `tick_size_change`/`market_resolved` handled for correctness.
 - **Keepalive:** send `PING` every ~10s; respond `PONG` to server pings.
-- **Reuse:** prefer the official `@polymarket/real-time-data-client` for connection,
-  ping/pong and reconnection rather than hand-rolling a raw `ws` client.
+- **Client:** use the `ws` library (already a data-collector dependency, 8.14.2) with
+  manual subscription + PING/PONG + reconnection. NOTE: the official
+  `@polymarket/real-time-data-client` covers the *activity* feed (data-api trades/comments),
+  **not** the CLOB market channel `book`/`price_change` events we need — so we go direct
+  against `/ws/market` with `ws`.
 - **Interface:** input = asset_ids list + DB sink; output = rows in the tables below + gap
   records. No return value (long-running).
 - **Depends on:** the websocket; the persistence sink.
