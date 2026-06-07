@@ -1,21 +1,34 @@
--- H-MM-1 export: per sampled trade, the realized-spread decomposition vs the book
+-- H-MM-1 export: per trade, the realized-spread decomposition vs the book
 -- mid before (mid_t) and after (mid_after), sign via the quote test.
 --
 -- Designed to run on the e2-micro (1GB RAM, TimescaleDB 350MB): the naive per-trade
 -- correlated subquery over compressed chunks crashed the server, so this
 --   (1) materialises recent snapshots into an INDEXED session-temp table (no prod
 --       schema change, no compressed-chunk scan in the lateral lookups),
---   (2) hash-samples ~5% of trades cheaply (no global sort),
---   (3) FRESHNESS-FILTERS to trades within 120s of their preceding snapshot — at
+--   (2) FRESHNESS-FILTERS to trades within 120s of their preceding snapshot — at
 --       10-min book cadence a stale mid_t turns price drift into spurious "spread";
 --       keeping only near-snapshot trades makes eff_half ≈ the real quotable spread.
 -- gap_sec is exported for transparency; the harness validator ignores extra columns.
 -- Run: psql -f this_file  (streams CSV to stdout via server-side COPY).
+--
+-- WINDOW: defaults to 7 days; override with `psql -v win='30 days' -f ...`.
+-- 100% of trades (no hash-sample). Rationale: the original 5% hash-sample was
+-- calibrated for the pre-#318 INFLATED trades feed (a mis-attributed global feed,
+-- tens of thousands of rows/day). After the #318 fix (per-market query) the feed is
+-- correctly attributed and small (~2.5k trades/24h); at 5%×24h the cohorts landed at
+-- n≈42, far below the n>=200 validator floor, so H-MM-1 stayed perpetually
+-- inconclusive. 100%×7d brings the tradeable cohorts above the floor and is cheap on
+-- the e2-micro (snap ~70k rows, strades ~18k rows). See
+-- project_trades_collection_corrupt_2026-06-06 / project_market_making_idea.
+\if :{?win}
+\else
+  \set win '7 days'
+\endif
 
 CREATE TEMP TABLE snap AS
   SELECT token_id, time AS st, mid_price, best_bid, best_ask
   FROM orderbook_snapshots
-  WHERE time > NOW() - INTERVAL '24 hours'
+  WHERE time > NOW() - INTERVAL :'win'
     AND mid_price IS NOT NULL AND best_bid IS NOT NULL AND best_ask IS NOT NULL;
 CREATE INDEX ON snap (token_id, st);
 ANALYZE snap;
@@ -23,8 +36,7 @@ ANALYZE snap;
 CREATE TEMP TABLE strades AS
   SELECT market_id, token_id, time AS tt, price, size
   FROM trades
-  WHERE time > NOW() - INTERVAL '24 hours'
-    AND get_byte(decode(md5(token_id || time::text), 'hex'), 0) < 13;  -- ~5% sample
+  WHERE time > NOW() - INTERVAL :'win';
 
 COPY (
   WITH j AS (

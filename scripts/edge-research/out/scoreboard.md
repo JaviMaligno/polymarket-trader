@@ -3,6 +3,9 @@
 | id | class | n | edge_net% | insample% | sig | status | caveats |
 |----|-------|---|-----------|-----------|-----|--------|---------|
 | H-INE-5 | inefficiency | 154 | 1.50 | 1.50 | 0.00 | pass | flat cost; real-cost refuted for this side by H-INE-1 (FLB) |
+| H-MM-1 | market_making | 510 | 0.37 | 0.37 | 0.00 | pass | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2) |
+| H-MM-1 | market_making | 498 | 0.37 | 0.37 | 0.00 | pass | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2) |
+| H-MM-1 | market_making | 1006 | 0.19 | 0.19 | 0.00 | pass | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2) |
 | H-INE-1 | inefficiency | 101 | -0.28 | -0.28 | 0.03 | fail |  |
 | H-SUP-1 | supervised | 434 | -1.30 | 5.19 | 0.02 | fail |  |
 | H-INE-1 | inefficiency | 54 | -1.35 | -1.35 | 0.07 | fail |  |
@@ -21,9 +24,7 @@
 | H-INE-1 | inefficiency | 0 |  |  |  | inconclusive | n=0 below floor 30 |
 | H-INE-1 | inefficiency | 5 |  |  |  | inconclusive | n=5 below floor 30 |
 | H-INE-5 | inefficiency | 10 |  |  |  | inconclusive | n=10 below floor 50 |
-| H-MM-1 | market_making | 15 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=15 below floor 200 |
-| H-MM-1 | market_making | 15 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=15 below floor 200 |
-| H-MM-1 | market_making | 10 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=10 below floor 200 |
+| H-MM-1 | market_making | 12 |  |  |  | inconclusive | Δ≈10min (coarse); passive-maker proxy, not simulated fills; excludes queue priority / inventory risk / rewards (H-MM-2); n=12 below floor 200 |
 | H-ENS-1 | ensemble | 0 |  |  |  | inconclusive | fewer than 2 passing components — nothing to combine |
 
 ## Blocked (data not available)
