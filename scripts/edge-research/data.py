@@ -123,4 +123,9 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
         out["mm_trade_spreads"] = mm if len(mm) else None
     except Exception:
         out["mm_trade_spreads"] = None
+    try:
+        fine = _read_raw_csv(d / "mm_fine_fills.csv", ["time"])
+        out["mm_fine_fills"] = fine if len(fine) else None
+    except Exception:
+        out["mm_fine_fills"] = None
     return out

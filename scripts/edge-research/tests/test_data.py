@@ -50,8 +50,9 @@ def test_load_from_dir_matches_db_shaping(tmp_path):
     # The CSV path produces the DB-path tokens plus the CSV-only mm_trade_spreads
     # token (None here, since no mm_trade_spreads.csv was written).
     assert set(out) == {"market_panel_resolved", "market_panel_full",
-                        "flb_shadow_signals", "mm_trade_spreads"}
+                        "flb_shadow_signals", "mm_trade_spreads", "mm_fine_fills"}
     assert out["mm_trade_spreads"] is None
+    assert out["mm_fine_fills"] is None
     res = out["market_panel_resolved"]
     assert len(res) == 2                                  # one row per market (earliest)
     m1 = res[res.market_id == "m1"].iloc[0]
