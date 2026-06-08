@@ -6,7 +6,7 @@ describe('wsClient helpers', () => {
     const p = JSON.parse(buildSubscribe(['A', 'B']));
     expect(p.type).toBe('market');
     expect(p.assets_ids).toEqual(['A', 'B']);
-    expect(p.custom_feature_enabled).toBe(true);
+    expect(p.custom_feature_enabled).toBeUndefined();
   });
 
   it('backoff grows and caps at 30s', () => {

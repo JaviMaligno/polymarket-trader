@@ -8,7 +8,10 @@ const logger = pino({ name: 'mm-ws' });
 const WS_URL = 'wss://ws-subscriptions-clob.polymarket.com/ws/market';
 
 export function buildSubscribe(assetIds: string[]): string {
-  return JSON.stringify({ assets_ids: assetIds, type: 'market', custom_feature_enabled: true });
+  // No custom_feature_enabled: it floods the stream with new_market catalog
+  // frames (CS2/LoL/etc.) we don't need. Plain market subscription gives the
+  // book / price_change / last_trade_price events for the subscribed assets.
+  return JSON.stringify({ assets_ids: assetIds, type: 'market' });
 }
 
 export function backoffMs(attempt: number): number {
@@ -43,12 +46,15 @@ export function runRecorder(deps: RecorderDeps): { stop: () => void } {
     ws.on('message', async (data) => {
       const raw = data.toString();
       if (raw === 'PONG') return;
-      const out = parseMessage(raw);
-      if (out.kind === 'book') {
-        const row = deps.state.apply(out.event);
-        if (row) await deps.sink.addBook(row);
-      } else if (out.kind === 'trade') {
-        await deps.sink.addTrade(out.event);
+      // A frame can carry many events (the initial book snapshot is an array;
+      // a price_change holds one entry per affected asset).
+      for (const out of parseMessage(raw)) {
+        if (out.kind === 'book') {
+          const row = deps.state.apply(out.event);
+          if (row) await deps.sink.addBook(row);
+        } else if (out.kind === 'trade') {
+          await deps.sink.addTrade(out.event);
+        }
       }
     });
 
