@@ -355,6 +355,43 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ============================================
+  # mm-recorder (fine-cadence orderbook capture) — ON-DEMAND
+  # ============================================
+  # Lever B (market-making H-MM-3): captures the Polymarket CLOB market-channel
+  # top-of-book + trade stream for the most liquid event_financial markets into
+  # mm_book_events / mm_trade_events / mm_capture_gaps, for offline maker fill-sim.
+  # NOT part of the always-on stack — guarded by the `capture` profile so a plain
+  # `docker compose up -d` never starts it. Start a campaign with:
+  #   docker compose -f docker-compose.gcp.yml --profile capture up -d mm-recorder
+  # Stop it with:
+  #   docker compose -f docker-compose.gcp.yml --profile capture stop mm-recorder
+  # Hard 120M cap: the recorder is SACRIFICIAL — if it exceeds the limit the
+  # kernel OOM-kills it, NOT the live services (TimescaleDB/data-collector/dashboard).
+  mm-recorder:
+    image: ghcr.io/javimaligno/polymarket-trader/mm-recorder:latest
+    container_name: polymarket-mm-recorder
+    profiles: ["capture"]
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+      MM_UNIVERSE_N: "15"
+      MM_BATCH: "200"
+      DB_POOL_MAX: "2"
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+        reservations:
+          memory: 40M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 volumes:
   timescaledb_data:
     driver: local
