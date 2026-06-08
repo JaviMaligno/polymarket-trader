@@ -28,17 +28,21 @@ COPY (
   ),
   withmids AS (
     SELECT j.*,
-      (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '10 seconds'  ORDER BY be.bt ASC LIMIT 1) AS mid_10s,
+      (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '10 seconds'  ORDER BY be.bt DESC LIMIT 1) AS mid_10s,
       (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '60 seconds'  ORDER BY be.bt DESC LIMIT 1) AS mid_60s,
       (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '300 seconds' ORDER BY be.bt DESC LIMIT 1) AS mid_300s
     FROM j
   )
   SELECT w.market_id, m.market_type, w.token_id, w.tt AS time, w.size, w.price,
          w.best_bid, w.best_ask, w.mid_before, w.mid_10s, w.mid_60s, w.mid_300s,
-         -- maker side: trade price below mid => hit the bid => maker_price = best_bid (+1 sign);
-         -- above mid => lifted the ask => maker_price = best_ask (-1 sign)
+         -- maker side & sign — matches H-MM-1's sign(price-mid) convention in
+         -- mm_trade_spreads.sql, so retained = maker_sign*(maker_price - mid_after):
+         --   trade below mid => hit the bid => maker BOUGHT at best_bid, sign -1
+         --     => retained = -1*(best_bid - mid_after) = mid_after - best_bid (gain if mid rises)
+         --   trade above mid => lifted the ask => maker SOLD at best_ask, sign +1
+         --     => retained = +1*(best_ask - mid_after) = best_ask - mid_after (gain if mid falls)
          CASE WHEN w.price < w.mid_before THEN w.best_bid ELSE w.best_ask END AS maker_price,
-         CASE WHEN w.price < w.mid_before THEN 1 ELSE -1 END AS maker_sign
+         CASE WHEN w.price < w.mid_before THEN -1 ELSE 1 END AS maker_sign
   FROM withmids w JOIN markets m ON m.id = w.market_id
   WHERE w.mid_before IS NOT NULL AND w.price <> w.mid_before
 ) TO STDOUT WITH CSV HEADER;

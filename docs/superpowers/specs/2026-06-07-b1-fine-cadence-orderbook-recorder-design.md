@@ -128,7 +128,10 @@ This is the part that is iterated *without re-capturing* — the reason for Arch
     observable, so the edge is reported over a **grid of q** (fraction of crossing trades
     that actually fill us). The verdict reads off the q at which edge crosses zero.
   - *Adverse-selection horizon*: mid at `{10s, 1min, 5min}` after the fill;
-    `retained = sign · (maker_price − mid_after)`.
+    `retained = maker_sign · (maker_price − mid_after)` with the **same sign convention as
+    H-MM-1** (`mm_trade_spreads.sql`): bid-hit (maker bought at best_bid) → `maker_sign = −1`
+    so retained `= mid_after − best_bid`; ask-lift (maker sold at best_ask) → `maker_sign = +1`
+    so retained `= best_ask − mid_after`. A profitable maker keeps a positive retained spread.
   - *fees = 0, rewards = 0* here (rewards is B3).
 - **Output:** scoreboard (mean edge, bootstrap CI, n) per `(cohort × horizon × q)`. Verdict:
   is there a plausible q-region where edge stays positive and significant?
