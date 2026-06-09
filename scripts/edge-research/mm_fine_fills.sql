@@ -6,7 +6,7 @@
 \endif
 
 CREATE TEMP TABLE be AS
-  SELECT token_id, time AS bt, best_bid, best_ask, mid
+  SELECT token_id, time AS bt, best_bid, best_ask, mid, best_bid_size, best_ask_size
   FROM mm_book_events
   WHERE time > NOW() - INTERVAL :'win' AND best_bid IS NOT NULL AND best_ask IS NOT NULL;
 CREATE INDEX ON be (token_id, bt);
@@ -22,7 +22,7 @@ COPY (
            b.best_bid, b.best_ask, b.mid AS mid_before
     FROM te t
     LEFT JOIN LATERAL (
-      SELECT best_bid, best_ask, mid FROM be
+      SELECT best_bid, best_ask, mid, best_bid_size, best_ask_size FROM be
       WHERE be.token_id = t.token_id AND be.bt <= t.tt
       ORDER BY be.bt DESC LIMIT 1) b ON true
   ),
@@ -34,7 +34,7 @@ COPY (
     FROM j
   )
   SELECT w.market_id, m.market_type, w.token_id, w.tt AS time, w.size, w.price,
-         w.best_bid, w.best_ask, w.mid_before, w.mid_10s, w.mid_60s, w.mid_300s,
+         w.best_bid, w.best_ask, w.mid_before, w.best_bid_size, w.best_ask_size, w.mid_10s, w.mid_60s, w.mid_300s,
          -- maker side & sign — matches H-MM-1's sign(price-mid) convention in
          -- mm_trade_spreads.sql, so retained = maker_sign*(maker_price - mid_after):
          --   trade below mid => hit the bid => maker BOUGHT at best_bid, sign -1
