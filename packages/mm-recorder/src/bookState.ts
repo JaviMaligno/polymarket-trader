@@ -1,19 +1,65 @@
-import type { BookEvent } from './types.js';
+import type { BookEvent, BookInput } from './types.js';
+
+interface Ladder {
+  bids: Map<number, number | null>;
+  asks: Map<number, number | null>;
+}
+interface Top {
+  bid: number | null; ask: number | null;
+  bidSize: number | null; askSize: number | null;
+}
 
 export class BookState {
-  private last = new Map<string, { bid: number | null; ask: number | null }>();
+  private books = new Map<string, Ladder>();
+  private lastTop = new Map<string, Top>();
 
-  /** Returns the event to persist, or null if top-of-book is unchanged. */
-  apply(e: BookEvent): BookEvent | null {
-    if (e.bestBid === null && e.bestAsk === null) return null;
-    const prev = this.last.get(e.tokenId);
-    if (prev && prev.bid === e.bestBid && prev.ask === e.bestAsk) return null;
-    this.last.set(e.tokenId, { bid: e.bestBid, ask: e.bestAsk });
-    return e;
+  /** Apply a parsed book input; returns the row to persist, or null if the
+   *  top-of-book (price or size) is unchanged. */
+  apply(input: BookInput): BookEvent | null {
+    const ladder = this.books.get(input.tokenId) ?? { bids: new Map(), asks: new Map() };
+
+    let bestBid: number | null;
+    let bestAsk: number | null;
+
+    if (input.eventType === 'book') {
+      ladder.bids = new Map();
+      ladder.asks = new Map();
+      for (const l of input.bids) ladder.bids.set(l.price, l.size);
+      for (const l of input.asks) ladder.asks.set(l.price, l.size);
+      bestBid = ladder.bids.size ? Math.max(...ladder.bids.keys()) : null;
+      bestAsk = ladder.asks.size ? Math.min(...ladder.asks.keys()) : null;
+    } else {
+      const side = input.side === 'BUY' ? ladder.bids : ladder.asks;
+      if (input.size <= 0) side.delete(input.price);
+      else side.set(input.price, input.size);
+      // price is authoritative from the feed; size is best-effort from the ladder
+      bestBid = input.reportedBestBid;
+      bestAsk = input.reportedBestAsk;
+    }
+
+    this.books.set(input.tokenId, ladder);
+
+    if (bestBid === null && bestAsk === null) return null;
+
+    const bestBidSize = bestBid !== null ? (ladder.bids.get(bestBid) ?? null) : null;
+    const bestAskSize = bestAsk !== null ? (ladder.asks.get(bestAsk) ?? null) : null;
+
+    const prev = this.lastTop.get(input.tokenId);
+    if (prev && prev.bid === bestBid && prev.ask === bestAsk &&
+        prev.bidSize === bestBidSize && prev.askSize === bestAskSize) {
+      return null;
+    }
+    this.lastTop.set(input.tokenId, { bid: bestBid, ask: bestAsk, bidSize: bestBidSize, askSize: bestAskSize });
+
+    const mid = bestBid !== null && bestAsk !== null ? (bestBid + bestAsk) / 2 : null;
+    return {
+      time: input.time, tokenId: input.tokenId, marketId: input.marketId,
+      eventType: input.eventType, bestBid, bestAsk, mid, bestBidSize, bestAskSize,
+    };
   }
 
   midOf(tokenId: string): number | null {
-    const p = this.last.get(tokenId);
+    const p = this.lastTop.get(tokenId);
     if (!p || p.bid === null || p.ask === null) return null;
     return (p.bid + p.ask) / 2;
   }
