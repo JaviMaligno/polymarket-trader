@@ -1,5 +1,6 @@
--- Top-N liquid event_financial markets to subscribe. Liquid = tight recent book
--- AND active recent trade flow. Emits both YES and NO tokens per market.
+-- Top-N liquid market-making candidates to subscribe (event_financial +
+-- event_long + event_short). Liquid = tight recent book AND active recent trade
+-- flow. Emits both YES and NO tokens per market.
 WITH recent_book AS (
   SELECT token_id, AVG(best_ask - best_bid) AS avg_spread, COUNT(*) AS n_snap
   FROM orderbook_snapshots
@@ -18,7 +19,7 @@ ranked AS (
   FROM markets m
   JOIN recent_book rb ON rb.token_id = m.clob_token_id_yes
   LEFT JOIN recent_trades rt ON rt.token_id = m.clob_token_id_yes
-  WHERE m.market_type = 'event_financial'
+  WHERE m.market_type IN ('event_financial', 'event_long', 'event_short')
     AND m.tracking_status = 'active'
     AND rb.avg_spread <= 0.05
   ORDER BY rb.avg_spread ASC, n_trades DESC

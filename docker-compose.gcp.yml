@@ -377,7 +377,7 @@ services:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL}
       NODE_TLS_REJECT_UNAUTHORIZED: "0"
-      MM_UNIVERSE_N: "15"
+      MM_UNIVERSE_N: "45"
       MM_BATCH: "200"
       DB_POOL_MAX: "2"
     deploy:
