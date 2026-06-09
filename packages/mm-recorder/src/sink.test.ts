@@ -5,6 +5,7 @@ import type { BookEvent, TradeEvent } from './types.js';
 const book: BookEvent = {
   time: new Date('2024-06-07T20:00:00Z'), tokenId: 'TKN', marketId: 'MKT',
   eventType: 'book', bestBid: 0.4, bestAsk: 0.42, mid: 0.41,
+  bestBidSize: 100, bestAskSize: 80,
 };
 const trade: TradeEvent = {
   time: new Date('2024-06-07T20:00:01Z'), tokenId: 'TKN', marketId: 'MKT',
@@ -30,6 +31,9 @@ describe('BatchSink', () => {
     const sqls = exec.mock.calls.map((c) => String(c[0]));
     expect(sqls.some((s) => s.includes('mm_book_events'))).toBe(true);
     expect(sqls.some((s) => s.includes('mm_trade_events'))).toBe(true);
+    const bookSql = sqls.find((s) => s.includes('mm_book_events'))!;
+    expect(bookSql).toContain('best_bid_size');
+    expect(bookSql).toContain('best_ask_size');
   });
 
   it('auto-flushes when buffer reaches threshold', async () => {

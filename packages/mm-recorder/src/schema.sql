@@ -7,11 +7,15 @@ CREATE TABLE IF NOT EXISTS mm_book_events (
   token_id    VARCHAR(128) NOT NULL,
   market_id   VARCHAR(128) NOT NULL,
   event_type  TEXT NOT NULL,
-  best_bid    DECIMAL(10,6),
-  best_ask    DECIMAL(10,6),
-  mid         DECIMAL(10,6)
+  best_bid      DECIMAL(10,6),
+  best_ask      DECIMAL(10,6),
+  mid           DECIMAL(10,6),
+  best_bid_size DECIMAL(20,6),
+  best_ask_size DECIMAL(20,6)
 );
 CREATE INDEX IF NOT EXISTS idx_mm_book_token_time ON mm_book_events (token_id, time);
+ALTER TABLE mm_book_events ADD COLUMN IF NOT EXISTS best_bid_size DECIMAL(20,6);
+ALTER TABLE mm_book_events ADD COLUMN IF NOT EXISTS best_ask_size DECIMAL(20,6);
 
 CREATE TABLE IF NOT EXISTS mm_trade_events (
   time        TIMESTAMPTZ NOT NULL,

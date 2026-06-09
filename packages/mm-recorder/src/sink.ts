@@ -28,12 +28,12 @@ export class BatchSink {
       this.books = [];
       const values: unknown[] = [];
       const tuples = rows.map((e, i) => {
-        const o = i * 7;
-        values.push(e.time, e.tokenId, e.marketId, e.eventType, e.bestBid, e.bestAsk, e.mid);
-        return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7})`;
+        const o = i * 9;
+        values.push(e.time, e.tokenId, e.marketId, e.eventType, e.bestBid, e.bestAsk, e.mid, e.bestBidSize, e.bestAskSize);
+        return `($${o + 1},$${o + 2},$${o + 3},$${o + 4},$${o + 5},$${o + 6},$${o + 7},$${o + 8},$${o + 9})`;
       });
       await this.exec(
-        `INSERT INTO mm_book_events(time,token_id,market_id,event_type,best_bid,best_ask,mid) VALUES ${tuples.join(',')}`,
+        `INSERT INTO mm_book_events(time,token_id,market_id,event_type,best_bid,best_ask,mid,best_bid_size,best_ask_size) VALUES ${tuples.join(',')}`,
         values,
       );
     }
