@@ -112,10 +112,13 @@ def test_load_from_dir_mm_fine_fills_mixed_timestamp_formats(tmp_path):
         "mid_before": [0.11, 0.50], "mid_10s": [0.115, 0.50],
         "mid_60s": [0.115, 0.50], "mid_300s": [0.12, 0.50],
         "maker_price": [0.10, 0.51], "maker_sign": [-1, 1],
+        "best_bid_size": [500.0, 250.0],
+        "best_ask_size": [400.0, 300.0],
     }).to_csv(tmp_path / "mm_fine_fills.csv", index=False)
     out = load_all_datasets_from_dir(str(tmp_path))
     assert out["mm_fine_fills"] is not None
     assert len(out["mm_fine_fills"]) == 2
+    assert {"best_bid_size", "best_ask_size"}.issubset(out["mm_fine_fills"].columns)
 
 
 def test_load_from_dir_mm_missing_maps_to_none(tmp_path):
