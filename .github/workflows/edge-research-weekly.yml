@@ -63,6 +63,25 @@ jobs:
           echo "market_panel rows: $(($(wc -l < datasets/market_panel.csv) - 1))"
           echo "flb rows: $(($(wc -l < datasets/flb_shadow_signals.csv) - 1))"
 
+      - name: Export market-making datasets from VM as CSV
+        # H-MM-1 (mm_trade_spreads) and H-MM-3 (mm_fine_fills) are built by
+        # multi-statement psql scripts (temp tables + asof joins) too heavy for an
+        # inline `-c`, so we scp the script onto the VM and run it with a
+        # SERVER-SIDE stdin redirect (`docker exec -i ... < /tmp/x.sql`). This
+        # avoids forwarding stdin across the SSH hop (unreliable). `-q` suppresses
+        # command tags so only the COPY-to-STDOUT CSV reaches the file.
+        # Without these exports the weekly scoreboard dropped the H-MM-1 PASS row
+        # (and would never show H-MM-3) because their datasets were absent.
+        run: |
+          set -euo pipefail
+          PSQL_STDIN="docker exec -i polymarket-timescaledb psql -U polymarket -d polymarket_trading -q -v ON_ERROR_STOP=1"
+          gcloud compute scp scripts/edge-research/mm_trade_spreads.sql polymarket-vm:/tmp/mm_trade_spreads.sql --zone=us-east1-b
+          gcloud compute scp scripts/edge-research/mm_fine_fills.sql   polymarket-vm:/tmp/mm_fine_fills.sql   --zone=us-east1-b
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL_STDIN < /tmp/mm_trade_spreads.sql" > datasets/mm_trade_spreads.csv
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL_STDIN < /tmp/mm_fine_fills.sql"   > datasets/mm_fine_fills.csv
+          echo "mm_trade_spreads rows: $(($(wc -l < datasets/mm_trade_spreads.csv) - 1))"
+          echo "mm_fine_fills rows: $(($(wc -l < datasets/mm_fine_fills.csv) - 1))"
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

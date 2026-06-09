@@ -96,6 +96,28 @@ def test_load_from_dir_reads_mm_trade_spreads(tmp_path):
     assert abs(float(mm.iloc[0]["real_half"]) - 0.004) < 1e-9
 
 
+def test_load_from_dir_mm_fine_fills_mixed_timestamp_formats(tmp_path):
+    # Regression: Postgres COPY drops the fractional part when a timestamp's
+    # microseconds are 0, so the `time` column mixes "…:40.956+00" and "…:03+00".
+    # The loader must parse both (format='ISO8601'); inferring one format from
+    # row 0 threw on the first whole-second row and silently mapped the dataset to
+    # None — which blocked H-MM-3 on a non-empty export forever.
+    pd.DataFrame({
+        "market_id": ["0xabc", "0xabc"],
+        "market_type": ["event_financial", "event_financial"],
+        "token_id": ["t1", "t1"],
+        "time": ["2026-06-08 09:49:40.956+00", "2026-06-08 14:23:03+00"],
+        "size": [838.0, 100.0], "price": [0.12, 0.50],
+        "best_bid": [0.10, 0.49], "best_ask": [0.12, 0.51],
+        "mid_before": [0.11, 0.50], "mid_10s": [0.115, 0.50],
+        "mid_60s": [0.115, 0.50], "mid_300s": [0.12, 0.50],
+        "maker_price": [0.10, 0.51], "maker_sign": [-1, 1],
+    }).to_csv(tmp_path / "mm_fine_fills.csv", index=False)
+    out = load_all_datasets_from_dir(str(tmp_path))
+    assert out["mm_fine_fills"] is not None
+    assert len(out["mm_fine_fills"]) == 2
+
+
 def test_load_from_dir_mm_missing_maps_to_none(tmp_path):
     pd.DataFrame({
         "market_id": ["m1"], "snapshot_at": ["2026-05-19"], "end_date": ["2026-05-29"],

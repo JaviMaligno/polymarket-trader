@@ -43,6 +43,13 @@ COPY (
          --     => retained = +1*(best_ask - mid_after) = best_ask - mid_after (gain if mid falls)
          CASE WHEN w.price < w.mid_before THEN w.best_bid ELSE w.best_ask END AS maker_price,
          CASE WHEN w.price < w.mid_before THEN -1 ELSE 1 END AS maker_sign
-  FROM withmids w JOIN markets m ON m.id = w.market_id
+  -- mm_trade_events.market_id stores the CLOB condition_id (0x hash), not the
+  -- numeric markets.id — the recorder works off the CLOB feed, which keys markets
+  -- by condition hash. (H-MM-1's mm_trade_spreads.sql reads the legacy `trades`
+  -- table, whose market_id IS the numeric markets.id, hence it joins on m.id.)
+  -- Joining on m.id here matched 0 rows → H-MM-3 would verdict on an empty set
+  -- forever, regardless of capture volume. Verified on VM 2026-06-09:
+  -- m.condition_id = market_id matches 2034 events / 15 markets.
+  FROM withmids w JOIN markets m ON m.condition_id = w.market_id
   WHERE w.mid_before IS NOT NULL AND w.price <> w.mid_before
 ) TO STDOUT WITH CSV HEADER;

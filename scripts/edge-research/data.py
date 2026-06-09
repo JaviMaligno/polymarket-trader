@@ -92,7 +92,12 @@ def _read_raw_csv(path: pathlib.Path, date_cols: list[str]) -> pd.DataFrame:
     df = pd.read_csv(path)
     for c in date_cols:
         if c in df.columns:
-            df[c] = pd.to_datetime(df[c], utc=True)
+            # format='ISO8601' (not the default first-row inference): Postgres COPY
+            # omits the fractional part when a timestamp's microseconds are 0, so a
+            # column mixes "…:40.956+00" and "…:03+00". Inferring one format from
+            # row 0 then throws on the first whole-second row — which silently mapped
+            # mm_fine_fills (and any such dataset) to None, blocking H-MM-3 forever.
+            df[c] = pd.to_datetime(df[c], utc=True, format="ISO8601")
     return df
 
 def load_all_datasets_from_dir(datasets_dir: str) -> dict:
