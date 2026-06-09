@@ -1,4 +1,4 @@
-import type { ParsedEvent, BookEvent, TradeEvent } from './types.js';
+import type { ParsedEvent, BookLevel, BookSnapshot, BookDelta, TradeEvent } from './types.js';
 
 // Polymarket CLOB market-channel frames (confirmed live 2026-06-08):
 //   - a frame may be a SINGLE object or an ARRAY of objects (the initial `book`
@@ -20,37 +20,28 @@ function toDate(ts: unknown): Date {
   return n !== null ? new Date(n) : new Date();
 }
 
-function bestOf(levels: unknown, pick: 'max' | 'min'): number | null {
-  if (!Array.isArray(levels)) return null;
-  const prices = levels.map((l) => num((l as { price?: unknown }).price)).filter((p): p is number => p !== null);
-  if (prices.length === 0) return null;
-  return pick === 'max' ? Math.max(...prices) : Math.min(...prices);
-}
-
-function mid(bid: number | null, ask: number | null): number | null {
-  return bid !== null && ask !== null ? (bid + ask) / 2 : null;
-}
-
-function bookEvent(
-  tokenId: string, market: unknown, ts: unknown, eventType: string,
-  bestBid: number | null, bestAsk: number | null,
-): ParsedEvent | null {
-  if (!tokenId) return null;
-  if (bestBid === null && bestAsk === null) return null;
-  const event: BookEvent = {
-    time: toDate(ts), tokenId, marketId: String(market ?? ''),
-    eventType, bestBid, bestAsk, mid: mid(bestBid, bestAsk),
-  };
-  return { kind: 'book', event };
+function levels(raw: unknown): BookLevel[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BookLevel[] = [];
+  for (const l of raw) {
+    const price = num((l as { price?: unknown }).price);
+    if (price === null) continue;
+    out.push({ price, size: num((l as { size?: unknown }).size) });
+  }
+  return out;
 }
 
 function parseFrame(m: Record<string, unknown>): ParsedEvent[] {
   const eventType = m.event_type;
 
   if (eventType === 'book') {
-    const e = bookEvent(String(m.asset_id ?? ''), m.market, m.timestamp, 'book',
-      bestOf(m.bids, 'max'), bestOf(m.asks, 'min'));
-    return e ? [e] : [];
+    const tokenId = String(m.asset_id ?? '');
+    if (!tokenId) return [];
+    const snap: BookSnapshot = {
+      time: toDate(m.timestamp), tokenId, marketId: String(m.market ?? ''),
+      eventType: 'book', bids: levels(m.bids), asks: levels(m.asks),
+    };
+    return [{ kind: 'book', event: snap }];
   }
 
   if (eventType === 'price_change') {
@@ -58,9 +49,16 @@ function parseFrame(m: Record<string, unknown>): ParsedEvent[] {
     const out: ParsedEvent[] = [];
     for (const c of changes) {
       const ch = c as Record<string, unknown>;
-      const e = bookEvent(String(ch.asset_id ?? ''), m.market, m.timestamp, 'price_change',
-        num(ch.best_bid), num(ch.best_ask));
-      if (e) out.push(e);
+      const tokenId = String(ch.asset_id ?? '');
+      const price = num(ch.price);
+      if (!tokenId || price === null) continue;
+      const delta: BookDelta = {
+        time: toDate(m.timestamp), tokenId, marketId: String(m.market ?? ''),
+        eventType: 'price_change', price, size: num(ch.size) ?? 0,
+        side: String(ch.side ?? ''),
+        reportedBestBid: num(ch.best_bid), reportedBestAsk: num(ch.best_ask),
+      };
+      out.push({ kind: 'book', event: delta });
     }
     return out;
   }
