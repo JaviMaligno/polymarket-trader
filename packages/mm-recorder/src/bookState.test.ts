@@ -48,6 +48,16 @@ describe('BookState', () => {
     expect(row!.bestBidSize).toBe(50);
   });
 
+  it('delta on the SELL side upserts the ask ladder and looks up ask size', () => {
+    const s = new BookState();
+    s.apply(snap([[0.40, 100]], [[0.42, 80], [0.43, 20]]));
+    // best ask level removed -> feed reports new best_ask 0.43; ladder has its size 20
+    const row = s.apply(delta(0.42, 0, 'SELL', 0.40, 0.43));
+    expect(row).not.toBeNull();
+    expect(row!.bestAsk).toBe(0.43);
+    expect(row!.bestAskSize).toBe(20);
+  });
+
   it('delta size lookup is null when the reported best price is unknown to the ladder', () => {
     const s = new BookState();
     s.apply(snap([[0.40, 100]], [[0.42, 80]]));
