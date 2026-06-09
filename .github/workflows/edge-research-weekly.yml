@@ -69,7 +69,11 @@ jobs:
           python-version: '3.13'
 
       - name: Install deps
-        run: pip install pandas numpy
+        # Install from the harness's own requirements (single source of truth) so
+        # the CI env never drifts from declared deps. The earlier `pip install
+        # pandas numpy` omitted PyYAML (registry.py loads registry.yaml), crashing
+        # the first scheduled run with ModuleNotFoundError: No module named 'yaml'.
+        run: pip install -r scripts/edge-research/requirements.txt
 
       - name: Run harness
         run: |

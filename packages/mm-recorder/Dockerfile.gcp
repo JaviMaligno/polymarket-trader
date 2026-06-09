@@ -1,0 +1,33 @@
+# mm-recorder — fine-cadence orderbook capture (GCP, standalone)
+# On-demand capture service; runs only under the `capture` compose profile.
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Install deps (incl. dev for the tsc build)
+COPY packages/mm-recorder/package.json ./
+RUN npm install
+
+# Build TypeScript
+COPY packages/mm-recorder/src ./src
+COPY packages/mm-recorder/tsconfig.json ./
+RUN npm run build
+
+# Production stage — minimal image
+FROM node:20-alpine AS production
+
+WORKDIR /app
+
+# Production deps only
+COPY packages/mm-recorder/package.json ./
+RUN npm install --omit=dev
+
+# Built JS
+COPY --from=builder /app/dist ./dist
+# The runtime reads schema.sql / selectUniverse.sql with readFileSync relative to
+# dist/ (import.meta.url dir). tsc does not copy non-TS files, so copy them in.
+COPY packages/mm-recorder/src/schema.sql packages/mm-recorder/src/selectUniverse.sql ./dist/
+
+ENV NODE_ENV=production
+
+CMD ["node", "dist/index.js"]
