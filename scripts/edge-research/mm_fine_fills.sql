@@ -19,7 +19,8 @@ CREATE TEMP TABLE te AS
 COPY (
   WITH j AS (
     SELECT t.market_id, t.token_id, t.tt, t.price, t.size,
-           b.best_bid, b.best_ask, b.mid AS mid_before
+           b.best_bid, b.best_ask, b.mid AS mid_before,
+           b.best_bid_size, b.best_ask_size
     FROM te t
     LEFT JOIN LATERAL (
       SELECT best_bid, best_ask, mid, best_bid_size, best_ask_size FROM be
