@@ -81,6 +81,16 @@ def test_profitable_bid_hit_passes():
     assert fin.edge_net_pct > 0
 
 
+def test_adverse_bid_hit_fails():
+    # bid-hit gone wrong: maker BOUGHT at 0.49 (bid), mid then FELL to 0.45 -> retained -1*(0.49-0.45)=-0.04 (loss).
+    # Guards against adverse bid-hit polarity inversion.
+    rows = [_row(f"2026-06-09T10:{i:02d}:00", -1, 10, 1, 0.49, 0.45) for i in range(60)]
+    v = MMFineValidator()
+    fin = _cohort(v, _front_ctx(rows), "event_financial:60s:all:front")
+    assert fin.status == "fail"
+    assert fin.edge_net_pct < 0
+
+
 def test_below_floor_is_inconclusive():
     # With mm_min_n=200 and only 10 rows -> inconclusive.
     rows = [_row(f"2026-06-09T10:{i:02d}:00", 1, 10, 1, 0.41, 0.40) for i in range(10)]
