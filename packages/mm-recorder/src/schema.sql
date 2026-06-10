@@ -34,6 +34,19 @@ CREATE TABLE IF NOT EXISTS mm_capture_gaps (
   reason      TEXT
 );
 
+-- H-MM-2: daily snapshot of each market's liquidity-rewards program (from the
+-- Gamma API; nothing else in the DB stores it). daily_rate is the sum of the
+-- programs active on the snapshot date, NULL when none. The recorder also
+-- creates this table at runtime (rewards.ts), so migrate is not required.
+CREATE TABLE IF NOT EXISTS mm_reward_snapshots (
+  time            TIMESTAMPTZ NOT NULL,
+  market_id       VARCHAR(128) NOT NULL,
+  min_size        DECIMAL(20,6),
+  max_spread      DECIMAL(10,6),
+  daily_rate      DECIMAL(20,6)
+);
+CREATE INDEX IF NOT EXISTS idx_mm_rewards_market_time ON mm_reward_snapshots (market_id, time);
+
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb') THEN

@@ -4,6 +4,7 @@ import { selectUniverse } from './selectUniverse.js';
 import { BookState } from './bookState.js';
 import { BatchSink } from './sink.js';
 import { runRecorder } from './wsClient.js';
+import { snapshotRewards } from './rewards.js';
 
 const logger = pino({ name: 'mm-recorder' });
 
@@ -38,9 +39,17 @@ async function main() {
   const handle = runRecorder({ assetIds, state: stateProxy, sink, recordGap });
   logger.info({ markets: n, tokens: assetIds.length }, 'recorder started');
 
+  // H-MM-2: daily snapshot of each market's liquidity-rewards program (Gamma).
+  const marketIds = [...new Set(universe.map((r) => r.market_id))];
+  const snap = () => snapshotRewards((sql, params) => query(sql, params), marketIds)
+    .catch((e) => logger.warn({ e }, 'rewards snapshot failed'));
+  void snap();
+  const rewardsTimer = setInterval(snap, 24 * 60 * 60 * 1000);
+
   const shutdown = async () => {
     handle.stop();
     clearInterval(flushTimer);
+    clearInterval(rewardsTimer);
     await sink.flush().catch(() => undefined);
     await closePool();
     process.exit(0);
