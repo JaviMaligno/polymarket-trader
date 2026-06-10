@@ -18,6 +18,27 @@ export function backoffMs(attempt: number): number {
   return Math.min(1000 * 2 ** attempt, 30000);
 }
 
+// A capture gap is the window WITHOUT data: [first disconnect, reconnect].
+// Multiple downs before a successful reconnect extend the same gap.
+export class GapTracker {
+  private downAt: Date | null = null;
+  private downWhy = '';
+
+  down(at: Date, why: string): void {
+    if (this.downAt === null) {
+      this.downAt = at;
+      this.downWhy = why;
+    }
+  }
+
+  up(at: Date): { start: Date; end: Date; reason: string } | null {
+    if (this.downAt === null) return null;
+    const gap = { start: this.downAt, end: at, reason: this.downWhy };
+    this.downAt = null;
+    return gap;
+  }
+}
+
 export interface RecorderDeps {
   assetIds: string[];
   state: BookState;
@@ -29,7 +50,7 @@ export function runRecorder(deps: RecorderDeps): { stop: () => void } {
   let attempt = 0;
   let ws: WebSocket | null = null;
   let pingTimer: NodeJS.Timeout | null = null;
-  let lastUp = new Date();
+  const gaps = new GapTracker();
   let stopped = false;
 
   const connect = () => {
@@ -40,6 +61,8 @@ export function runRecorder(deps: RecorderDeps): { stop: () => void } {
       attempt = 0;
       ws!.send(buildSubscribe(deps.assetIds));
       pingTimer = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send('PING'), 10000);
+      const gap = gaps.up(new Date());
+      if (gap) deps.recordGap(gap.start, gap.end, gap.reason).catch(() => undefined);
       logger.info({ n: deps.assetIds.length }, 'subscribed');
     });
 
@@ -61,9 +84,7 @@ export function runRecorder(deps: RecorderDeps): { stop: () => void } {
     const onDown = async (why: string) => {
       if (pingTimer) clearInterval(pingTimer);
       await deps.sink.flush().catch(() => undefined);
-      const now = new Date();
-      await deps.recordGap(lastUp, now, why).catch(() => undefined);
-      lastUp = now;
+      gaps.down(new Date(), why);
       if (stopped) return;
       const wait = backoffMs(attempt++);
       logger.warn({ why, wait }, 'reconnecting');
