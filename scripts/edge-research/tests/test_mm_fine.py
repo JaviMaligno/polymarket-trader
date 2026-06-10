@@ -6,10 +6,17 @@ from validators.mm_fine import MMFineValidator
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _ctx(df, min_n=1):
-    return types.SimpleNamespace(datasets={"mm_fine_fills": df}, cost=0.005,
+def _ctx(df, min_n=1, gaps=None):
+    datasets = {"mm_fine_fills": df, "mm_gaps": gaps}
+    return types.SimpleNamespace(datasets=datasets, cost=0.005,
                                  computed_at="x", n_bins=10, min_n=200,
                                  mm_min_n=min_n, seed=7)
+
+
+def _gaps(*windows):
+    return pd.DataFrame(
+        [{"gap_start": pd.Timestamp(s, tz="UTC"), "gap_end": pd.Timestamp(e, tz="UTC")}
+         for s, e in windows])
 
 
 def _row(tt, maker_sign, size, touch_size, maker_price, mid_after,
@@ -143,3 +150,46 @@ def test_emits_front_and_back_size_split_cohorts():
     for bound in ("front", "back"):
         for size in ("all", "large"):
             assert f"event_financial:10s:{size}:{bound}" in labels
+
+
+# ---------------------------------------------------------------------------
+# Capture-gap exclusion (spec §Componente 4 follow-up): trades inside a
+# mm_capture_gaps window are unreliable (book state unknown) and must not
+# produce fills; crossing a gap invalidates any accumulated queue position.
+# ---------------------------------------------------------------------------
+
+def test_trade_inside_gap_window_is_excluded():
+    df = pd.DataFrame([_row("2026-06-09T10:00:30", -1, 10, 1000, 0.49, 0.50)])
+    gaps = _gaps(("2026-06-09T10:00:00", "2026-06-09T10:01:00"))
+    out = MMFineValidator().run(_ctx(df, gaps=gaps))
+    front = [v for v in out if v.class_metric["cohort"] == "event_financial:10s:all:front"]
+    assert front[0].n == 0
+
+
+def test_gap_between_trades_resets_back_bound_queue():
+    # touch=20, trades of 15: without a gap the 2nd trade clears the queue
+    # (15+15 > 20 -> fill). With a gap in between, the maker re-places and
+    # size_ahead resets to 20 -> the 2nd trade does NOT fill.
+    rows = [
+        _row("2026-06-09T10:00:00", -1, 15, 20, 0.49, 0.50),
+        _row("2026-06-09T10:05:00", -1, 15, 20, 0.49, 0.50),
+    ]
+    df = pd.DataFrame(rows)
+    no_gap = MMFineValidator().run(_ctx(df))
+    back = [v for v in no_gap if v.class_metric["cohort"] == "event_financial:10s:all:back"]
+    assert back[0].n == 1
+
+    gaps = _gaps(("2026-06-09T10:02:00", "2026-06-09T10:03:00"))
+    gapped = MMFineValidator().run(_ctx(df, gaps=gaps))
+    back = [v for v in gapped if v.class_metric["cohort"] == "event_financial:10s:all:back"]
+    assert back[0].n == 0
+
+
+def test_missing_gaps_dataset_keeps_current_behavior():
+    df = pd.DataFrame([_row("2026-06-09T10:00:00", -1, 10, 1000, 0.49, 0.50)])
+    ctx = types.SimpleNamespace(datasets={"mm_fine_fills": df}, cost=0.005,
+                                computed_at="x", n_bins=10, min_n=200,
+                                mm_min_n=1, seed=7)
+    out = MMFineValidator().run(ctx)
+    front = [v for v in out if v.class_metric["cohort"] == "event_financial:10s:all:front"]
+    assert front[0].n == 1

@@ -22,11 +22,12 @@ class MMFineValidator:
         df = ctx.datasets["mm_fine_fills"].copy()
         df["tradeable"] = df["market_type"] != "event_long"
         p75 = df["size"].quantile(0.75) if len(df) else 0.0
+        gap_windows = self._gap_windows(ctx.datasets.get("mm_gaps"))
 
         fills = []
         for bound in ("front", "back"):
             for _tok, sub in df.sort_values("time").groupby("token_id", sort=False):
-                fills.extend(self._walk(sub, bound))
+                fills.extend(self._walk(sub, bound, gap_windows))
         fdf = self._to_frame(fills)
 
         groups = [("headline:tradeable", lambda d: d["tradeable"])]
@@ -45,10 +46,30 @@ class MMFineValidator:
                         out.append(self._verdict(ctx, cohort, sub, hcol))
         return out
 
-    def _walk(self, sub, bound) -> list[dict]:
+    @staticmethod
+    def _gap_windows(gaps) -> list[tuple]:
+        """mm_capture_gaps as sorted (start, end) tuples; None/empty → no gaps."""
+        if gaps is None or not len(gaps):
+            return []
+        g = gaps.sort_values("gap_start")
+        return list(zip(g["gap_start"], g["gap_end"]))
+
+    def _walk(self, sub, bound, gap_windows=()) -> list[dict]:
         size_ahead = {-1: None, 1: None}  # -1 bid side, +1 ask side; None = not placed
         out = []
+        gi, pending_reset = 0, False
         for r in sub.itertuples(index=False):
+            # Capture gaps: a trade inside [gap_start, gap_end] saw an unknown
+            # book → drop it; once a gap has passed, any accumulated queue
+            # position is stale → re-place quotes (reset both sides).
+            while gi < len(gap_windows) and gap_windows[gi][1] < r.time:
+                gi += 1
+                pending_reset = True
+            if gi < len(gap_windows) and gap_windows[gi][0] <= r.time <= gap_windows[gi][1]:
+                continue
+            if pending_reset:
+                size_ahead = {-1: None, 1: None}
+                pending_reset = False
             sign = int(r.maker_sign)
             if sign not in (-1, 1):
                 continue

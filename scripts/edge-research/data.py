@@ -133,4 +133,11 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
         out["mm_fine_fills"] = fine if len(fine) else None
     except Exception:
         out["mm_fine_fills"] = None
+    try:
+        # Optional: capture-gap windows the H-MM-3 walk must skip/reset over.
+        # None (missing or empty) means "no gaps" — it never blocks H-MM-3.
+        gaps = _read_raw_csv(d / "mm_gaps.csv", ["gap_start", "gap_end"])
+        out["mm_gaps"] = gaps if len(gaps) else None
+    except Exception:
+        out["mm_gaps"] = None
     return out

@@ -60,8 +60,12 @@ jobs:
           PSQL="docker exec polymarket-timescaledb psql -U polymarket -d polymarket_trading -c"
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL \"\\copy (SELECT market_id, snapshot_at, end_date, yes_price, market_type, market_score, outcome_yes FROM market_panel WHERE outcome_yes IS NOT NULL) TO STDOUT WITH CSV HEADER\"" > datasets/market_panel.csv
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL \"\\copy (SELECT market_id, entry_yes_price, market_type, net_pnl, net_pnl_real, entry_cost_real, resolved_at FROM flb_shadow_signals WHERE net_pnl_real IS NOT NULL) TO STDOUT WITH CSV HEADER\"" > datasets/flb_shadow_signals.csv
+          # Capture-gap windows: H-MM-3's walk drops trades inside a gap and
+          # resets its queue state when crossing one. Empty file is fine (no gaps).
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL \"\\copy (SELECT gap_start, gap_end FROM mm_capture_gaps ORDER BY gap_start) TO STDOUT WITH CSV HEADER\"" > datasets/mm_gaps.csv
           echo "market_panel rows: $(($(wc -l < datasets/market_panel.csv) - 1))"
           echo "flb rows: $(($(wc -l < datasets/flb_shadow_signals.csv) - 1))"
+          echo "mm_gaps rows: $(($(wc -l < datasets/mm_gaps.csv) - 1))"
 
       - name: Export market-making datasets from VM as CSV
         # H-MM-1 (mm_trade_spreads) and H-MM-3 (mm_fine_fills) are built by

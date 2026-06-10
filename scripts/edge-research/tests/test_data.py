@@ -50,7 +50,8 @@ def test_load_from_dir_matches_db_shaping(tmp_path):
     # The CSV path produces the DB-path tokens plus the CSV-only mm_trade_spreads
     # token (None here, since no mm_trade_spreads.csv was written).
     assert set(out) == {"market_panel_resolved", "market_panel_full",
-                        "flb_shadow_signals", "mm_trade_spreads", "mm_fine_fills"}
+                        "flb_shadow_signals", "mm_trade_spreads", "mm_fine_fills",
+                        "mm_gaps"}
     assert out["mm_trade_spreads"] is None
     assert out["mm_fine_fills"] is None
     res = out["market_panel_resolved"]
@@ -130,3 +131,19 @@ def test_load_from_dir_mm_missing_maps_to_none(tmp_path):
     out = load_all_datasets_from_dir(str(tmp_path))
     assert out["mm_trade_spreads"] is None
     assert out["market_panel_resolved"] is not None
+
+
+def test_load_from_dir_mm_gaps(tmp_path):
+    pd.DataFrame({
+        "gap_start": ["2026-06-10 12:00:00.5+00", "2026-06-10 13:00:00+00"],
+        "gap_end": ["2026-06-10 12:00:02+00", "2026-06-10 13:00:01.25+00"],
+    }).to_csv(tmp_path / "mm_gaps.csv", index=False)
+    out = load_all_datasets_from_dir(str(tmp_path))
+    assert out["mm_gaps"] is not None
+    assert len(out["mm_gaps"]) == 2
+    assert str(out["mm_gaps"]["gap_start"].dtype).startswith("datetime64")
+
+
+def test_load_from_dir_mm_gaps_missing_maps_to_none(tmp_path):
+    out = load_all_datasets_from_dir(str(tmp_path))
+    assert out["mm_gaps"] is None
