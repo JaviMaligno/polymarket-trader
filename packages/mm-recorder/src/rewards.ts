@@ -69,9 +69,13 @@ export async function fetchGammaMarkets(
     const qs = ids.map((id) => `condition_ids=${encodeURIComponent(id)}`).join('&');
     try {
       const res = await fetchImpl(`${GAMMA_URL}?${qs}`);
-      if (!res.ok) continue;
+      if (!res.ok) {
+        logger.warn({ status: (res as { status?: number }).status, n: ids.length }, 'gamma chunk not ok, skipping');
+        continue;
+      }
       const body = await res.json();
       if (Array.isArray(body)) out.push(...(body as Record<string, unknown>[]));
+      else logger.warn({ n: ids.length }, 'gamma chunk returned non-array, skipping');
     } catch (e) {
       logger.warn({ e, n: ids.length }, 'gamma chunk failed, skipping');
     }

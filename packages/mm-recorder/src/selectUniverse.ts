@@ -5,9 +5,15 @@ import { query, closePool } from './db.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-export async function selectUniverse(n: number): Promise<{ market_id: string; token_id: string }[]> {
+export type UniverseRow = {
+  market_id: string;     // markets.id (numeric) — book-event enrichment
+  condition_id: string;  // CLOB 0x hash — Gamma queries (rewards)
+  token_id: string;
+};
+
+export async function selectUniverse(n: number): Promise<UniverseRow[]> {
   const sql = readFileSync(join(here, 'selectUniverse.sql'), 'utf8');
-  return query<{ market_id: string; token_id: string }>(sql, [n]);
+  return query<UniverseRow>(sql, [n]);
 }
 
 async function main() {
