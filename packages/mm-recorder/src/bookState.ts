@@ -63,4 +63,14 @@ export class BookState {
     if (!p || p.bid === null || p.ask === null) return null;
     return (p.bid + p.ask) / 2;
   }
+
+  /** Size actual del nivel `price` en el lado `side` (-1 bids, +1 asks);
+   *  null si el token o el nivel no se conocen. */
+  levelSize(tokenId: string, side: -1 | 1, price: number): number | null {
+    const ladder = this.books.get(tokenId);
+    if (!ladder) return null;
+    const m = side === -1 ? ladder.bids : ladder.asks;
+    const v = m.get(price);
+    return v ?? null;
+  }
 }

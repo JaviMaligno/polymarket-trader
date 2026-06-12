@@ -75,3 +75,34 @@ describe('BookState', () => {
     expect(s.midOf('TKN')).toBeCloseTo(0.41, 6);
   });
 });
+
+describe('levelSize', () => {
+  it('returns the ladder size at a price level and null when unknown', () => {
+    const s = new BookState();
+    s.apply({
+      time: new Date('2026-06-12T10:00:00Z'), tokenId: 'T', marketId: 'M',
+      eventType: 'book',
+      bids: [{ price: 0.49, size: 100 }, { price: 0.48, size: 50 }],
+      asks: [{ price: 0.51, size: 80 }],
+    });
+    expect(s.levelSize('T', -1, 0.49)).toBe(100);
+    expect(s.levelSize('T', -1, 0.48)).toBe(50);
+    expect(s.levelSize('T', 1, 0.51)).toBe(80);
+    expect(s.levelSize('T', -1, 0.40)).toBeNull();
+    expect(s.levelSize('X', -1, 0.49)).toBeNull();
+  });
+
+  it('tracks deltas: a price_change updates the level size', () => {
+    const s = new BookState();
+    s.apply({
+      time: new Date('2026-06-12T10:00:00Z'), tokenId: 'T', marketId: 'M',
+      eventType: 'book', bids: [{ price: 0.49, size: 100 }], asks: [{ price: 0.51, size: 80 }],
+    });
+    s.apply({
+      time: new Date('2026-06-12T10:00:01Z'), tokenId: 'T', marketId: 'M',
+      eventType: 'price_change', price: 0.49, size: 30, side: 'BUY',
+      reportedBestBid: 0.49, reportedBestAsk: 0.51,
+    });
+    expect(s.levelSize('T', -1, 0.49)).toBe(30);
+  });
+});
