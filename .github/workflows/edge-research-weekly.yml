@@ -83,13 +83,17 @@ jobs:
           PSQL="docker exec -i polymarket-timescaledb psql -U polymarket -d polymarket_trading -q -v ON_ERROR_STOP=1"
           TS="/tmp/mm_trade_spreads_${GITHUB_RUN_ID}.sql"
           FF="/tmp/mm_fine_fills_${GITHUB_RUN_ID}.sql"
+          SF="/tmp/mm_shadow_fills_${GITHUB_RUN_ID}.sql"
           gcloud compute scp scripts/edge-research/mm_trade_spreads.sql "polymarket-vm:${TS}" --zone=us-east1-b
           gcloud compute scp scripts/edge-research/mm_fine_fills.sql   "polymarket-vm:${FF}" --zone=us-east1-b
+          gcloud compute scp scripts/edge-research/mm_shadow_fills.sql "polymarket-vm:${SF}" --zone=us-east1-b
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${TS}" > datasets/mm_trade_spreads.csv
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${FF}" > datasets/mm_fine_fills.csv
-          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="rm -f ${TS} ${FF}" || true
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${SF}" > datasets/mm_shadow_fills.csv
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="rm -f ${TS} ${FF} ${SF}" || true
           echo "mm_trade_spreads rows: $(($(wc -l < datasets/mm_trade_spreads.csv) - 1))"
           echo "mm_fine_fills rows: $(($(wc -l < datasets/mm_fine_fills.csv) - 1))"
+          echo "mm_shadow_fills rows: $(($(wc -l < datasets/mm_shadow_fills.csv) - 1))"
 
       - name: Setup Python
         uses: actions/setup-python@v5

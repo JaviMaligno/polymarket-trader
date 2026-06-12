@@ -51,7 +51,7 @@ def test_load_from_dir_matches_db_shaping(tmp_path):
     # token (None here, since no mm_trade_spreads.csv was written).
     assert set(out) == {"market_panel_resolved", "market_panel_full",
                         "flb_shadow_signals", "mm_trade_spreads", "mm_fine_fills",
-                        "mm_gaps"}
+                        "mm_gaps", "mm_shadow_fills"}
     assert out["mm_trade_spreads"] is None
     assert out["mm_fine_fills"] is None
     res = out["market_panel_resolved"]

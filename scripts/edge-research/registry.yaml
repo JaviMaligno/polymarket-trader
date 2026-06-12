@@ -12,6 +12,7 @@
 - {id: H-MM-1, class: market_making, name: Spread capture net of adverse selection, required_data: [mm_trade_spreads], status: planned, priority: 2, depends_on: []}
 - {id: H-MM-2, class: market_making, name: Liquidity-rewards subsidy, required_data: [gamma_rewards], status: planned, priority: 3, depends_on: []}
 - {id: H-MM-3, class: market_making, name: Fine-cadence maker fill-sim, required_data: [mm_fine_fills], status: planned, priority: 2, depends_on: []}
+- {id: H-MM-4, class: market_making, name: Shadow quoter retained spread (cola exacta), required_data: [mm_shadow_fills], status: planned, priority: 2, depends_on: []}
 - {id: H-ENS-1, class: ensemble, name: Combination of validated signals, required_data: [], status: planned, priority: 2, depends_on: []}
 - {id: H-ARB-1, class: arbitrage, name: Cross-venue, required_data: [], status: closed, priority: 9, depends_on: []}
 - {id: H-ARB-2, class: arbitrage, name: Same-venue structural sum-arb, required_data: [], status: closed, priority: 9, depends_on: []}

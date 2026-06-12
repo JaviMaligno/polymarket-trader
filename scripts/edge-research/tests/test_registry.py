@@ -4,7 +4,7 @@ def test_load_registry_parses_catalogue():
     entries = load_registry()  # default path = registry.yaml next to module
     ids = {e["id"] for e in entries}
     assert "H-CAL-1" in ids and "H-ARB-1" in ids
-    assert len(entries) == 17
+    assert len(entries) == 18
 
 def test_runnable_filters_on_available_data_and_status():
     entries = [
