@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { QuoteEngine } from '../engine.js';
-import { loadConfig } from '../config.js';
-import { BookState } from '../../bookState.js';
+import { QuoteEngine } from './engine.js';
+import { loadConfig } from './config.js';
+import { BookState } from '../bookState.js';
 
 const t = (s: number) => new Date(Date.UTC(2026, 5, 12, 10, 0, s));
 
