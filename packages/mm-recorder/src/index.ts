@@ -112,7 +112,7 @@ async function main() {
     onEvent: engine
       ? (kind, event, row) => {
           if (kind === 'book') engine!.onBook(event as BookInput, row as Parameters<QuoteEngine['onBook']>[1]);
-          else void engine!.onTrade(event as TradeEvent);
+          else void engine!.onTrade(event as TradeEvent).catch((e) => logger.warn({ e }, 'quoter onTrade failed'));
         }
       : undefined,
     onGap: engine ? () => engine!.onGap() : undefined,
