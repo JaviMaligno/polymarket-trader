@@ -55,9 +55,9 @@ export class ShadowLedger {
   }
 
   /** Procesa un trade contra todas las quotes activas del tokenId.
-   *  levelSize: size actual del nivel donde está nuestra quote (bound cancels);
-   *  null si no se conoce. */
-  onTrade(tr: LedgerTrade, levelSize: number | null): ShadowFill[] {
+   *  levelFor: función que devuelve el size actual del nivel para cada side
+   *  (bound cancels); devuelve null si no se conoce. */
+  onTrade(tr: LedgerTrade, levelFor: (side: Side) => number | null): ShadowFill[] {
     const fills: ShadowFill[] = [];
     for (const side of [-1, 1] as Side[]) {
       const q = this.quotes.get(this.key(tr.tokenId, side));
@@ -70,11 +70,13 @@ export class ShadowLedger {
       const atLevel = tTicks === qTicks;
       if (!crossed && !atLevel) continue;
 
+      const levelSize = levelFor(side);
+
       for (const bound of ['trades', 'cancels'] as DrainBound[]) {
         const st = q.bounds[bound];
         if (st.remaining <= 0) continue;
 
-        // bound cancels: clampar la cola al nivel actual (asume cancels delante)
+        // bound cancels: clampar la cola al nivel actual de ese side (asume cancels delante)
         if (bound === 'cancels' && levelSize !== null) {
           st.queue = Math.min(st.queue, levelSize);
         }
