@@ -23,7 +23,7 @@ export function desiredQuotes(inp: PolicyInput, cfg: QuoterConfig): DesiredQuote
     const flags: string[] = [];
     let price = side === -1 ? bestBid : bestAsk;
     const band = inp.rewards?.maxSpreadCents != null ? inp.rewards.maxSpreadCents / 100 : null;
-    if (band !== null && Math.abs(mid - price) > band) {
+    if (band !== null && Math.abs(mid - price) > band + 1e-9) {
       price = round(side === -1 ? mid - band : mid + band, cfg.tick);
       flags.push('rewards_constrained');
     }
@@ -45,6 +45,7 @@ export function desiredQuotes(inp: PolicyInput, cfg: QuoterConfig): DesiredQuote
   // exit_improve: sobre el soft cap, el lado reductor mejora 1 tick si no cruza.
   if (inp.inventoryNotional >= cfg.softInvPerMarket) {
     if (long && ask) {
+      // `better` is tick-rounded while bestBid/bestAsk come tick-aligned from the feed, so mixing them is safe.
       const better = round(ask.price - cfg.tick, cfg.tick);
       if (better > bestBid) { ask = { ...ask, price: better, flags: [...ask.flags, 'exit_improve'] }; }
     }

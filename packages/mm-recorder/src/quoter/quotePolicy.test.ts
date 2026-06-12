@@ -64,6 +64,15 @@ describe('desiredQuotes — rewards', () => {
     expect(q.bid!.price).toBe(0.48);
     expect(q.bid!.flags).toEqual([]);
   });
+
+  it('touch exactamente en el borde de banda (maxSpreadCents=2) -> join-the-touch, sin rewards_constrained', () => {
+    // mid=0.50, band=0.02 -> borde en 0.48/0.52; IEEE noise como 0.020000000000000004 no debe disparar la flag
+    const q = desiredQuotes({ ...base, rewards: { minSize: null, maxSpreadCents: 2, dailyRate: 10 } }, cfg);
+    expect(q.bid!.price).toBe(0.48);
+    expect(q.ask!.price).toBe(0.52);
+    expect(q.bid!.flags).not.toContain('rewards_constrained');
+    expect(q.ask!.flags).not.toContain('rewards_constrained');
+  });
 });
 
 describe('desiredQuotes — inventario', () => {

@@ -9,6 +9,7 @@ export class InventoryBook {
   private cashAcc = 0;
 
   applyFill(marketId: string, side: Side, price: number, size: number): void {
+    if (size < 0 || !Number.isFinite(size)) throw new Error(`applyFill: invalid size ${size}`);
     const p = this.pos.get(marketId) ?? { shares: 0, avg: 0, realized: 0 };
     const delta = side === -1 ? size : -size;       // compra suma shares
     this.cashAcc += side === -1 ? -price * size : price * size;

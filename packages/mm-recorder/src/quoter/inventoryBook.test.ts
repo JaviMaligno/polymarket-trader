@@ -54,4 +54,25 @@ describe('InventoryBook', () => {
     expect(b.notional('M1')).toBeCloseTo(0.45 * 20, 10);
     expect(b.totalNotional()).toBeCloseTo(0.45 * 20, 10);
   });
+
+  it('applyFill lanza error con size negativo', () => {
+    const b = new InventoryBook();
+    expect(() => b.applyFill('M1', -1, 0.50, -5)).toThrow();
+  });
+
+  it('multi-market: totalRealized, totalNotional e invariante equity', () => {
+    const b = new InventoryBook();
+    // M1: round-trip buy 10 @0.40, sell 10 @0.50 -> realized = 1.0, posición 0
+    b.applyFill('M1', -1, 0.40, 10);
+    b.applyFill('M1', 1, 0.50, 10);
+    // M2: buy 20 @0.30 -> posición abierta 20 shares avg 0.30, notional 6.0
+    b.applyFill('M2', -1, 0.30, 20);
+
+    expect(b.totalRealized()).toBeCloseTo(1.0, 10);
+    expect(b.totalNotional()).toBeCloseTo(6.0, 10);
+
+    // equity invariant con mid M1=0.45, M2=0.35
+    const mids = new Map([['M1', 0.45], ['M2', 0.35]]);
+    expect(b.equity(mids)).toBeCloseTo(b.cash() + b.m2m(mids), 10);
+  });
 });
