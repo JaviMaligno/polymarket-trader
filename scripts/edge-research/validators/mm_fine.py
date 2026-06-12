@@ -56,6 +56,12 @@ class MMFineValidator:
 
     def _walk(self, sub, bound, gap_windows=()) -> list[dict]:
         size_ahead = {-1: None, 1: None}  # -1 bid side, +1 ask side; None = not placed
+        # A limit order is pinned at its placement price: the quote joins the
+        # touch when placed and keeps that price while its queue drains. Using
+        # the fill-time best instead would let the quote keep its queue priority
+        # AND re-price with the sliding book — understating adverse loss on
+        # directional sweeps (the exact scenario the back bound exists for).
+        placed_at = {-1: None, 1: None}
         out = []
         gi, pending_reset = 0, False
         for r in sub.itertuples(index=False):
@@ -69,6 +75,7 @@ class MMFineValidator:
                 continue
             if pending_reset:
                 size_ahead = {-1: None, 1: None}
+                placed_at = {-1: None, 1: None}
                 pending_reset = False
             sign = int(r.maker_sign)
             if sign not in (-1, 1):
@@ -76,14 +83,19 @@ class MMFineValidator:
             touch = r.best_bid_size if sign == -1 else r.best_ask_size
             if size_ahead[sign] is None:
                 size_ahead[sign] = 0.0 if bound == "front" else self._queue(touch)
+                # The row initialising side `sign` is itself a `sign`-side trade,
+                # so its maker_price is the touch on our side at placement time.
+                placed_at[sign] = float(r.maker_price)
             tsize = float(r.size) if r.size == r.size else 0.0
             size_ahead[sign] -= tsize
             if size_ahead[sign] <= 0:
+                price = placed_at[sign]
                 out.append({
                     "market_type": r.market_type, "tradeable": bool(r.tradeable),
                     "size": float(r.size) if r.size == r.size else 0.0, "bound": bound,
-                    "ret_10s": self._ret(r, r.mid_10s), "ret_60s": self._ret(r, r.mid_60s),
-                    "ret_300s": self._ret(r, r.mid_300s),
+                    "ret_10s": self._ret(sign, price, r.mid_10s),
+                    "ret_60s": self._ret(sign, price, r.mid_60s),
+                    "ret_300s": self._ret(sign, price, r.mid_300s),
                 })
                 size_ahead[sign] = None
         return out
@@ -93,10 +105,10 @@ class MMFineValidator:
         return float(touch) if touch is not None and touch == touch else 0.0
 
     @staticmethod
-    def _ret(r, mid_after):
+    def _ret(sign, maker_price, mid_after):
         if mid_after != mid_after:
             return float("nan")
-        return float(r.maker_sign) * (float(r.maker_price) - float(mid_after))
+        return float(sign) * (float(maker_price) - float(mid_after))
 
     @staticmethod
     def _to_frame(fills):

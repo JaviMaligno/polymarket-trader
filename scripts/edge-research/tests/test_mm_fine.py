@@ -144,6 +144,23 @@ def test_back_bound_fills_after_volume_exceeds_queue():
     assert back[0].n == 1
 
 
+def test_back_bound_fill_price_anchored_to_placement():
+    # A real limit order is pinned at its placement price. Quote joins the bid
+    # at 0.49 (row 1: touch 20, sell 15 — queue survives). The book slides to
+    # 0.47 before row 2's sell (15) clears the queue (15+15 > 20 -> fill).
+    # Retained must use the PLACEMENT price 0.49, not the fill-time best 0.47:
+    # -1*(0.49-0.45) = -0.04. Re-pricing to 0.47 while keeping the accumulated
+    # queue priority would understate the adverse loss (-0.02).
+    rows = [
+        _row("2026-06-09T10:00:00", -1, 15, 20, 0.49, 0.45),
+        _row("2026-06-09T10:00:30", -1, 15, 20, 0.47, 0.45),
+    ]
+    out = MMFineValidator().run(_ctx(pd.DataFrame(rows)))
+    back = next(v for v in out if v.class_metric["cohort"] == "event_financial:60s:all:back")
+    assert back.n == 1
+    assert abs(back.edge_net_pct - (-0.04)) < 1e-9
+
+
 def test_emits_front_and_back_size_split_cohorts():
     df = pd.DataFrame([_row("2026-06-09T10:00:00", -1, 10, 5, 0.49, 0.50)])
     labels = {v.class_metric["cohort"] for v in MMFineValidator().run(_ctx(df))}
