@@ -74,3 +74,52 @@ describe('ShadowLedger — drain por trades, precio anclado', () => {
     expect(f.spreadAtPlacement).toBe(0.04);
   });
 });
+
+describe('ShadowLedger — bound cancels', () => {
+  it('cancels bound fills earlier when the level shrinks without trades', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 50);
+    // El nivel se encogió a 5 (cancels delante asumidos): el bound cancels
+    // se llena con un trade de 10; el bound trades aún no (cola 50).
+    const fills = l.onTrade({ tokenId: 'T', time: t(1), price: 0.48, size: 10 }, 5);
+    expect(fills.map((f) => f.bound)).toEqual(['cancels']);
+    expect(fills[0].size).toBe(5); // 10 - queue(5)
+  });
+
+  it('cancels queue never exceeds trades queue (invariant: cancels fills first)', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 40);
+    // secuencia generada: el bound cancels nunca debe llenarse DESPUÉS del trades
+    const seq: Array<{ size: number; level: number | null }> = [
+      { size: 5, level: 35 }, { size: 10, level: 20 }, { size: 15, level: 10 }, { size: 25, level: 2 },
+    ];
+    let tradesFilled = 0, cancelsFilled = 0, i = 0;
+    for (const s of seq) {
+      i += 1;
+      for (const f of l.onTrade({ tokenId: 'T', time: t(i), price: 0.48, size: s.size }, s.level)) {
+        if (f.bound === 'trades') tradesFilled += f.size;
+        if (f.bound === 'cancels') cancelsFilled += f.size;
+      }
+      expect(cancelsFilled).toBeGreaterThanOrEqual(tradesFilled);
+    }
+  });
+
+  it('queue never goes negative after reset (re-place)', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 10);
+    l.onTrade({ tokenId: 'T', time: t(1), price: 0.48, size: 100 }, null); // fill total
+    place(l, -1, 0.47, 30); // re-place
+    const q = l.active('T', -1)!;
+    expect(q.bounds.trades.queue).toBe(30);
+    expect(q.bounds.trades.remaining).toBe(20);
+  });
+
+  it('out-of-order trade events do not crash and are processed deterministically', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 20);
+    const f1 = l.onTrade({ tokenId: 'T', time: t(5), price: 0.48, size: 15 }, null);
+    const f2 = l.onTrade({ tokenId: 'T', time: t(3), price: 0.48, size: 15 }, null); // anterior en el tiempo
+    expect(f1).toEqual([]);
+    expect(f2.find((x) => x.bound === 'trades')!.size).toBe(10); // 30 acumulado - 20 cola
+  });
+});
