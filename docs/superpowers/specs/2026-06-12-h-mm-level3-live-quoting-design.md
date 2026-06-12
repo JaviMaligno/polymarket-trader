@@ -82,7 +82,17 @@ mejor cohorte + programa de rewards).
   `rewards_constrained` y se analizan como cohorte aparte (no medida offline).
 - **Guards (no quotar):** near-resolution (<24h a end_date, parám.); libro
   one-sided o vacío; inventario al cap → se retira solo el lado que lo
-  aumentaría (sin pricing-skew continuo en v1).
+  aumentaría (sin pricing-skew continuo en v1); **volatility pause** — si
+  |Δmid| en la ventana reciente supera umbral, retirar ambos lados (el riesgo
+  dominante son jumps por noticias; el umbral se aprende en shadow de la curva
+  retained vs volatilidad previa, default conservador en live).
+- **Salida de inventario (`exit_improve`):** el lado que reduce inventario se
+  mantiene quotado siempre que sea elegible (prioridad de salida); si el
+  inventario del mercado supera el soft-cap, ese lado puede **mejorar el touch
+  1 tick** (nunca cruzar el spread). Es el mecanismo activo de realización del
+  spread — sin él, en flujo direccional el inventario se acumula y el retained
+  medido nunca se convierte en caja. Cohorte etiquetada `exit_improve`,
+  medible por separado en shadow (no está en la medición offline).
 - **Umbral de spread: aprendido, no hardcodeado.** En shadow se quota todo y se
   mide retained por banda de spread; `MM_MIN_SPREAD_CENTS` para live se fija en
   el gate con esa curva. (Motivado por la auditoría 2026-06-12: el retained se
@@ -92,9 +102,12 @@ mejor cohorte + programa de rewards).
 - **Re-quote con histéresis:** cancel/replace solo por price-out o por salida
   de banda rewards; nunca por cambios de tamaño del touch. Cada replace resetea
   la cola. Intervalo mínimo entre replaces por token (default 1s).
-- **Rewards:** registro por minuto de elegibilidad (two-sided, en banda,
-  ≥minSize) → subsidio devengado estimado con `mm_reward_snapshots`. El modelo
-  de reparto se sustituye por el de H-MM-2 cuando haya verdict.
+- **Rewards:** la elegibilidad (two-sided, en banda, ≥minSize) se evalúa por
+  minuto **en memoria** y se persiste agregada — 1 fila por mercado/hora (o por
+  cambio de estado), no por minuto (45 mercados × 1440 min ≈ 65k filas/día
+  hundiría la TimescaleDB de la e2-micro). Subsidio devengado estimado con
+  `mm_reward_snapshots`; el modelo de reparto se sustituye por el de H-MM-2
+  cuando haya verdict.
 
 ## ShadowLedger — cola exacta
 
@@ -121,9 +134,14 @@ Mecánica:
   perdido en cada renovación.
 - **Disconnect WS** → invalidar quotes virtuales (patrón GapTracker).
 - **Inventario virtual** por mercado con mark-to-market al mid; los caps de
-  inventario se aplican en shadow igual que en live (retirada de lado
-  incluida). PnL sombra descompuesto: spread capturado + Δ inventario +
-  rewards estimados. El inventario es el riesgo que el offline no midió.
+  inventario se aplican en shadow igual que en live (retirada de lado y
+  `exit_improve` incluidos). PnL sombra descompuesto: spread capturado +
+  Δ inventario + rewards estimados. El inventario es el riesgo que el offline
+  no midió.
+- **Round-trip completion** como métrica de primera clase: por mercado,
+  fracción del inventario que rota (fill bid emparejado con fill ask) y tiempo
+  medio bid-fill→ask-fill. El retained es proxy de entrada; el beneficio solo
+  se realiza cuando el inventario rota. Esta métrica decide el subset live.
 - Fills → `mm_shadow_fills` (time, token, side, placement_price, size,
   queue_ahead_initial, drain mode, spread_at_placement, flags). Los mids
   forward (10s/60s/300s) los calcula el validator desde `mm_book_events` — sin
@@ -144,11 +162,18 @@ Mecánica:
 
 1. ≥7 días de shadow estable: sin crashes, sin leaks, RAM del contenedor en
    budget (límite 120MB).
-2. H-MM-4 PASS en la cohorte objetivo, con ambos drain bounds coherentes.
-3. Proyección publicada de fills/día y PnL/día → decisión de capital con datos
-   (defaults de prueba $100 notional / $50 max loss).
-4. Churn de replaces dentro del rate budget del CLOB.
-5. Wallet dedicada + GCP Secret Manager + USDC listos (pre-reqs compartidos con
+2. H-MM-4 PASS en la cohorte objetivo, con ambos drain bounds coherentes — y
+   **distribución, no solo media**: p5 del retained revisado (cola de jumps),
+   no basta el bootstrap de la media.
+3. Proyección publicada de fills/día y PnL/día, **descompuesta en
+   PnL-spread vs PnL-rewards** (con rates de hasta $117/día, el subsidio puede
+   dominar los ~$1–3/día del spread) → decisión de capital con datos (defaults
+   de prueba $100 notional / $50 max loss).
+4. **Selección del subset live con criterios explícitos por mercado**: retained
+   positivo en su banda de spread + round-trip completion demostrada + programa
+   de rewards activo + volatilidad dentro del umbral aprendido.
+5. Churn de replaces dentro del rate budget del CLOB.
+6. Wallet dedicada + GCP Secret Manager + USDC listos (pre-reqs compartidos con
    el track real-trading, arranque ~2026-06-15).
 
 ## Fase real — OrderGateway y RiskGuard
@@ -171,29 +196,55 @@ Mecánica:
 - **Watchdog**: el daily watchdog lee `mm_quoter_state` (kill switch, modo,
   última actividad).
 
-## Operativa
+## Operativa e infra
 
-- Misma imagen Docker mm-recorder; activar shadow = cambio de env en compose +
-  restart, sin deploy nuevo.
+- Misma imagen Docker mm-recorder; activar shadow = cambio de env en compose
+  **por PR** (nunca edición directa en la VM — rompe el `git pull` del deploy,
+  gotcha conocido) + restart.
 - Stats horarias al log: quotes activas, fills, inventario, PnL, elegibilidad.
-- Wallet dedicada compartida con el track real-trading; key en Secret Manager.
+- **Key de wallet: fetch de GCP Secret Manager al boot** vía IAM del service
+  account de la VM. Nunca en compose env ni en imagen.
+- **Watchdog**: lee `mm_quoter_state` (kill switch, modo) y, en live, alerta de
+  staleness si no hay renovación GTD en >2×TTL (parada silenciosa: sin riesgo
+  gracias a GTD, pero el quoter dejó de quotar).
+- **Supuesto de CPU explícito**: el quoter no es HFT — join-the-touch con
+  histéresis y TTL tolera latencias de segundos. Los picos del optimizer en la
+  VM (250%+ observados) retrasan re-quotes, no generan riesgo: las GTD expiran
+  solas y el volatility pause cierra el hueco de quotes stale.
+- Presupuesto de escritura DB: fills sombra (cientos/día) + elegibilidad
+  agregada (~45×24 filas/día) + estado — trivial para la TimescaleDB local.
 
 ## Testing (TDD)
 
-- **QuotePolicy**: unitarios por guard + modo `rewards_constrained` (función
-  pura).
+- **QuotePolicy**: unitarios por guard (incl. volatility pause) + modos
+  `rewards_constrained` y `exit_improve` (función pura).
+- **Identidad shadow↔live**: el mismo QuotePolicy alimenta ambos; test de que
+  con idéntico input producen idéntica quote deseada — es lo que garantiza que
+  el shadow predice al live.
 - **ShadowLedger**: matriz direccional sintética — precio moviéndose entre
   colocación y fill, BUY/SELL × profit/adverse (la clase de bug del re-pricing
-  fantasma); fills parciales; price-out; TTL churn; ambos drain counters; gaps.
-- **OrderGateway**: mock del clob-client; smoke dry-run manual en VM antes del
-  gate.
-- **RiskGuard**: cada límite dispara kill; cancel-all en SIGTERM.
+  fantasma); fills parciales; price-out; TTL churn (con reloj mockeado); ambos
+  drain counters; gaps; **eventos fuera de orden** (jitter del WS → resultado
+  determinista).
+- **Invariantes del ledger** (property-style sobre secuencias generadas):
+  `queue_ahead` nunca negativa tras reset; tiempo-a-fill con
+  `drain_with_cancels` ≤ `drain_trades_only`; inventario = Σ fills con signo.
+- **Módulo PnL con invariantes contables** (historial de bugs de signo del
+  proyecto): cash + M2M inventario = PnL total; round-trip completo a precios
+  `p_bid < p_ask` ⇒ realized = `(p_ask − p_bid) × size` exacto.
+- **OrderGateway**: mock del clob-client (post/cancel/renovación GTD con reloj
+  mockeado); smoke dry-run manual en VM antes del gate.
+- **RiskGuard**: cada límite dispara kill; cancel-all en SIGTERM; **kill switch
+  end-to-end sintético** — violación de `MM_MAX_CUM_LOSS` ⇒ modo off persistido
+  en `mm_quoter_state`.
 - **Integración**: replay determinista de un día real de
-  `mm_book_events`/`mm_trade_events` como fixture de regresión del shadow.
+  `mm_book_events`/`mm_trade_events` como fixture de regresión del shadow, con
+  snapshot de fills esperados committeado.
 
 ## Fuera de alcance (v1)
 
-- Pricing-skew continuo por inventario (solo retirada de lado).
+- Pricing-skew continuo por inventario (solo retirada de lado + `exit_improve`
+  de 1 tick).
 - Auto-flatten del inventario en kill.
 - Fair-value model propio (quotamos relativo al book, no a un fair teórico).
 - Reconciliación de órdenes órfanas (cancel-all al arrancar).
@@ -205,7 +256,10 @@ Mecánica:
 |---|---|
 | RAM en e2-micro | Mismo proceso que el recorder; ledger ligero; límite 120MB vigilado en gate |
 | Proceso muere con órdenes vivas | GTD TTL (dead-man's switch) + cancel-all en SIGTERM |
-| Adverse selection mayor que lo medido | Caps de inventario + `MM_MAX_CUM_LOSS` + kill switch |
+| Adverse selection mayor que lo medido | Caps de inventario + `MM_MAX_CUM_LOSS` + kill switch + volatility pause |
+| Jumps por noticias (cola del retained) | Volatility pause + gate sobre p5, no solo media |
+| Inventario no rota (flujo direccional) | `exit_improve` + round-trip completion como criterio de gate |
 | Resolución contra inventario | Guard near-resolution 24h + cap $20/mercado |
 | clob-client drift | Re-validación explícita antes del gate |
 | Shadow optimista (cancels) | Dos drain bounds reportados; verdad en fase real |
+| Picos de CPU del optimizer | Quoter tolerante a latencia (histéresis + TTL); no HFT |
