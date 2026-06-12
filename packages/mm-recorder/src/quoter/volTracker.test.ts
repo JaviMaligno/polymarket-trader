@@ -4,11 +4,19 @@ import { VolTracker } from './volTracker.js';
 const t = (s: number) => new Date(Date.UTC(2026, 5, 12, 10, 0, s));
 
 describe('VolTracker', () => {
-  it('reports max |Δmid| within the window', () => {
+  it('reports range max−min within the window', () => {
     const v = new VolTracker(60_000);
     v.add('T', t(0), 0.50);
     v.add('T', t(10), 0.53);
     v.add('T', t(20), 0.51);
+    expect(v.recentVol('T', t(20))).toBeCloseTo(0.03, 10);
+  });
+
+  it('range distinguishes from last-step (non-monotone mids)', () => {
+    const v = new VolTracker(60_000);
+    v.add('T', t(0), 0.50);
+    v.add('T', t(10), 0.47);
+    v.add('T', t(20), 0.49);
     expect(v.recentVol('T', t(20))).toBeCloseTo(0.03, 10);
   });
 

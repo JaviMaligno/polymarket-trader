@@ -14,8 +14,12 @@ export interface QuoterConfig {
   tick: number;
 }
 
-const num = (v: string | undefined, d: number): number =>
-  v === undefined || v === '' ? d : Number(v);
+const num = (v: string | undefined, d: number): number => {
+  if (v === undefined || v === '') return d;
+  const n = Number(v);
+  if (Number.isNaN(n)) throw new Error(`Config inválida: se esperaba número, llegó "${v}"`);
+  return n;
+};
 
 export function loadConfig(env: Record<string, string | undefined>): QuoterConfig {
   const mode = env.MM_QUOTER_MODE ?? 'off';
@@ -30,7 +34,7 @@ export function loadConfig(env: Record<string, string | undefined>): QuoterConfi
     nearResolutionMs: num(env.MM_NEAR_RESOLUTION_HOURS, 24) * 3_600_000,
     // shadow-permissive defaults: quote everything and measure; live tightens with data
     minSpread: num(env.MM_MIN_SPREAD, 0),
-    volPause: env.MM_VOL_PAUSE ? Number(env.MM_VOL_PAUSE) : Infinity,
+    volPause: num(env.MM_VOL_PAUSE, Infinity),
     volWindowMs: num(env.MM_VOL_WINDOW_MS, 60_000),
     maxInvPerMarket: num(env.MM_MAX_INVENTORY_PER_MARKET, 20),
     maxInvTotal: num(env.MM_MAX_INVENTORY_TOTAL, 60),

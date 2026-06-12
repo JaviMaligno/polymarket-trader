@@ -64,8 +64,9 @@ export class BookState {
     return (p.bid + p.ask) / 2;
   }
 
-  /** Size actual del nivel `price` en el lado `side` (-1 bids, +1 asks);
-   *  null si el token o el nivel no se conocen. */
+  /** Size actual del nivel `price` en el lado `side` (-1 bids, +1 asks).
+   *  Devuelve null tanto si el nivel no existe como si su size es desconocido
+   *  (el feed puede reportar size null) — para el quoter ambos significan cola no medible. */
   levelSize(tokenId: string, side: -1 | 1, price: number): number | null {
     const ladder = this.books.get(tokenId);
     if (!ladder) return null;

@@ -9,7 +9,7 @@ export interface RewardsParams {
 export interface PolicyInput {
   bestBid: number | null;
   bestAsk: number | null;
-  recentVol: number;             // max |Δmid| in window (VolTracker)
+  recentVol: number;             // rango max−min del mid en la ventana (VolTracker)
   msToResolution: number | null; // null = unknown end_date (does not block)
   rewards: RewardsParams | null;
   inventoryShares: number;       // signed, this market

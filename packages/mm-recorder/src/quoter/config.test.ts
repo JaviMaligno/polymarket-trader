@@ -35,4 +35,13 @@ describe('loadConfig', () => {
   it('rejects unknown mode', () => {
     expect(() => loadConfig({ MM_QUOTER_MODE: 'yolo' })).toThrow();
   });
+
+  it('throws on non-numeric value', () => {
+    expect(() => loadConfig({ MM_QUOTE_SIZE: 'abc' })).toThrow();
+  });
+
+  it('converts MM_NEAR_RESOLUTION_HOURS to ms', () => {
+    const cfg = loadConfig({ MM_NEAR_RESOLUTION_HOURS: '48' });
+    expect(cfg.nearResolutionMs).toBe(48 * 3_600_000);
+  });
 });
