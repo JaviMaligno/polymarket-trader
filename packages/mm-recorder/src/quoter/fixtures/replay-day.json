@@ -1,0 +1,3520 @@
+[
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 200
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 200
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:02.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 100
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:04.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 192
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 196
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:05.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 95
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:06.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 188
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 194
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:07.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 93
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:08.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 184
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 192
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:09.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 91
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:12.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 50,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:13.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 95
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:14.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 30,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:15.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:16.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.52,
+      "size": 60,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:17.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 85
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 65
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:18.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 15,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:20.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 10,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:22.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.52,
+      "size": 25,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:24.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 10,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:26.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 10,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:30.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.47,
+      "size": 8,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:32.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.47,
+      "size": 5,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:34.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.54,
+      "size": 3,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:36.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.54,
+      "size": 6,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:40.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.45,
+      "size": 50,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:00:42.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.57,
+      "size": 50,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:44.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 180
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 180
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:46.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 175
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 175
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:48.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.45,
+          "size": 170
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.56,
+          "size": 170
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:52.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:54.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 68
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:56.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.48,
+          "size": 85
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.52,
+          "size": 65
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:00:58.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 120
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 110
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 118
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 108
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:02.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 115
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 105
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:04.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 60
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 50
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:06.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 58
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 48
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:08.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 55
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 45
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:10.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 53
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 43
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:12.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 112
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 102
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:14.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 110
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 100
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:16.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 108
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 98
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:18.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 105
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 95
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:20.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 102
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 92
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:01:22.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 30,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:23.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 55
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 48
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:01:25.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 20,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:26.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 52
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 45
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:01:28.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.51,
+      "size": 25,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:29.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 50
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 42
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:30.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 100
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 90
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:33.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 88
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:36.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 95
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 85
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:39.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 93
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:42.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:45.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:48.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 85
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:51.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 83
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:54.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:01:57.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 78
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 68
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 95
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 85
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:01.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 93
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:03.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 52
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 42
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:04.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:06.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 50
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 40
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:07.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 48
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 38
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:08.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "gap"
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:12.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:14.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 45
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 35
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:16.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:17.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 43
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 33
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:18.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 85
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:19.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 41
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 31
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:21.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.45,
+      "size": 1,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:23.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.55,
+      "size": 1,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:25.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 1,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:27.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.53,
+      "size": 1,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:30.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 30,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:31.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.51,
+      "size": 20,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:32.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 15,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:33.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.51,
+      "size": 15,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:34.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 10,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:35.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.51,
+      "size": 12,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:36.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.49,
+      "size": 8,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:37.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.51,
+      "size": 6,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:38.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 42
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 32
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:39.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 83
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:40.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.47,
+      "size": 50,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:41.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 40
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 30
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:42.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.47,
+      "size": 40,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:43.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:44.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.54,
+      "size": 40,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:45.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 38
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 28
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:46.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.54,
+      "size": 38,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:47.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 78
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 68
+        }
+      ]
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:50.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.44,
+      "size": 1,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:52.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "price": 0.58,
+      "size": 1,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:54.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.48,
+      "size": 1,
+      "side": "SELL"
+    }
+  },
+  {
+    "kind": "trade",
+    "event": {
+      "time": "2026-06-12T10:02:56.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "price": 0.52,
+      "size": 1,
+      "side": "BUY"
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:02:58.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:02.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:04.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:06.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:08.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:10.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:12.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:14.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:16.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:18.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:20.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:22.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:24.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 79
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:26.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 81
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:28.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:30.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:32.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:34.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:36.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:38.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:40.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:42.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:44.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:46.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:48.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:50.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:52.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:54.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 79
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:56.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 81
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:03:58.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:02.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:04.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:06.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:08.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:10.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:12.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:14.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:16.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:18.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:20.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:22.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:24.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 79
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:26.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 81
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:28.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:30.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:32.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:34.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:36.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:38.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:40.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:42.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:44.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:46.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:48.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:50.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:52.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:54.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 79
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:56.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 81
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:04:58.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:00.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:02.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:04.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:06.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:08.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:10.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:12.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:14.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:16.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:18.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:20.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 75
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:22.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 77
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:24.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 79
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:26.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 81
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:28.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 83
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:30.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 70
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:32.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 92
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 72
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:34.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 94
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 74
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:36.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 96
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 76
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:38.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 98
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 78
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:40.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 80
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 80
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:42.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 82
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 82
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:44.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 84
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 84
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:46.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 86
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 71
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:48.000Z",
+      "tokenId": "T1",
+      "marketId": "M1",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.47,
+          "size": 88
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.53,
+          "size": 73
+        }
+      ]
+    }
+  },
+  {
+    "kind": "book",
+    "event": {
+      "time": "2026-06-12T10:05:50.000Z",
+      "tokenId": "T2",
+      "marketId": "M2",
+      "eventType": "book",
+      "bids": [
+        {
+          "price": 0.49,
+          "size": 90
+        }
+      ],
+      "asks": [
+        {
+          "price": 0.51,
+          "size": 75
+        }
+      ]
+    }
+  }
+]
