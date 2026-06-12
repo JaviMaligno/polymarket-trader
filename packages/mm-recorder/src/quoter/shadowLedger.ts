@@ -23,9 +23,16 @@ interface Quote extends Placement {
  *  Espejo para ask (trade.price > P traspasa).
  *
  *  bound 'cancels': antes de computar el drain, la cola se clampea a levelSize
- *  (optimista: asume que las cancelaciones ocurrieron delante de nosotros). */
+ *  (optimista: asume que las cancelaciones ocurrieron delante de nosotros).
+ *
+ *  Comparación de precios: se cuantiza a la rejilla de ticks porque los precios
+ *  computados por la política (round(mid ± band, tick)) pueden llevar ruido FP
+ *  (ej. 0.35000000000000003) mientras que los precios del feed se parsean como
+ *  decimales exactos (0.35). La comparación directa con === fallaría silenciosamente. */
 export class ShadowLedger {
   private quotes = new Map<string, Quote>(); // key = tokenId:side
+
+  constructor(private tick = 0.01) {}
 
   private key(tokenId: string, side: Side): string { return `${tokenId}:${side}` }
 
@@ -56,8 +63,11 @@ export class ShadowLedger {
       const q = this.quotes.get(this.key(tr.tokenId, side));
       if (!q) continue;
       // bid: traspasado si trade.price < q.price; ask: traspasado si trade.price > q.price
-      const crossed = side === -1 ? tr.price < q.price : tr.price > q.price;
-      const atLevel = tr.price === q.price;
+      // Cuantizar a ticks enteros para evitar fallos de igualdad por ruido FP.
+      const tTicks = Math.round(tr.price / this.tick);
+      const qTicks = Math.round(q.price / this.tick);
+      const crossed = side === -1 ? tTicks < qTicks : tTicks > qTicks;
+      const atLevel = tTicks === qTicks;
       if (!crossed && !atLevel) continue;
 
       for (const bound of ['trades', 'cancels'] as DrainBound[]) {

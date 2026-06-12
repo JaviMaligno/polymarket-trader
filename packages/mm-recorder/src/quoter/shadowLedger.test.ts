@@ -124,6 +124,41 @@ describe('ShadowLedger — bound cancels', () => {
   });
 });
 
+describe('ShadowLedger — FP noise en precios computados (tick grid)', () => {
+  // Math.round(0.35 / 0.01) * 0.01 === 0.35000000000000003 en JS
+  const noisyPrice = Math.round(0.35 / 0.01) * 0.01; // 0.35000000000000003
+
+  it('bid colocado con precio FP-noisy drena cuando el trade llega a 0.35 exacto', () => {
+    const l = new ShadowLedger();
+    // queue=0 → somos los primeros; trade supera la quote size (30 > 20)
+    l.place({ tokenId: 'T', marketId: 'M', side: -1, price: noisyPrice, size: 20,
+               queueInitial: 0, time: t(0), spread: 0.02, vol: 0, flags: [] });
+    const fills = l.onTrade({ tokenId: 'T', time: t(1), price: 0.35, size: 30 }, null);
+    const f = fills.find((x) => x.bound === 'trades');
+    expect(f).toBeDefined();
+    expect(f!.size).toBe(20);
+    expect(f!.price).toBeCloseTo(0.35, 10); // precio anclado al de colocación (noisy ≈ 0.35)
+  });
+
+  it('trade a 0.34 (por debajo del bid noisy) se clasifica como crossed y llena', () => {
+    const l = new ShadowLedger();
+    l.place({ tokenId: 'T', marketId: 'M', side: -1, price: noisyPrice, size: 20,
+               queueInitial: 50, time: t(0), spread: 0.02, vol: 0, flags: [] });
+    const fills = l.onTrade({ tokenId: 'T', time: t(1), price: 0.34, size: 1 }, null);
+    const f = fills.find((x) => x.bound === 'trades');
+    expect(f).toBeDefined();
+    expect(f!.size).toBe(20); // nivel traspasado: fill del total restante
+  });
+
+  it('trade a 0.36 (por encima del bid noisy) no produce fills', () => {
+    const l = new ShadowLedger();
+    l.place({ tokenId: 'T', marketId: 'M', side: -1, price: noisyPrice, size: 20,
+               queueInitial: 0, time: t(0), spread: 0.02, vol: 0, flags: [] });
+    const fills = l.onTrade({ tokenId: 'T', time: t(1), price: 0.36, size: 10 }, null);
+    expect(fills).toEqual([]);
+  });
+});
+
 describe('ShadowLedger — expiración y reemplazo', () => {
   it('expired() lists quotes past their TTL (event-time clock)', () => {
     const l = new ShadowLedger();
