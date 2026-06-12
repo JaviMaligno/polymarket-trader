@@ -44,6 +44,29 @@ export interface RecorderDeps {
   state: BookState;
   sink: BatchSink;
   recordGap: (start: Date, end: Date, reason: string) => Promise<void>;
+  /** Optional hook for additional consumers (QuoteEngine). Called AFTER applying
+   *  the event to BookState. For book events, `row` is the BookEvent (or null if
+   *  top-of-book unchanged); for trade events, `row` is null. */
+  onEvent?: (kind: 'book' | 'trade', event: unknown, row: unknown) => void;
+  /** Optional hook called when a reconnect gap is recorded. */
+  onGap?: () => void;
+}
+
+/** Exported for testing: process one raw WS message against deps. */
+export async function handleMessage(deps: RecorderDeps, raw: string): Promise<void> {
+  if (raw === 'PONG') return;
+  // A frame can carry many events (the initial book snapshot is an array;
+  // a price_change holds one entry per affected asset).
+  for (const out of parseMessage(raw)) {
+    if (out.kind === 'book') {
+      const row = deps.state.apply(out.event);
+      if (row) await deps.sink.addBook(row);
+      deps.onEvent?.('book', out.event, row);
+    } else if (out.kind === 'trade') {
+      await deps.sink.addTrade(out.event);
+      deps.onEvent?.('trade', out.event, null);
+    }
+  }
 }
 
 export function runRecorder(deps: RecorderDeps): { stop: () => void } {
@@ -62,24 +85,14 @@ export function runRecorder(deps: RecorderDeps): { stop: () => void } {
       ws!.send(buildSubscribe(deps.assetIds));
       pingTimer = setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send('PING'), 10000);
       const gap = gaps.up(new Date());
-      if (gap) deps.recordGap(gap.start, gap.end, gap.reason).catch(() => undefined);
+      if (gap) {
+        deps.recordGap(gap.start, gap.end, gap.reason).catch(() => undefined);
+        deps.onGap?.();
+      }
       logger.info({ n: deps.assetIds.length }, 'subscribed');
     });
 
-    ws.on('message', async (data) => {
-      const raw = data.toString();
-      if (raw === 'PONG') return;
-      // A frame can carry many events (the initial book snapshot is an array;
-      // a price_change holds one entry per affected asset).
-      for (const out of parseMessage(raw)) {
-        if (out.kind === 'book') {
-          const row = deps.state.apply(out.event);
-          if (row) await deps.sink.addBook(row);
-        } else if (out.kind === 'trade') {
-          await deps.sink.addTrade(out.event);
-        }
-      }
-    });
+    ws.on('message', (data) => void handleMessage(deps, data.toString()));
 
     const onDown = async (why: string) => {
       if (pingTimer) clearInterval(pingTimer);

@@ -9,6 +9,7 @@ export type UniverseRow = {
   market_id: string;     // markets.id (numeric) — book-event enrichment
   condition_id: string;  // CLOB 0x hash — Gamma queries (rewards)
   token_id: string;
+  end_date: Date | null; // market expiry — used by QuoteEngine near-resolution guard
 };
 
 export async function selectUniverse(n: number): Promise<UniverseRow[]> {

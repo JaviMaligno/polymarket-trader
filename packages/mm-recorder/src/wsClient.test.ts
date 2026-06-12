@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSubscribe, backoffMs, GapTracker } from './wsClient.js';
+import { buildSubscribe, backoffMs, GapTracker, handleMessage } from './wsClient.js';
 
 describe('wsClient helpers', () => {
   it('builds the market-channel subscribe payload', () => {
@@ -45,5 +45,22 @@ describe('GapTracker — a gap is [disconnect, reconnect], never the uptime sess
     expect(g.up(t(20))).toBeNull();
     g.down(t(30), 'close');
     expect(g.up(t(33))).toEqual({ start: t(30), end: t(33), reason: 'close' });
+  });
+});
+
+describe('onEvent hook', () => {
+  it('RecorderDeps accepts an optional onEvent that receives parsed events', async () => {
+    const calls: string[] = [];
+    const deps = {
+      assetIds: ['T'],
+      state: { apply: () => null, midOf: () => null } as never,
+      sink: { addBook: async () => {}, addTrade: async () => {} } as never,
+      recordGap: async () => {},
+      onEvent: (kind: string) => calls.push(kind),
+    };
+    await handleMessage(deps as never, JSON.stringify([
+      { event_type: 'last_trade_price', asset_id: 'T', market: '0x1', price: '0.5', size: '10', side: 'SELL', timestamp: '1760000000000' },
+    ]));
+    expect(calls).toContain('trade');
   });
 });

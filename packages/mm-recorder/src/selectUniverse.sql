@@ -15,7 +15,7 @@ recent_trades AS (
 ),
 ranked AS (
   SELECT m.id AS market_id, m.condition_id, m.clob_token_id_yes, m.clob_token_id_no,
-         rb.avg_spread, COALESCE(rt.n_trades, 0) AS n_trades
+         m.end_date, rb.avg_spread, COALESCE(rt.n_trades, 0) AS n_trades
   FROM markets m
   JOIN recent_book rb ON rb.token_id = m.clob_token_id_yes
   LEFT JOIN recent_trades rt ON rt.token_id = m.clob_token_id_yes
@@ -25,6 +25,6 @@ ranked AS (
   ORDER BY rb.avg_spread ASC, n_trades DESC
   LIMIT $1
 )
-SELECT market_id, condition_id, clob_token_id_yes AS token_id FROM ranked
+SELECT market_id, condition_id, end_date, clob_token_id_yes AS token_id FROM ranked
 UNION ALL
-SELECT market_id, condition_id, clob_token_id_no AS token_id FROM ranked;
+SELECT market_id, condition_id, end_date, clob_token_id_no AS token_id FROM ranked;
