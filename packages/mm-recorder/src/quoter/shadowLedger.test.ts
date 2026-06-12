@@ -123,3 +123,32 @@ describe('ShadowLedger — bound cancels', () => {
     expect(f2.find((x) => x.bound === 'trades')!.size).toBe(10); // 30 acumulado - 20 cola
   });
 });
+
+describe('ShadowLedger — expiración y reemplazo', () => {
+  it('expired() lists quotes past their TTL (event-time clock)', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 10); // placed at t(0)
+    expect(l.expired(t(60), 30_000).map((q) => q.side)).toEqual([-1]);
+    expect(l.expired(t(10), 30_000)).toEqual([]);
+  });
+
+  it('replace cancels and re-places with fresh queue (priority lost)', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 10);
+    l.onTrade({ tokenId: 'T', time: t(1), price: 0.48, size: 8 }, null); // cola 2
+    l.cancel('T', -1);
+    place(l, -1, 0.49, 25); // nuevo touch, nueva cola
+    const q = l.active('T', -1)!;
+    expect(q.price).toBe(0.49);
+    expect(q.bounds.trades.queue).toBe(25);
+  });
+
+  it('clearToken on gap invalidates both sides', () => {
+    const l = new ShadowLedger();
+    place(l, -1, 0.48, 10);
+    place(l, 1, 0.52, 10);
+    l.clearToken('T');
+    expect(l.active('T', -1)).toBeUndefined();
+    expect(l.active('T', 1)).toBeUndefined();
+  });
+});
