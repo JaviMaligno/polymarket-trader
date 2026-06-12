@@ -10,7 +10,7 @@ export interface LedgerTrade { tokenId: string; time: Date; price: number; size:
 
 interface BoundState { queue: number; remaining: number }
 
-interface Quote extends Placement {
+export interface Quote extends Placement {
   bounds: Record<DrainBound, BoundState>;
 }
 
