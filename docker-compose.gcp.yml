@@ -380,6 +380,16 @@ services:
       MM_UNIVERSE_N: "45"
       MM_BATCH: "200"
       DB_POOL_MAX: "2"
+      # Shadow quoting (H-MM Nivel 3, fase shadow). MODE=shadow postea quotes
+      # maker VIRTUALES contra el libro real (sin órdenes), persiste fills a
+      # mm_shadow_fills con cola inicial exacta + dual drain bounds para el
+      # validator H-MM-4. Arranca el reloj de los ≥7 días del gate shadow→real.
+      # minSpread/volPause se dejan en default permisivo (sin definir) para que
+      # el shadow APRENDA los umbrales de la curva retained-vs-spread/vol; live
+      # los endurecerá con esos datos. NO poner mode=live (index.ts lanza error).
+      MM_QUOTER_MODE: "shadow"
+      MM_QUOTE_SIZE: "20"
+      MM_ORDER_TTL_MS: "1800000"
     deploy:
       resources:
         limits:
