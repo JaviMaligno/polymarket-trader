@@ -579,7 +579,18 @@ export async function registerRoutes(
 
   // Health check (enhanced)
   fastify.get('/health', async () => {
-    const dbHealth = isDatabaseConfigured() ? await dbHealthCheck() : { connected: false, error: 'Not configured' };
+    // 7s timeout keeps us safely inside Docker's 10s health check timeout.
+    // Without this, connectionTimeoutMillis=30000 causes wget to be killed by Docker before
+    // we return any HTTP response, permanently marking the container unhealthy on DB slowness.
+    const dbHealthWithTimeout = isDatabaseConfigured()
+      ? Promise.race([
+          dbHealthCheck(),
+          new Promise<{ connected: false; error: string }>(resolve =>
+            setTimeout(() => resolve({ connected: false, error: 'DB health check timed out (>7s)' }), 7000)
+          ),
+        ])
+      : Promise.resolve({ connected: false, error: 'Not configured' } as const);
+    const dbHealth = await dbHealthWithTimeout;
 
     // Check optimization scheduler
     let optimizationStatus = 'not_configured';
