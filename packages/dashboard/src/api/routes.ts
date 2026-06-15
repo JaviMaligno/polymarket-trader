@@ -582,14 +582,17 @@ export async function registerRoutes(
     // 7s timeout keeps us safely inside Docker's 10s health check timeout.
     // Without this, connectionTimeoutMillis=30000 causes wget to be killed by Docker before
     // we return any HTTP response, permanently marking the container unhealthy on DB slowness.
-    const dbHealthWithTimeout = isDatabaseConfigured()
+    // Shared shape so the race/resolve branches unify with dbHealthCheck()'s return type
+    // (which carries an optional `latency`) — otherwise `dbHealth.latency` below fails tsc.
+    type DbHealth = { connected: boolean; latency?: number; error?: string };
+    const dbHealthWithTimeout: Promise<DbHealth> = isDatabaseConfigured()
       ? Promise.race([
           dbHealthCheck(),
-          new Promise<{ connected: false; error: string }>(resolve =>
+          new Promise<DbHealth>(resolve =>
             setTimeout(() => resolve({ connected: false, error: 'DB health check timed out (>7s)' }), 7000)
           ),
         ])
-      : Promise.resolve({ connected: false, error: 'Not configured' } as const);
+      : Promise.resolve({ connected: false, error: 'Not configured' });
     const dbHealth = await dbHealthWithTimeout;
 
     // Check optimization scheduler
