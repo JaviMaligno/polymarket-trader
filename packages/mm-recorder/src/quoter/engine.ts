@@ -37,6 +37,8 @@ export class QuoteEngine {
   private fillsSinceFlush = new Map<string, number>();
   /** Per-(market:bound) realized snapshot as of the last flush — for delta computation. */
   private prevRealized = new Map<string, number>();
+  /** Per-(market:bound) unrealized-M2M snapshot as of the last flush — for delta computation. */
+  private prevUnrealized = new Map<string, number>();
 
   constructor(private deps: EngineDeps) {
     // MANDATORY: pass tick to ShadowLedger so price comparisons are grid-aligned.
@@ -46,6 +48,8 @@ export class QuoteEngine {
 
   activeQuote(tokenId: string, side: Side) { return this.ledger.active(tokenId, side) }
   inventory(bound: 'trades' | 'cancels'): InventoryBook { return this.inv[bound] }
+  /** Current mark-to-market equity (cash + open M2M) for a bound, at last-known mids. */
+  equity(bound: 'trades' | 'cancels'): number { return this.inv[bound].equity(this.mids) }
 
   onBook(input: BookInput, row: BookEvent | null): void {
     const tokenId = input.tokenId;
@@ -253,10 +257,16 @@ export class QuoteEngine {
         const mbKey = `${marketId}:${bound}`;
         const prev = this.prevRealized.get(mbKey) ?? 0;
         const spreadPnlDelta = realizedNow - prev;
-        // inventoryPnl is the instantaneous M2M snapshot (not a delta — reflects open exposure now).
+        // inventoryPnl is the DELTA of unrealized open-position M2M since the last flush
+        // (NOT an instantaneous snapshot). This makes the column summable: with the
+        // accounting identity equity = realized + unrealized, SUM(spreadPnl)+SUM(inventoryPnl)
+        // over any window telescopes to the equity change in that window. A snapshot would
+        // double-count open M2M across flushes (the SUM(inventory_pnl) trap).
         const mid = this.mids.get(marketId);
-        const inventoryPnl = book.position(marketId) *
+        const unrealizedNow = book.position(marketId) *
           ((mid ?? book.avgPrice(marketId)) - book.avgPrice(marketId));
+        const prevUnrealized = this.prevUnrealized.get(mbKey) ?? 0;
+        const inventoryPnl = unrealizedNow - prevUnrealized;
         const fillsDelta = this.fillsSinceFlush.get(mbKey) ?? 0;
 
         if (book.position(marketId) === 0 && realizedNow === 0 && fillsDelta === 0) continue;
@@ -273,6 +283,7 @@ export class QuoteEngine {
 
         // Advance snapshots so the next flush emits deltas, not cumulative totals.
         this.prevRealized.set(mbKey, realizedNow);
+        this.prevUnrealized.set(mbKey, unrealizedNow);
       }
     }
     // Reset per-flush fill counters after writing.
