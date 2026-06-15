@@ -219,3 +219,37 @@ describe('Fix 4: flushHourly PnL deltas', () => {
     // If no row was emitted (position/realized unchanged) that's also correct — no double-count
   });
 });
+
+// Fix 5 regression: inventory_pnl must be a per-flush DELTA (telescoping), not an
+// instantaneous M2M snapshot. Accounting identity: equity = realized + unrealized, so
+// SUM(spreadPnl) + SUM(inventoryPnl) over all flushes must equal the equity change
+// (from 0). With a snapshot the open M2M is double-counted across flushes and the sum
+// inflates — exactly the SUM(inventory_pnl) trap that bit the daily-review query.
+describe('Fix 5: inventory_pnl telescoping invariant', () => {
+  it('sum of spread+inventory deltas across flushes equals final equity', async () => {
+    const { engine, persistence, book } = setup({ MM_REQUOTE_MIN_MS: '0' });
+
+    // Buy 10@0.48 (bid at touch, queue 0 → at-level trade fills), mid 0.50.
+    book(0, 0.48, 0.52, 0, 0);
+    await engine.onTrade({ time: t(1), tokenId: 'T', marketId: 'M', price: 0.48, size: 10, side: 'SELL' });
+    await engine.flushHourly(new Date(Date.UTC(2026, 5, 12, 11, 0, 0)));
+
+    // Mid drifts up to 0.51 (open inventory M2M moves) — flush with no new fills.
+    book(2, 0.49, 0.53, 0, 0);
+    await engine.flushHourly(new Date(Date.UTC(2026, 5, 12, 12, 0, 0)));
+
+    // Sell 10@0.53 (ask at touch) → position flat, realized +0.50.
+    await engine.onTrade({ time: t(3), tokenId: 'T', marketId: 'M', price: 0.53, size: 10, side: 'BUY' });
+    await engine.flushHourly(new Date(Date.UTC(2026, 5, 12, 13, 0, 0)));
+
+    const rows = (persistence.insertPnl as ReturnType<typeof vi.fn>).mock.calls
+      .map((c: unknown[]) => c[0] as { marketId: string; bound: string; spreadPnl: number; inventoryPnl: number })
+      .filter((r) => r.marketId === 'M' && r.bound === 'trades');
+    const sum = rows.reduce((a, r) => a + r.spreadPnl + r.inventoryPnl, 0);
+
+    // Telescoping identity — holds only when inventoryPnl is a delta, not a snapshot.
+    expect(sum).toBeCloseTo(engine.equity('trades'), 6);
+    // And the realized leg alone is the round-trip profit (10 × (0.53−0.48)).
+    expect(engine.equity('trades')).toBeCloseTo(0.5, 6);
+  });
+});
