@@ -196,6 +196,21 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - name: Install fixed deploy SSH key
+        # Use a STABLE key (secret GCP_SSH_PRIVATE_KEY, public half in the VM's
+        # ssh-keys metadata) instead of letting gcloud regenerate an ephemeral key
+        # per run. Regeneration churned project ssh-keys metadata under the shared
+        # `Usuario` username (human `gcloud compute ssh` sessions collide with the
+        # CI's), and the propagation lag broke deploys with `Permission denied
+        # (publickey)` (2026-06-15). Writing to gcloud's DEFAULT key path makes
+        # `gcloud compute ssh` reuse this key without regenerating or re-uploading.
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "${{ secrets.GCP_SSH_PRIVATE_KEY }}" > ~/.ssh/google_compute_engine
+          chmod 600 ~/.ssh/google_compute_engine
+          ssh-keygen -y -f ~/.ssh/google_compute_engine > ~/.ssh/google_compute_engine.pub
+
       - name: Cleanup stale SSH keys in project metadata
         # Each `gcloud compute ssh` regenerates and uploads a key. Without
         # cleanup, project metadata grows unbounded (we hit 165KB / 284 keys
