@@ -23,7 +23,7 @@ permissions:
 jobs:
   scoreboard:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -89,7 +89,11 @@ jobs:
           gcloud compute scp scripts/edge-research/mm_shadow_fills.sql "polymarket-vm:${SF}" --zone=us-east1-b
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${TS}" > datasets/mm_trade_spreads.csv
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${FF}" > datasets/mm_fine_fills.csv
-          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL < ${SF}" > datasets/mm_shadow_fills.csv
+          # mm_shadow_fills only has data since the shadow quoter went live (2026-06-14),
+          # so a 2-day window covers every fill while shrinking the `be` temp table
+          # (mm_book_events forward-mids) ~6x vs the 14-day default — the asof subqueries
+          # were the step's bottleneck on the e2-micro (timed out at 20min on 2026-06-15).
+          gcloud compute ssh polymarket-vm --zone=us-east1-b --command="$PSQL -v win='2 days' < ${SF}" > datasets/mm_shadow_fills.csv
           gcloud compute ssh polymarket-vm --zone=us-east1-b --command="rm -f ${TS} ${FF} ${SF}" || true
           echo "mm_trade_spreads rows: $(($(wc -l < datasets/mm_trade_spreads.csv) - 1))"
           echo "mm_fine_fills rows: $(($(wc -l < datasets/mm_fine_fills.csv) - 1))"
