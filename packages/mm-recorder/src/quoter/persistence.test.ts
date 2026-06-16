@@ -46,4 +46,23 @@ describe('QuoterPersistence', () => {
     expect(exec.mock.calls[0][0]).toContain('INSERT INTO mm_quote_eligibility');
     expect(exec.mock.calls[1][0]).toContain('INSERT INTO mm_shadow_pnl');
   });
+
+  // Bug 2026-06-16: flushHourly runs every 5 min (sub-hourly), so several flushes hit
+  // the SAME (hour,market,bound) key within one hour. insertPnl persists per-flush DELTAS,
+  // so the ON CONFLICT clause MUST accumulate (add EXCLUDED), not overwrite — otherwise
+  // each hour keeps only the last ~5-min slice and fills/PnL undercount ~12x.
+  it('insertPnl accumulates the additive columns on conflict (must not overwrite)', async () => {
+    const exec = vi.fn().mockResolvedValue({ rows: [] });
+    await new QuoterPersistence(exec).insertPnl({
+      hour: fill.time, marketId: 'M', bound: 'trades',
+      spreadPnl: 0.4, inventoryPnl: -0.1, estRewards: 1.25, fills: 3, replaces: 7,
+    });
+    const sql = exec.mock.calls[0][0] as string;
+    expect(sql).toContain('ON CONFLICT (hour,market_id,bound)');
+    expect(sql).toContain('spread_pnl = mm_shadow_pnl.spread_pnl + EXCLUDED.spread_pnl');
+    expect(sql).toContain('inventory_pnl = mm_shadow_pnl.inventory_pnl + EXCLUDED.inventory_pnl');
+    expect(sql).toContain('fills = mm_shadow_pnl.fills + EXCLUDED.fills');
+    expect(sql).toContain('replaces = mm_shadow_pnl.replaces + EXCLUDED.replaces');
+    expect(sql).toContain('est_rewards = EXCLUDED.est_rewards');
+  });
 });
