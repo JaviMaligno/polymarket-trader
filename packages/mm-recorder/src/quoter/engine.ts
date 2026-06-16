@@ -24,7 +24,9 @@ export class QuoteEngine {
   private eligibility = new EligibilityTracker();
   private inv = { trades: new InventoryBook(), cancels: new InventoryBook() };
   private lastRequote = new Map<string, number>(); // `${tokenId}:${side}` -> ms
-  private replaces = 0;
+  /** Per-market re-quote count since last flush (churn). Per-market (not a global counter)
+   *  so the hourly PnL rows attribute churn to the market that produced it. */
+  private replacesByMarket = new Map<string, number>();
   private droppedFills = 0;
   private mids = new Map<string, number>();
   /**
@@ -44,6 +46,10 @@ export class QuoteEngine {
     // MANDATORY: pass tick to ShadowLedger so price comparisons are grid-aligned.
     this.ledger = new ShadowLedger(deps.cfg.tick);
     this.vol = new VolTracker(deps.cfg.volWindowMs);
+  }
+
+  private bumpReplace(marketId: string): void {
+    this.replacesByMarket.set(marketId, (this.replacesByMarket.get(marketId) ?? 0) + 1);
   }
 
   activeQuote(tokenId: string, side: Side) { return this.ledger.active(tokenId, side) }
@@ -118,7 +124,7 @@ export class QuoteEngine {
       }
 
       if (!want) {
-        if (have) { this.ledger.cancel(tokenId, side); this.replaces += 1; }
+        if (have) { this.ledger.cancel(tokenId, side); this.bumpReplace(marketId); }
         continue;
       }
 
@@ -174,10 +180,10 @@ export class QuoteEngine {
     want: { price: number; size: number; flags: string[] } | null,
     bookRow: BookEvent, eventTime: Date, _why: string,
   ): void {
+    const marketId = this.deps.marketByToken.get(tokenId) ?? bookRow.marketId;
     this.ledger.cancel(tokenId, side);
-    this.replaces += 1;
+    this.bumpReplace(marketId);
     if (want) {
-      const marketId = this.deps.marketByToken.get(tokenId) ?? bookRow.marketId;
       this.placeNew(tokenId, marketId, side, want.price, want.size, want.flags, bookRow, eventTime);
     }
   }
@@ -244,15 +250,23 @@ export class QuoteEngine {
       await this.deps.persistence.insertEligibility(row, est);
     }
 
-    // Snapshot replaces delta for this flush (global counter — same value on every row
-    // in this flush, not per-market; consumers should SUM one row per flush period).
-    const replacesDelta = this.replaces;
-    this.replaces = 0;
+    // Total churn this flush for the state snapshot (per-market detail goes on the PnL rows).
+    let totalReplaces = 0;
+    for (const v of this.replacesByMarket.values()) totalReplaces += v;
 
-    const prevHour = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000 - 3_600_000);
+    // Attribute deltas to the CURRENT wall-clock hour. flushHourly runs sub-hourly
+    // (every 5 min), so the ~12 flushes within an hour all land on this same bucket and
+    // persistence accumulates them (ON CONFLICT … + EXCLUDED). Using prevHour here would
+    // mis-attribute the whole hour to the previous one (1-hour offset).
+    const curHour = new Date(Math.floor(now.getTime() / 3_600_000) * 3_600_000);
+    // Unique market ids: marketByToken maps BOTH tokens (Yes/No) of a market to the same
+    // market id, so .values() repeats each market. Iterating the raw values would call
+    // insertPnl twice per (hour,market,bound) and — under the accumulating ON CONFLICT —
+    // double-count fills/replaces. Dedupe to one row per market.
+    const marketIds = new Set(this.deps.marketByToken.values());
     for (const bound of ['trades', 'cancels'] as const) {
       const book = this.inv[bound];
-      for (const marketId of this.deps.marketByToken.values()) {
+      for (const marketId of marketIds) {
         const realizedNow = book.realized(marketId);
         const mbKey = `${marketId}:${bound}`;
         const prev = this.prevRealized.get(mbKey) ?? 0;
@@ -268,11 +282,14 @@ export class QuoteEngine {
         const prevUnrealized = this.prevUnrealized.get(mbKey) ?? 0;
         const inventoryPnl = unrealizedNow - prevUnrealized;
         const fillsDelta = this.fillsSinceFlush.get(mbKey) ?? 0;
+        // replaces is per-market churn (no bound dimension); written identically on both
+        // bound rows of a market — sum over a single bound to total it.
+        const replacesDelta = this.replacesByMarket.get(marketId) ?? 0;
 
-        if (book.position(marketId) === 0 && realizedNow === 0 && fillsDelta === 0) continue;
+        if (book.position(marketId) === 0 && realizedNow === 0 && fillsDelta === 0 && replacesDelta === 0) continue;
 
         await this.deps.persistence.insertPnl({
-          hour: prevHour,
+          hour: curHour,
           marketId, bound,
           spreadPnl: spreadPnlDelta,
           inventoryPnl,
@@ -286,11 +303,12 @@ export class QuoteEngine {
         this.prevUnrealized.set(mbKey, unrealizedNow);
       }
     }
-    // Reset per-flush fill counters after writing.
+    // Reset per-flush counters after writing.
     this.fillsSinceFlush.clear();
+    this.replacesByMarket.clear();
 
     await this.deps.persistence.upsertState('engine', {
-      mode: this.deps.cfg.mode, replaces: replacesDelta,
+      mode: this.deps.cfg.mode, replaces: totalReplaces,
       droppedFills: this.droppedFills,
       equityTrades: this.inv.trades.equity(this.mids),
       equityCancels: this.inv.cancels.equity(this.mids),

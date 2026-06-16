@@ -81,11 +81,20 @@ export class QuoterPersistence {
   }
 
   async insertPnl(r: PnlRow): Promise<void> {
+    // flushHourly runs sub-hourly (every 5 min) and persists per-flush DELTAS, so several
+    // rows hit the same (hour,market_id,bound) key within one hour. The additive columns
+    // MUST accumulate (add EXCLUDED) so the hour holds the full sum; an overwrite would keep
+    // only the last ~5-min slice (~12x undercount) and break the telescoping invariant
+    // SUM(spread_pnl)+SUM(inventory_pnl)=Δequity. est_rewards is an absolute estimate, not a
+    // delta → it overwrites.
     await this.exec(
       `INSERT INTO mm_shadow_pnl(hour,market_id,bound,spread_pnl,inventory_pnl,est_rewards,fills,replaces)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (hour,market_id,bound) DO UPDATE
-       SET spread_pnl = EXCLUDED.spread_pnl, inventory_pnl = EXCLUDED.inventory_pnl,
-           est_rewards = EXCLUDED.est_rewards, fills = EXCLUDED.fills, replaces = EXCLUDED.replaces`,
+       SET spread_pnl = mm_shadow_pnl.spread_pnl + EXCLUDED.spread_pnl,
+           inventory_pnl = mm_shadow_pnl.inventory_pnl + EXCLUDED.inventory_pnl,
+           est_rewards = EXCLUDED.est_rewards,
+           fills = mm_shadow_pnl.fills + EXCLUDED.fills,
+           replaces = mm_shadow_pnl.replaces + EXCLUDED.replaces`,
       [r.hour, r.marketId, r.bound, r.spreadPnl, r.inventoryPnl, r.estRewards, r.fills, r.replaces]);
   }
 }

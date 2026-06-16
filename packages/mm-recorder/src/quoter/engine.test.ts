@@ -159,6 +159,135 @@ describe('Fix 3: post-fill requote gap', () => {
   });
 });
 
+// Fix 6 regression (bug 2026-06-16): flushHourly is invoked every 5 min (sub-hourly),
+// so several flushes land in the SAME wall-clock hour. The engine must attribute each
+// per-flush delta to the CURRENT hour (floor(now/1h)), and persistence accumulates on
+// conflict (verified in persistence.test.ts). The OLD code wrote to prevHour and the SQL
+// overwrote → each hour kept only the last ~5-min slice → ~12x undercount + 1-hour offset.
+describe('Fix 6: sub-hourly flushes accumulate into the current hour', () => {
+  // Fake persistence modelling the real ON CONFLICT (hour,market_id,bound) accumulation.
+  function accumulatingPersistence() {
+    const table = new Map<string, { hour: string; marketId: string; bound: string; spreadPnl: number; inventoryPnl: number; fills: number; replaces: number }>();
+    const insertPnl = vi.fn(async (r: { hour: Date; marketId: string; bound: string; spreadPnl: number; inventoryPnl: number; fills: number; replaces: number }) => {
+      const k = `${r.hour.toISOString()}|${r.marketId}|${r.bound}`;
+      const cur = table.get(k);
+      if (cur) {
+        cur.spreadPnl += r.spreadPnl; cur.inventoryPnl += r.inventoryPnl;
+        cur.fills += r.fills; cur.replaces += r.replaces;
+      } else {
+        table.set(k, { hour: r.hour.toISOString(), marketId: r.marketId, bound: r.bound,
+          spreadPnl: r.spreadPnl, inventoryPnl: r.inventoryPnl, fills: r.fills, replaces: r.replaces });
+      }
+    });
+    const persistence = {
+      ensureSchema: vi.fn().mockResolvedValue(undefined),
+      insertFill: vi.fn().mockResolvedValue(undefined),
+      upsertState: vi.fn().mockResolvedValue(undefined),
+      insertEligibility: vi.fn().mockResolvedValue(undefined),
+      insertPnl,
+    };
+    return { table, persistence };
+  }
+
+  it('three 5-min flushes in one hour sum fills into that hour, not prevHour', async () => {
+    const cfg = loadConfig({ MM_QUOTER_MODE: 'shadow' });
+    const state = new BookState();
+    const { table, persistence } = accumulatingPersistence();
+    const engine = new QuoteEngine({
+      cfg, state, persistence: persistence as never,
+      marketByToken: new Map([['T', 'M']]),
+      endDateByMarket: new Map([['M', new Date('2026-12-31T00:00:00Z')]]),
+      rewardsByMarket: new Map(),
+    });
+    // Bid at touch, queue 0 → at-level trades fill immediately.
+    const bk = { time: t(0), tokenId: 'T', marketId: 'M', eventType: 'book' as const,
+      bids: [{ price: 0.48, size: 0 }], asks: [{ price: 0.52, size: 100 }] };
+    engine.onBook(bk, state.apply(bk));
+
+    const at = (m: number) => new Date(Date.UTC(2026, 5, 12, 10, m, 0)); // 10:mm within hour 10:00
+
+    await engine.onTrade({ time: t(1), tokenId: 'T', marketId: 'M', price: 0.48, size: 5, side: 'SELL' });
+    await engine.flushHourly(at(5));
+    await engine.onTrade({ time: t(2), tokenId: 'T', marketId: 'M', price: 0.48, size: 5, side: 'SELL' });
+    await engine.flushHourly(at(10));
+    await engine.onTrade({ time: t(3), tokenId: 'T', marketId: 'M', price: 0.48, size: 5, side: 'SELL' });
+    await engine.flushHourly(at(15));
+
+    const hour10 = new Date(Date.UTC(2026, 5, 12, 10, 0, 0)).toISOString();
+    const row = table.get(`${hour10}|M|trades`);
+    expect(row).toBeDefined();
+    expect(row!.fills).toBe(3); // 3 fills total this hour, NOT 1 (last slice only)
+  });
+
+  it('a market with two tokens (Yes/No) is not double-counted under accumulation', async () => {
+    // marketByToken maps BOTH tokens of a market to the same market id, so .values()
+    // repeats it. With the accumulating ON CONFLICT, iterating raw values would write the
+    // (hour,market,bound) row twice and double the fills. Dedupe → exactly one fill counted.
+    const cfg = loadConfig({ MM_QUOTER_MODE: 'shadow' });
+    const state = new BookState();
+    const { table, persistence } = accumulatingPersistence();
+    const engine = new QuoteEngine({
+      cfg, state, persistence: persistence as never,
+      marketByToken: new Map([['Y', 'M'], ['N', 'M']]), // two tokens, one market
+      endDateByMarket: new Map([['M', new Date('2026-12-31T00:00:00Z')]]),
+      rewardsByMarket: new Map(),
+    });
+    const bk = { time: t(0), tokenId: 'Y', marketId: 'M', eventType: 'book' as const,
+      bids: [{ price: 0.48, size: 0 }], asks: [{ price: 0.52, size: 100 }] };
+    engine.onBook(bk, state.apply(bk));
+    await engine.onTrade({ time: t(1), tokenId: 'Y', marketId: 'M', price: 0.48, size: 5, side: 'SELL' });
+    await engine.flushHourly(new Date(Date.UTC(2026, 5, 12, 10, 30, 0)));
+
+    const hour10 = new Date(Date.UTC(2026, 5, 12, 10, 0, 0)).toISOString();
+    const row = table.get(`${hour10}|M|trades`);
+    expect(row).toBeDefined();
+    expect(row!.fills).toBe(1); // one fill, not two (no double-count from duplicate values)
+  });
+
+  it('replaces are attributed per-market, not as a global counter shared across markets', async () => {
+    // Two markets. Market A re-quotes several times (churn); market B only fills, never
+    // re-quotes. B's row must show replaces=0 — with the old global counter it inherited
+    // A's churn (and under accumulation that mis-attribution compounds).
+    const cfg = loadConfig({ MM_QUOTER_MODE: 'shadow', MM_REQUOTE_MIN_MS: '0' });
+    const state = new BookState();
+    const insertPnl = vi.fn().mockResolvedValue(undefined);
+    const persistence = {
+      ensureSchema: vi.fn().mockResolvedValue(undefined),
+      insertFill: vi.fn().mockResolvedValue(undefined),
+      upsertState: vi.fn().mockResolvedValue(undefined),
+      insertEligibility: vi.fn().mockResolvedValue(undefined),
+      insertPnl,
+    };
+    const engine = new QuoteEngine({
+      cfg, state, persistence: persistence as never,
+      marketByToken: new Map([['A', 'MA'], ['B', 'MB']]),
+      endDateByMarket: new Map([['MA', new Date('2026-12-31T00:00:00Z')], ['MB', new Date('2026-12-31T00:00:00Z')]]),
+      rewardsByMarket: new Map(),
+    });
+    const bookFor = (tok: string, mkt: string, s: number, bid: number, ask: number) => {
+      const input = { time: t(s), tokenId: tok, marketId: mkt, eventType: 'book' as const,
+        bids: [{ price: bid, size: 0 }], asks: [{ price: ask, size: 100 }] };
+      engine.onBook(input, state.apply(input));
+    };
+    // Market A: place, then 3 price-outs → 3 replaces.
+    bookFor('A', 'MA', 0, 0.40, 0.60);
+    bookFor('A', 'MA', 1, 0.41, 0.60);
+    bookFor('A', 'MA', 2, 0.42, 0.60);
+    bookFor('A', 'MA', 3, 0.43, 0.60);
+    // Market B: place once (no replace), then a fill so its row is emitted.
+    bookFor('B', 'MB', 4, 0.48, 0.52);
+    await engine.onTrade({ time: t(5), tokenId: 'B', marketId: 'MB', price: 0.48, size: 5, side: 'SELL' });
+
+    await engine.flushHourly(new Date(Date.UTC(2026, 5, 12, 11, 0, 0)));
+
+    const rowB = insertPnl.mock.calls
+      .map((c: unknown[]) => c[0] as { marketId: string; bound: string; replaces: number })
+      .find((r) => r.marketId === 'MB' && r.bound === 'trades');
+    expect(rowB).toBeDefined();
+    expect(rowB!.replaces).toBe(0); // B never re-quoted; must not inherit A's churn
+  });
+});
+
 // Fix 4 regression: flushHourly PnL uses deltas not cumulative
 describe('Fix 4: flushHourly PnL deltas', () => {
   it('two fills then flush → pnl row has fills=2 and spreadPnl=delta; second flush with no activity → zeros', async () => {
