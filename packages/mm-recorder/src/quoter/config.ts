@@ -10,6 +10,10 @@ export interface QuoterConfig {
   maxInvPerMarket: number;
   maxInvTotal: number;
   maxCumLoss: number;
+  maxNotionalTotal: number;
+  fillPollMs: number;
+  walletSecretName: string;
+  liveSubset: string[];
   softInvPerMarket: number;
   tick: number;
 }
@@ -39,6 +43,11 @@ export function loadConfig(env: Record<string, string | undefined>): QuoterConfi
     maxInvPerMarket: num(env.MM_MAX_INVENTORY_PER_MARKET, 20),
     maxInvTotal: num(env.MM_MAX_INVENTORY_TOTAL, 60),
     maxCumLoss: num(env.MM_MAX_CUM_LOSS, 50),
+    maxNotionalTotal: num(env.MM_MAX_NOTIONAL_TOTAL, 100),
+    fillPollMs: num(env.MM_FILL_POLL_MS, 3000),
+    walletSecretName: env.MM_WALLET_SECRET_NAME ?? '',
+    liveSubset: (env.MM_LIVE_SUBSET ?? '')
+      .split(',').map((s) => s.trim()).filter((s) => s.length > 0),
     softInvPerMarket: num(env.MM_SOFT_INVENTORY_PER_MARKET, 10),
     tick: num(env.MM_TICK, 0.01),
   };

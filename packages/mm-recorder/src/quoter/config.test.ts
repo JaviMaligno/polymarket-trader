@@ -45,3 +45,27 @@ describe('loadConfig', () => {
     expect(cfg.nearResolutionMs).toBe(48 * 3_600_000);
   });
 });
+
+describe('loadConfig — live fields', () => {
+  it('parsea campos live con defaults seguros', () => {
+    const c = loadConfig({ MM_QUOTER_MODE: 'live' });
+    expect(c.maxNotionalTotal).toBe(100);
+    expect(c.fillPollMs).toBe(3000);
+    expect(c.walletSecretName).toBe('');
+    expect(c.liveSubset).toEqual([]); // vacío = ningún mercado habilitado para live
+  });
+
+  it('parsea subset CSV y secret name', () => {
+    const c = loadConfig({
+      MM_QUOTER_MODE: 'live',
+      MM_LIVE_SUBSET: 'mktA, mktB ,mktC',
+      MM_WALLET_SECRET_NAME: 'projects/x/secrets/mm-key/versions/latest',
+      MM_MAX_NOTIONAL_TOTAL: '250',
+      MM_FILL_POLL_MS: '2000',
+    });
+    expect(c.liveSubset).toEqual(['mktA', 'mktB', 'mktC']);
+    expect(c.walletSecretName).toBe('projects/x/secrets/mm-key/versions/latest');
+    expect(c.maxNotionalTotal).toBe(250);
+    expect(c.fillPollMs).toBe(2000);
+  });
+});
