@@ -64,6 +64,21 @@ export class OrderGateway {
     this.open.clear();
   }
 
+  async replace(oldId: string, tokenId: string, side: Side, price: number, size: number): Promise<string | null> {
+    await this.cancel(oldId);
+    return this.postLimit(tokenId, side, price, size);
+  }
+
+  /** Cancela localmente (y en el exchange) las órdenes cuyo TTL ya pasó. */
+  async expireDue(): Promise<void> {
+    const now = this.now().getTime();
+    for (const o of [...this.open.values()]) {
+      if (o.ttlExpiresAt.getTime() <= now) {
+        await this.cancel(o.orderId).catch(() => this.open.delete(o.orderId));
+      }
+    }
+  }
+
   openOrderIds(): string[] { return [...this.open.keys()] }
   getOpen(orderId: string): OpenOrder | undefined { return this.open.get(orderId) }
   openOrders(): OpenOrder[] { return [...this.open.values()] }

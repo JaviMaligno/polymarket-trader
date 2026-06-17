@@ -61,3 +61,26 @@ describe('OrderGateway post/cancel', () => {
     expect(gw.openOrderIds()).toHaveLength(0);
   });
 });
+
+describe('OrderGateway replace/expire', () => {
+  it('replace cancela la vieja y postea una nueva', async () => {
+    const c = mockClient();
+    c.postOrder = vi.fn().mockResolvedValueOnce({ orderID: 'o1' }).mockResolvedValueOnce({ orderID: 'o2' });
+    const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date());
+    await gw.postLimit('tok', -1, 0.4, 20);
+    const id2 = await gw.replace('o1', 'tok', -1, 0.41, 20);
+    expect(c.cancelOrder).toHaveBeenCalledWith({ orderID: 'o1' });
+    expect(id2).toBe('o2');
+    expect(gw.openOrderIds()).toEqual(['o2']);
+  });
+
+  it('expireDue cancela las órdenes con TTL vencido', async () => {
+    const c = mockClient();
+    let t = new Date('2026-06-17T00:00:00Z');
+    const gw = new OrderGateway(c as any, { ttlMs: 1000 }, () => t);
+    await gw.postLimit('tok', -1, 0.4, 20);
+    t = new Date('2026-06-17T00:00:02Z'); // +2s > ttl 1s
+    await gw.expireDue();
+    expect(gw.openOrderIds()).toHaveLength(0);
+  });
+});
