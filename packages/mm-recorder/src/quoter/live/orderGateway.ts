@@ -8,9 +8,15 @@ export interface ClobClientLike {
   postOrder(signed: unknown, options?: Record<string, unknown>): Promise<{ orderID?: string }>;
   cancelOrder(args: { orderID: string }): Promise<unknown>;
   cancelAll(): Promise<unknown>;
+  getOrder(args: { orderID: string }): Promise<{ size_matched?: number } | null>;
 }
 
 export interface GatewayConfig { ttlMs: number }
+
+export interface LiveFill {
+  time: Date; orderId: string; tokenId: string; side: Side;
+  fillPrice: number; fillSize: number;
+}
 
 export interface OpenOrder {
   orderId: string; tokenId: string; side: Side; price: number; size: number;
@@ -77,6 +83,24 @@ export class OrderGateway {
         await this.cancel(o.orderId).catch(() => this.open.delete(o.orderId));
       }
     }
+  }
+
+  /** Poll del estado de cada orden abierta; emite el delta de size_matched como fill.
+   *  Acumulable: solo el incremento desde el último poll. Orden 100% llena → se cierra. */
+  async pollFills(): Promise<LiveFill[]> {
+    const out: LiveFill[] = [];
+    for (const o of [...this.open.values()]) {
+      const st = await this.client.getOrder({ orderID: o.orderId }).catch(() => null);
+      if (!st) continue;
+      const matched = st.size_matched ?? 0;
+      const delta = matched - o.matched;
+      if (delta > 0) {
+        out.push({ time: this.now(), orderId: o.orderId, tokenId: o.tokenId, side: o.side, fillPrice: o.price, fillSize: delta });
+        o.matched = matched;
+      }
+      if (matched >= o.size - 1e-9) this.open.delete(o.orderId);
+    }
+    return out;
   }
 
   openOrderIds(): string[] { return [...this.open.keys()] }

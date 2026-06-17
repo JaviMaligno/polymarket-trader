@@ -84,3 +84,23 @@ describe('OrderGateway replace/expire', () => {
     expect(gw.openOrderIds()).toHaveLength(0);
   });
 });
+
+describe('OrderGateway reconcile (poll)', () => {
+  it('emite fill parcial y luego completo, ignorando ids desconocidos', async () => {
+    const c = mockClient();
+    // getOrder devuelve size_matched acumulado
+    const statuses: Record<string, any> = { o1: { size_matched: 0 } };
+    (c as any).getOrder = vi.fn(async ({ orderID }: any) => statuses[orderID]);
+    const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date('2026-06-17T00:00:00Z'));
+    await gw.postLimit('tok', -1, 0.4, 20);
+
+    statuses.o1 = { size_matched: 5 };
+    const fills1 = await gw.pollFills();
+    expect(fills1).toEqual([expect.objectContaining({ orderId: 'o1', tokenId: 'tok', side: -1, fillPrice: 0.4, fillSize: 5 })]);
+
+    statuses.o1 = { size_matched: 20 }; // resto
+    const fills2 = await gw.pollFills();
+    expect(fills2[0].fillSize).toBe(15);
+    expect(gw.openOrderIds()).not.toContain('o1'); // totalmente lleno → cerrada
+  });
+});
