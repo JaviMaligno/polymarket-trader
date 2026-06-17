@@ -33,6 +33,7 @@ export class OrderGateway {
     // GTD: orden con expiración (dead-man's switch). El campo exacto de expiración
     // del clob-client se confirma en el smoke de capacidad (deploy); aquí pasamos
     // expiration en segundos epoch, que es la convención del client.
+    // `signed` es opaco (tipo unknown) hasta confirmar la API real del clob-client en el smoke de capacidad.
     const signed = await this.client.createOrder(
       { tokenID: tokenId, side: sideToClob(side), price, size },
       { orderType: 'GTD', expiration: Math.floor(ttlExpiresAt.getTime() / 1000) },
@@ -45,11 +46,20 @@ export class OrderGateway {
   }
 
   async cancel(orderId: string): Promise<void> {
-    await this.client.cancelOrder({ orderID: orderId });
-    this.open.delete(orderId);
+    // Idempotente: cancelar un id desconocido (ya retirado / nunca emitido) no llega al exchange.
+    if (!this.open.has(orderId)) return;
+    try {
+      await this.client.cancelOrder({ orderID: orderId });
+    } finally {
+      // Dead-man's switch: siempre soltamos el slot localmente. Si el cancel falló, la
+      // expiración GTD es la red de seguridad; retener el id bloquearía el re-quote del slot.
+      this.open.delete(orderId);
+    }
   }
 
   async cancelAll(): Promise<void> {
+    // Operación de alto impacto (boot / SIGTERM / kill-switch): dejar rastro en logs.
+    logger.info({ open: this.open.size }, 'cancelAll');
     await this.client.cancelAll();
     this.open.clear();
   }

@@ -20,12 +20,35 @@ describe('OrderGateway post/cancel', () => {
     expect(gw.openOrderIds()).toContain('o1');
   });
 
+  it('postLimit mapea side +1→SELL', async () => {
+    const c = mockClient();
+    const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date());
+    await gw.postLimit('tok', 1, 0.6, 20);
+    expect(c.createOrder).toHaveBeenCalledWith(expect.objectContaining({ side: 'SELL' }), expect.anything());
+  });
+
   it('cancel quita la orden del set de abiertas', async () => {
     const c = mockClient();
     const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date());
     await gw.postLimit('tok', 1, 0.6, 20);
     await gw.cancel('o1');
     expect(c.cancelOrder).toHaveBeenCalledWith({ orderID: 'o1' });
+    expect(gw.openOrderIds()).not.toContain('o1');
+  });
+
+  it('cancel de un id desconocido es no-op (no llega al client)', async () => {
+    const c = mockClient();
+    const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date());
+    await gw.cancel('desconocido');
+    expect(c.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('cancel suelta el slot localmente aunque el client rechace', async () => {
+    const c = mockClient();
+    c.cancelOrder = vi.fn(async () => { throw new Error('rate-limit'); });
+    const gw = new OrderGateway(c as any, { ttlMs: 1_800_000 }, () => new Date());
+    await gw.postLimit('tok', -1, 0.4, 20);
+    await expect(gw.cancel('o1')).rejects.toThrow('rate-limit');
     expect(gw.openOrderIds()).not.toContain('o1');
   });
 
