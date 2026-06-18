@@ -9,10 +9,12 @@ description: Use when the user asks to review the daily auto-review, says "lo de
 
 Private analysis of the auto-review system's daily output. Review the issue and PRs it created, evaluate quality, identify blind spots, and take action (merge, reject, investigate). This is a conversation between you and the user — NEVER create public GitHub issues.
 
+> **Cadence (since PR #317, 2026-06-06):** the LLM auto-review now runs **WEEKLY**, not daily. A deterministic watchdog still files a daily-review issue only when something crosses a threshold (no issue Tue-Sun is the healthy/expected state). So **Steps 1-3 (read today's issue, review its PRs) only apply when a NEW issue/PR actually exists** — most days there is none. The **always-on daily value is Step 0 (carry-over verification) + Step 3b (coverage/freshness)**: verify the ⏰ pending items in memory and system health. If there is no new issue and all carry-overs resolve clean, that is a complete, healthy session — say so and stop.
+
 ## When to Use
 
 - User says "lo de siempre", "analisis del autoreview", "review the daily review"
-- User wants to evaluate today's auto-review output
+- User wants to evaluate today's auto-review output, OR verify the pending ⏰ carry-overs / system health
 - User asks about auto-review quality or system health
 
 ## When NOT to Use
