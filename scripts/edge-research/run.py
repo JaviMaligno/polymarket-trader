@@ -9,6 +9,7 @@ from validators.ine5 import TimeDecayExtremeBandValidator
 from validators.mm import MMSpreadValidator
 from validators.mm_fine import MMFineValidator
 from validators.mm_shadow import MMShadowValidator
+from validators.mm_live import MMLiveValidator
 from scoreboard import render_markdown, render_csv
 
 # Primary hypothesis_id → validator factory. A validator may emit several slices
@@ -21,7 +22,8 @@ VALIDATORS = {"H-CAL-1": CalibrationValidator, "H-INE-1": FLBValidator,
               "H-INE-5": TimeDecayExtremeBandValidator,
               "H-MM-1": MMSpreadValidator,
               "H-MM-3": MMFineValidator,
-              "H-MM-4": MMShadowValidator}
+              "H-MM-4": MMShadowValidator,
+              "H-MM-5": MMLiveValidator}
 
 
 def _ctx(datasets, computed_at):

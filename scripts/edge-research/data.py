@@ -139,6 +139,11 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
     except Exception:
         out["mm_shadow_fills"] = None
     try:
+        live = _read_raw_csv(d / "mm_live_fills.csv", ["time"])
+        out["mm_live_fills"] = live if len(live) else None
+    except Exception:
+        out["mm_live_fills"] = None
+    try:
         # Optional: capture-gap windows the H-MM-3 walk must skip/reset over.
         # None (missing or empty) means "no gaps" — it never blocks H-MM-3.
         gaps = _read_raw_csv(d / "mm_gaps.csv", ["gap_start", "gap_end"])
