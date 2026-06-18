@@ -63,6 +63,10 @@ export class LiveEngine {
   async tick(_now: Date): Promise<void> {
     const fills = await this.deps.gateway.pollFills();
     for (const f of fills) {
+      // v1 gap: pollFills removes a fully-filled order before this runs, so getOpen
+      // returns undefined and queueInitial falls back to 0 → mm_live_fills.queue_initial
+      // is effectively always 0 in v1. Known limitation for H-MM-5 queue analysis (a
+      // follow-up will capture the touch size at postLimit time). Accounting is unaffected.
       const open = this.deps.gateway.getOpen(f.orderId);
       await this.deps.ledger.applyFill(f, {
         queueInitial: open?.queueInitial ?? 0,
@@ -71,7 +75,9 @@ export class LiveEngine {
         flags: '',
       });
     }
-    if (fills.length > 0) await this.runRiskCheck();
+    // Risk check runs EVERY tick, not only on fills: M2M can breach maxCumLoss as the mid
+    // moves without any fill (spec: "chequeos en cada fill + un tick periódico"). Cheap at v1 scale.
+    await this.runRiskCheck();
     await this.deps.gateway.expireDue();
   }
 
@@ -80,8 +86,11 @@ export class LiveEngine {
     let maxInv = 0;
     const markets = new Set(this.deps.marketByToken.values());
     for (const m of markets) maxInv = Math.max(maxInv, this.deps.ledger.notional(m));
-    const openNotional = this.deps.gateway.openOrders().reduce((t, o) => t + o.price * o.size, 0);
+    // remaining (still-open) notional: o.matched is already filled, no longer at risk as an open order.
+    const openNotional = this.deps.gateway.openOrders().reduce((t, o) => t + o.price * (o.size - o.matched), 0);
     const cumPnl = this.deps.ledger.totalRealized() + this.unrealized(book, markets);
+    // TODO(Task 13): balanceLow is hardcoded false until WalletBalance.refresh() is wired into
+    // the tick loop and threaded through here — no low-balance kill protection until then.
     await this.deps.risk.check({
       totalNotional: this.deps.ledger.totalNotional(),
       maxInvNotional: maxInv,

@@ -31,6 +31,10 @@ export async function buildLiveEngine(d: BuildLiveDeps): Promise<{ engine: LiveE
   // cancel-all incondicional al arrancar (sin reconciliar órfanas — v1).
   await d.gateway.cancelAll();
 
+  // v1 SINGLE-MARKET ONLY: the ledger keys all fills under firstMarket. A liveSubset with
+  // >1 market would mis-account inventory (market[1..n] positions collapse onto market[0] and
+  // report 0 in risk checks). Task 13 activation MUST set MM_LIVE_SUBSET to exactly one market
+  // until a multi-market LiveLedger lands.
   const firstMarket = d.cfg.liveSubset[0] ?? '';
   const ledger = new LiveLedger(d.persistence, firstMarket);
 
