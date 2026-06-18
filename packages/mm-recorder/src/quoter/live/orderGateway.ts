@@ -21,6 +21,7 @@ export interface LiveFill {
 export interface OpenOrder {
   orderId: string; tokenId: string; side: Side; price: number; size: number;
   placedAt: Date; ttlExpiresAt: Date; matched: number;
+  queueInitial?: number; // v1: unset (filled by a later follow-up from book level size); engine defaults to 0
 }
 
 const sideToClob = (s: Side): 'BUY' | 'SELL' => (s === -1 ? 'BUY' : 'SELL');
