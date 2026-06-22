@@ -1,16 +1,19 @@
 -- B2 export: per trade, the maker fill candidate + forward mids. 100% of trades.
 -- WINDOW override: psql -v win='7 days' (default 7 days).
+--
+-- Perf note (2026-06-22): the book lookups (mid_before + forward mids) query
+-- mm_book_events DIRECTLY via the existing index idx_mm_book_token_time
+-- (token_id, time) instead of materialising a `be` TEMP TABLE of every book
+-- event in the window. The temp scanned ~4M rows into a 1GB-RAM e2-micro and
+-- spilled to disk — the dominant cost of the weekly MM export, which timed out
+-- at the 40-min job limit. Each trade only needs one book row per lookup; the
+-- index serves each as a LIMIT-1 scan, so cost is O(trades) not O(book).
+-- The non-null bid/ask filter is kept identical to the old `be` predicate, so
+-- the output is row-for-row equivalent.
 \if :{?win}
 \else
   \set win '7 days'
 \endif
-
-CREATE TEMP TABLE be AS
-  SELECT token_id, time AS bt, best_bid, best_ask, mid, best_bid_size, best_ask_size
-  FROM mm_book_events
-  WHERE time > NOW() - INTERVAL :'win' AND best_bid IS NOT NULL AND best_ask IS NOT NULL;
-CREATE INDEX ON be (token_id, bt);
-ANALYZE be;
 
 CREATE TEMP TABLE te AS
   SELECT token_id, market_id, time AS tt, price, size
@@ -23,15 +26,17 @@ COPY (
            b.best_bid_size, b.best_ask_size
     FROM te t
     LEFT JOIN LATERAL (
-      SELECT best_bid, best_ask, mid, best_bid_size, best_ask_size FROM be
-      WHERE be.token_id = t.token_id AND be.bt <= t.tt
-      ORDER BY be.bt DESC LIMIT 1) b ON true
+      SELECT best_bid, best_ask, mid, best_bid_size, best_ask_size
+      FROM mm_book_events be
+      WHERE be.token_id = t.token_id AND be.time <= t.tt
+        AND be.best_bid IS NOT NULL AND be.best_ask IS NOT NULL
+      ORDER BY be.time DESC LIMIT 1) b ON true
   ),
   withmids AS (
     SELECT j.*,
-      (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '10 seconds'  ORDER BY be.bt DESC LIMIT 1) AS mid_10s,
-      (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '60 seconds'  ORDER BY be.bt DESC LIMIT 1) AS mid_60s,
-      (SELECT mid FROM be WHERE be.token_id=j.token_id AND be.bt > j.tt AND be.bt <= j.tt + INTERVAL '300 seconds' ORDER BY be.bt DESC LIMIT 1) AS mid_300s
+      (SELECT mid FROM mm_book_events be WHERE be.token_id=j.token_id AND be.best_bid IS NOT NULL AND be.best_ask IS NOT NULL AND be.time > j.tt AND be.time <= j.tt + INTERVAL '10 seconds'  ORDER BY be.time DESC LIMIT 1) AS mid_10s,
+      (SELECT mid FROM mm_book_events be WHERE be.token_id=j.token_id AND be.best_bid IS NOT NULL AND be.best_ask IS NOT NULL AND be.time > j.tt AND be.time <= j.tt + INTERVAL '60 seconds'  ORDER BY be.time DESC LIMIT 1) AS mid_60s,
+      (SELECT mid FROM mm_book_events be WHERE be.token_id=j.token_id AND be.best_bid IS NOT NULL AND be.best_ask IS NOT NULL AND be.time > j.tt AND be.time <= j.tt + INTERVAL '300 seconds' ORDER BY be.time DESC LIMIT 1) AS mid_300s
     FROM j
   )
   SELECT w.market_id, m.market_type, w.token_id, w.tt AS time, w.size, w.price,
