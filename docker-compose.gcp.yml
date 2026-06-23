@@ -387,7 +387,14 @@ services:
       # minSpread/volPause se dejan en default permisivo (sin definir) para que
       # el shadow APRENDA los umbrales de la curva retained-vs-spread/vol; live
       # los endurecerá con esos datos. NO poner mode=live (index.ts lanza error).
-      MM_QUOTER_MODE: "shadow"
+      #
+      # 2026-06-23: MM CERRADO. El gate shadow→real H-MM-4 dio FAIL — el spread
+      # retenido tradeable con cola inicial exacta colapsa a ~+2bps (bootstrap_lo
+      # cruza 0 en 5/6 celdas headline), event_long y rewards_constrained negativos.
+      # El edge de los proxies H-MM-1/H-MM-3 era artefacto de fills optimistas.
+      # Quoter apagado (off) — el código live gated-off queda dormido por si se
+      # reabre con un régimen de spread ancho. El recorder está parado además.
+      MM_QUOTER_MODE: "off"
       MM_QUOTE_SIZE: "20"
       MM_ORDER_TTL_MS: "1800000"
     deploy:
