@@ -51,7 +51,8 @@ def test_load_from_dir_matches_db_shaping(tmp_path):
     # token (None here, since no mm_trade_spreads.csv was written).
     assert set(out) == {"market_panel_resolved", "market_panel_full",
                         "flb_shadow_signals", "mm_trade_spreads", "mm_fine_fills",
-                        "mm_gaps", "mm_shadow_fills", "mm_live_fills"}
+                        "mm_gaps", "mm_shadow_fills", "mm_live_fills",
+                        "conditional_events"}
     assert out["mm_trade_spreads"] is None
     assert out["mm_fine_fills"] is None
     res = out["market_panel_resolved"]
@@ -147,3 +148,29 @@ def test_load_from_dir_mm_gaps(tmp_path):
 def test_load_from_dir_mm_gaps_missing_maps_to_none(tmp_path):
     out = load_all_datasets_from_dir(str(tmp_path))
     assert out["mm_gaps"] is None
+
+
+import pathlib
+
+def test_conditional_events_loaded_from_dir(tmp_path):
+    pd.DataFrame({
+        "pair_id": ["p0", "p1"],
+        "relation": ["implies_yes", "implies_no"],
+        "market_type_b": ["event_short", "event_financial"],
+        "t_a": ["2026-01-01T00:00:00+00", "2026-01-02T00:00:00+00"],
+        "outcome_a": [1, 1],
+        "entry_offset": ["1h", "1d"],
+        "b_entry_price": [0.60, 0.30],
+        "b_implied_value": [1, 0],
+        "b_outcome": [1, 0],
+        "b_resolved_at": ["2026-01-08T00:00:00+00", "2026-01-09T00:00:00+00"],
+        "hold_days": [7.0, 7.0],
+    }).to_csv(tmp_path / "conditional_events.csv", index=False)
+    out = load_all_datasets_from_dir(str(tmp_path))
+    df = out["conditional_events"]
+    assert df is not None and len(df) == 2
+    assert str(df["t_a"].dt.tz) == "UTC"
+
+def test_conditional_events_missing_maps_to_none(tmp_path):
+    out = load_all_datasets_from_dir(str(tmp_path))
+    assert out["conditional_events"] is None

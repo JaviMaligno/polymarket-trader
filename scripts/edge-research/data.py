@@ -53,6 +53,18 @@ def load_flb_shadow(database_url: str | None = None) -> pd.DataFrame:
     return _read(FLB_SQL, database_url)
 
 
+# --- conditional_events: dependent-market staleness rows (H-INE-4 validator) ---
+
+CONDITIONAL_EVENTS_SQL = """
+  SELECT pair_id, relation, market_type_b, t_a, outcome_a, entry_offset,
+         b_entry_price, b_implied_value, b_outcome, b_resolved_at, hold_days
+  FROM conditional_events
+"""
+
+def load_conditional_events(database_url: str | None = None) -> pd.DataFrame:
+    return _read(CONDITIONAL_EVENTS_SQL, database_url)
+
+
 # --- shared ---
 
 def _read(sql: str, database_url: str | None) -> pd.DataFrame:
@@ -66,6 +78,7 @@ _LOADERS = {
     "market_panel_resolved": load_market_panel,
     "market_panel_full": load_market_panel_full,
     "flb_shadow_signals": load_flb_shadow,
+    "conditional_events": load_conditional_events,
 }
 
 def load_all_datasets(database_url: str | None = None) -> dict:
@@ -150,4 +163,9 @@ def load_all_datasets_from_dir(datasets_dir: str) -> dict:
         out["mm_gaps"] = gaps if len(gaps) else None
     except Exception:
         out["mm_gaps"] = None
+    try:
+        cond = _read_raw_csv(d / "conditional_events.csv", ["t_a", "b_resolved_at"])
+        out["conditional_events"] = cond if len(cond) else None
+    except Exception:
+        out["conditional_events"] = None
     return out
