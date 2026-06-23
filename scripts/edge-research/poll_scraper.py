@@ -90,7 +90,8 @@ class PollRow:
 _STOPWORDS = re.compile(
     r"pollster|client|poll source|\bpoll\b|sample|margin of error|\bmoe\b|\blead\b|"
     r"other|blank|none|undecided|abstention|turnout|source|host|moderator|"
-    r"link|participant|votes|raised|spent|cash", re.I)
+    r"link|participant|votes|raised|spent|cash|majority|government|coalition|"
+    r"don'?t know|\bdk\b|no opinion|would not|won'?t vote|spoil|invalid", re.I)
 _DATE_LVL = re.compile(r"date", re.I)  # "Date", "Date(s) administered", "Dates conducted"
 _POLLSTER = re.compile(r"pollster|client|poll source", re.I)
 _SAMPLE = re.compile(r"sample", re.I)
@@ -173,7 +174,21 @@ def _title(region: str) -> str:
     return "_".join(w.capitalize() for w in region.replace("_", " ").split())
 
 
+# Hand-verified URLs (2026-06-23 WebSearch) for races whose Wikipedia title does not
+# match the templates — many foreign elections keep polling in the MAIN election page,
+# with title variants (parliamentary vs Legislative Assembly) the templates can't guess.
+_URL_OVERRIDES = {
+    "Bulgaria/parliament/?": "2026_Bulgarian_parliamentary_election",
+    "Colombia/parliament/?": "2026_Colombian_parliamentary_election",
+    "India/parliament/tamil nadu": "2026_Tamil_Nadu_Legislative_Assembly_election",
+    "India/parliament/kerala": "2026_Kerala_Legislative_Assembly_election",
+    "India/parliament/assam": "2026_Assam_Legislative_Assembly_election",
+}
+
+
 def resolve_url(race_id: str, resolution_date: str, searcher=None) -> str | None:
+    if race_id in _URL_OVERRIDES:
+        return _WIKI + _URL_OVERRIDES[race_id]
     parts = (race_id.split("/", 2) + ["", ""])[:3]
     country, office, region = parts
     year = (resolution_date or "2026")[:4]

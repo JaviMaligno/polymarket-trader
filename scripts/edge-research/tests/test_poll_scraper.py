@@ -121,6 +121,11 @@ def test_resolve_unmapped_no_searcher_is_none():
     assert resolve_url("US/house/KY-04", "2026-05-19", searcher=None) is None
 
 
+def test_resolve_override_wins():
+    u = resolve_url("Bulgaria/parliament/?", "2026-04-19", searcher=None)
+    assert u == "https://en.wikipedia.org/wiki/2026_Bulgarian_parliamentary_election"
+
+
 # ---------- Task 4: margin deriver ----------
 
 def _pr(cand, share, d, two=True):
