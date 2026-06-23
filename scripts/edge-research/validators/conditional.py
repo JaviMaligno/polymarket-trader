@@ -31,7 +31,7 @@ class ConditionalValidator:
             df["b_entry_price"] - df["b_outcome"]).astype(float)
         df["staleness"] = (df["b_entry_price"] - df["b_implied_value"]).abs().astype(float)
 
-        cohorts: list[tuple[str, object]] = [("headline", df.index == df.index)]
+        cohorts: list[tuple[str, object]] = [("headline", np.ones(len(df), dtype=bool))]
         for rel in sorted(df["relation"].dropna().unique()):
             cohorts.append((f"relation:{rel}", df["relation"] == rel))
         for mt in sorted(df["market_type_b"].dropna().unique()):
