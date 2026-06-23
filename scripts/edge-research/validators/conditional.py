@@ -38,7 +38,20 @@ class ConditionalValidator:
             cohorts.append((f"type:{mt}", df["market_type_b"] == mt))
         for off in sorted(df["entry_offset"].dropna().unique()):
             cohorts.append((f"offset:{off}", df["entry_offset"] == off))
-        return [self._verdict(ctx, df[m], label) for label, m in cohorts]
+        # OOS temporal cohort: later half by t_a (the decision verdict).
+        floor = getattr(ctx, "min_n", 200)
+        verdicts = [self._verdict(ctx, df[m], label) for label, m in cohorts]
+        if len(df) >= 2 * floor:
+            ordered = df.sort_values("t_a")
+            later = ordered.iloc[len(ordered) // 2:]
+            verdicts.append(self._verdict(ctx, later, "oos"))
+        else:
+            verdicts.append(Verdict(
+                self.hypothesis_id, self.hclass, len(df), None, None, None, "full",
+                {"slice": "oos"}, "real_one_way", "inconclusive",
+                [f"n={len(df)} below 2*floor {2*floor}; cannot split out-of-sample"],
+                ctx.computed_at))
+        return verdicts
 
     def _verdict(self, ctx, sub, label) -> Verdict:
         floor = getattr(ctx, "min_n", 200)

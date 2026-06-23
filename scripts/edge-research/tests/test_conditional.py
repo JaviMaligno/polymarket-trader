@@ -56,3 +56,25 @@ def test_below_floor_is_inconclusive():
     headline = [x for x in v if x.class_metric["slice"] == "headline"][0]
     assert headline.status == "inconclusive"
     assert headline.n == 2
+
+
+def test_oos_cohort_present_and_inconclusive_when_thin():
+    rows = [_ev("implies_yes", 0.60, 1, 1) for _ in range(50)]
+    v = ConditionalValidator().run(_ctx(_frame(rows), min_n=30))  # floor 30, n=50 < 60
+    oos = [x for x in v if x.class_metric["slice"] == "oos"][0]
+    assert oos.status == "inconclusive"
+    assert any("split" in c for c in oos.n_caveats)
+
+
+def test_oos_cohort_splits_when_enough():
+    rng = np.random.default_rng(1)
+    rows = []
+    for i in range(80):
+        rows.append(_ev("implies_yes", float(0.55 + rng.normal(0, 0.01)), 1, 1))
+    df = _frame(rows)
+    df["t_a"] = pd.to_datetime(
+        ["2026-01-%02d" % (1 + (i % 28)) for i in range(len(df))], utc=True)
+    v = ConditionalValidator().run(_ctx(df, min_n=30))  # 2*floor=60, n=80 -> split
+    oos = [x for x in v if x.class_metric["slice"] == "oos"][0]
+    assert oos.n == 40                      # later half
+    assert oos.status in ("pass", "fail")   # measured, not inconclusive
