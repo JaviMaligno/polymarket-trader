@@ -77,8 +77,14 @@ function toDaily(hist) {
 async function main() {
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-  await pool.query(`CREATE UNLOGGED TABLE IF NOT EXISTS flb_backtest_prices (
+  // LOGGED (not UNLOGGED): an unlogged table is TRUNCATED on every Postgres
+  // crash/restart. The original unlogged backfill (2026-05-19, 6339 markets) was
+  // silently wiped when timescaledb restarted ~2026-06-09, leaving downstream
+  // backtests (FLB, H-INE-4 conditional) with no price corpus. SET LOGGED is
+  // idempotent and converts a pre-existing empty unlogged table in place.
+  await pool.query(`CREATE TABLE IF NOT EXISTS flb_backtest_prices (
     market_id text NOT NULL, ts timestamptz NOT NULL, yes_price numeric(10,6) NOT NULL)`);
+  await pool.query(`ALTER TABLE flb_backtest_prices SET LOGGED`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_flb_bt ON flb_backtest_prices (market_id, ts)`);
 
   const { rows: markets } = await pool.query(
