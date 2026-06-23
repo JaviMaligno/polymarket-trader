@@ -72,8 +72,16 @@ def test_classifier_prior_us_house_is_raw_polls():
     assert classify_coverage(_race("US", "house"), verifier=None).tier == "raw_polls"
 
 
-def test_classifier_prior_foreign_minor_is_none():
+def test_classifier_prior_foreign_subnational_is_none():
+    # Bolivia provincial governor: weak English poll coverage -> none
     assert classify_coverage(_race("Bolivia", "governor"), verifier=None).tier == "none"
+
+
+def test_classifier_prior_foreign_national_is_raw_polls():
+    # Peru presidential / Hungary parliament: national elections have Wikipedia poll
+    # tables in English (spot-checked 2026-06-23) -> raw_polls, not none.
+    assert classify_coverage(_race("Peru", "president"), verifier=None).tier == "raw_polls"
+    assert classify_coverage(_race("Hungary", "parliament"), verifier=None).tier == "raw_polls"
 
 
 def test_classifier_prior_unknown_geo_is_unknown():

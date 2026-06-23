@@ -144,11 +144,14 @@ def _prior_tier(race: Race) -> str:
         if race.office == "house":
             return "raw_polls"  # district polling on Wikipedia, no win-prob agg
         return "raw_polls"
-    if race.country in _RAW_POLL_COUNTRIES and race.office in (
-        "parliament", "president", "house", "senate",
-    ):
+    # National elections anywhere get polled + have an English Wikipedia poll table
+    # (spot-checked 2026-06-23: Peru/Hungary/Bulgaria/Colombia presidential &
+    # parliamentary all have "Opinion polling for the 20XX ... election" articles).
+    if race.office in ("parliament", "president"):
         return "raw_polls"
-    return "none"  # foreign minor (provincial/state, niche)
+    if race.country in _RAW_POLL_COUNTRIES and race.office in ("house", "senate"):
+        return "raw_polls"
+    return "none"  # foreign SUBnational (provincial governor, state assembly): weak coverage
 
 
 def classify_coverage(
