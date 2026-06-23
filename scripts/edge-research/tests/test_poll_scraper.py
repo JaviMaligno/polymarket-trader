@@ -73,6 +73,18 @@ def test_parse_html_returns_poll_tables():
     assert len(tables) >= 1
 
 
+def test_normalize_us_format_poll_source_and_dates_administered():
+    # US tables use "Poll source" + "Date(s) administered" (not Pollster/Date).
+    rows = normalize_poll_table(_df("us_senate_poll.html"), "US/senate/illinois", "u")
+    assert rows, "US table must yield rows"
+    cands = {r.candidate for r in rows}
+    assert "Robin Kelly" in cands and "Raja Krishnamoorthi" in cands
+    # "Poll source", "Other", "Margin of error" must NOT be candidates
+    assert not any("source" in c.lower() or "other" == c.lower()
+                   or "margin" in c.lower() for c in cands)
+    assert any(r.field_date is not None for r in rows)
+
+
 # ---------- Task 3: URL resolver ----------
 
 def test_resolve_us_senate_template():
@@ -88,6 +100,11 @@ def test_resolve_us_governor_template():
 def test_resolve_foreign_national_template():
     u = resolve_url("Peru/president/?", "2026-04-12", searcher=None)
     assert u == "https://en.wikipedia.org/wiki/Opinion_polling_for_the_2026_Peruvian_general_election"
+
+
+def test_resolve_foreign_parliamentary_template():
+    u = resolve_url("Hungary/parliament/?", "2026-04-12", searcher=None)
+    assert u == "https://en.wikipedia.org/wiki/Opinion_polling_for_the_2026_Hungarian_parliamentary_election"
 
 
 def test_resolve_unmapped_uses_searcher_stub():

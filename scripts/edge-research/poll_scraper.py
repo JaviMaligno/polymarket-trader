@@ -31,17 +31,7 @@ _MON_ABBR = {m[:3]: i for m, i in _MONTHS.items()}
 
 # ---------- scalar parsers ----------
 
-def parse_field_date(s) -> date | None:
-    if not s:
-        return None
-    raw = str(s)
-    t = re.sub(r"\[[^\]]*\]", "", raw).strip()
-    t = re.split(r"\s*[–—-]\s*", t)[-1].strip()  # END of any range
-    m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", t) or \
-        re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", raw)
-    if not m:
-        return None
-    day, mon, yr = int(m.group(1)), m.group(2).lower(), int(m.group(3))
+def _mk_date(yr, mon, day):
     month = _MONTHS.get(mon) or _MON_ABBR.get(mon[:3])
     if not month:
         return None
@@ -49,6 +39,25 @@ def parse_field_date(s) -> date | None:
         return date(yr, month, day)
     except ValueError:
         return None
+
+
+def parse_field_date(s) -> date | None:
+    if not s:
+        return None
+    raw = re.sub(r"\[[^\]]*\]", "", str(s)).strip()
+    # US "Month DD[–DD], YYYY" -> end-of-range day
+    m = re.search(r"([A-Za-z]+)\s+(\d{1,2})(?:\s*[–—-]\s*(\d{1,2}))?,?\s*(\d{4})", raw)
+    if m:
+        d = _mk_date(int(m.group(4)), m.group(1).lower(), int(m.group(3) or m.group(2)))
+        if d:
+            return d
+    # Peru "DD[–DD] Month YYYY" -> end-of-range day (token before month)
+    tail = re.split(r"\s*[–—-]\s*", raw)[-1].strip()
+    m = re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", tail) or \
+        re.search(r"(\d{1,2})\s+([A-Za-z]+)\s+(\d{4})", raw)
+    if m:
+        return _mk_date(int(m.group(3)), m.group(2).lower(), int(m.group(1)))
+    return None
 
 
 def parse_share(s) -> float | None:
@@ -79,10 +88,11 @@ class PollRow:
 
 # real stopwords (NOT "unnamed": every multi-index col carries an Unnamed level)
 _STOPWORDS = re.compile(
-    r"pollster|client|sample|margin of error|\bmoe\b|\blead\b|other|"
-    r"blank|none|undecided|abstention|turnout|source", re.I)
-_DATE_LVL = re.compile(r"^date$", re.I)
-_POLLSTER = re.compile(r"pollster|client", re.I)
+    r"pollster|client|poll source|\bpoll\b|sample|margin of error|\bmoe\b|\blead\b|"
+    r"other|blank|none|undecided|abstention|turnout|source|host|moderator|"
+    r"link|participant|votes|raised|spent|cash", re.I)
+_DATE_LVL = re.compile(r"date", re.I)  # "Date", "Date(s) administered", "Dates conducted"
+_POLLSTER = re.compile(r"pollster|client|poll source", re.I)
 _SAMPLE = re.compile(r"sample", re.I)
 
 
@@ -172,7 +182,8 @@ def resolve_url(race_id: str, resolution_date: str, searcher=None) -> str | None
     if country == "US" and office == "governor" and region not in ("", "?"):
         return f"{_WIKI}{year}_{_title(region)}_gubernatorial_election"
     if office in ("president", "parliament") and country in _ADJ:
-        return f"{_WIKI}Opinion_polling_for_the_{year}_{_ADJ[country]}_general_election"
+        kind = "parliamentary" if office == "parliament" else "general"
+        return f"{_WIKI}Opinion_polling_for_the_{year}_{_ADJ[country]}_{kind}_election"
     if searcher is not None:
         return searcher(f"{year} {race_id} election opinion polling Wikipedia")
     return None
