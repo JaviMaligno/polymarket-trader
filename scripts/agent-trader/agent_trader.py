@@ -199,6 +199,58 @@ def summary():
     print(f"capital at risk (open): ${sum(b['stake'] for b in openb):.0f}")
 
 
+def _latest_lessons_section() -> str:
+    p = HERE / "lessons.md"
+    if not p.exists():
+        return ""
+    lines = p.read_text(encoding="utf-8").splitlines()
+    idxs = [i for i, l in enumerate(lines) if l.startswith("## Run")]
+    return "\n".join(lines[idxs[-1]:]) if idxs else ""
+
+
+def email_html() -> str:
+    """Build an HTML weekly summary email body (record + open bets + latest lessons)."""
+    bets = load_bets()
+    closed = [b for b in bets if b["status"] in ("won", "lost")]
+    openb = [b for b in bets if b["status"] == "open"]
+    pnl = sum(b["pnl_net"] for b in closed if b["pnl_net"] is not None)
+    wins = sum(1 for b in closed if b["status"] == "won")
+    brier = ""
+    if closed:
+        sq = [(b["my_prob_yes"] - (1 if b["resolved_outcome"] == "YES" else 0)) ** 2
+              for b in closed]
+        brier = f"{sum(sq)/len(sq):.4f}"
+    rec = (f"{wins}-{len(closed)-wins} ({wins/len(closed):.0%})" if closed else "0-0 (n/a)")
+
+    def esc(s):
+        return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    rows = "".join(
+        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>"
+        f"<td>{b.get('edge_per_contract', 0):+.3f}</td><td>{esc(b['end_date'][:10])}</td>"
+        f"<td>{esc(b['question'][:70])}</td></tr>"
+        for b in openb)
+    resolved_rows = "".join(
+        f"<tr><td>{esc(b['status'].upper())}</td><td>${b['pnl_net']:+.2f}</td>"
+        f"<td>{esc(b['side'])}</td><td>{esc(b['question'][:70])}</td></tr>"
+        for b in closed[-8:])
+
+    return f"""<html><body style="font-family:sans-serif;max-width:720px">
+<h2>Agent-Trader — weekly run</h2>
+<p><b>Record:</b> {rec} &nbsp;|&nbsp; <b>P&amp;L net:</b> ${pnl:+.2f} &nbsp;|&nbsp;
+<b>Bankroll:</b> ${BANKROLL0 + pnl:.2f} &nbsp;|&nbsp; <b>Brier:</b> {brier or 'n/a'} &nbsp;|&nbsp;
+<b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
+<h3>Open bets</h3>
+<table border="1" cellpadding="4" cellspacing="0">
+<tr><th>Side</th><th>Entry</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=5>none</td></tr>'}</table>
+{"<h3>Recently resolved</h3><table border=1 cellpadding=4 cellspacing=0><tr><th>Result</th><th>P&amp;L</th><th>Side</th><th>Market</th></tr>" + resolved_rows + "</table>" if closed else ""}
+<h3>This run's notes (from lessons.md)</h3>
+<pre style="white-space:pre-wrap;background:#f6f8fa;padding:10px;border-radius:6px">{esc(_latest_lessons_section())}</pre>
+<p style="color:#888;font-size:12px">Paper experiment — hypothetical $1000 bankroll, no real funds.
+Track record: scripts/agent-trader/bets.jsonl</p>
+</body></html>"""
+
+
 if __name__ == "__main__":
     import sys
     cmd = sys.argv[1] if len(sys.argv) > 1 else "candidates"
@@ -216,3 +268,7 @@ if __name__ == "__main__":
         evaluate(); summary()
     elif cmd == "summary":
         summary()
+    elif cmd == "email_html":
+        out = sys.argv[2] if len(sys.argv) > 2 else "email.html"
+        Path(out).write_text(email_html(), encoding="utf-8")
+        print(f"wrote {out}")

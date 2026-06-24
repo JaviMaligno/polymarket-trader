@@ -38,6 +38,7 @@ jobs:
       - name: Install deps
         run: |
           npm install -g @anthropic-ai/claude-code
+          npm install --no-save nodemailer
           pip install --quiet requests
 
       - name: Configure git
@@ -63,6 +64,23 @@ jobs:
             2>&1 | tee /tmp/agent-run.log || true
           echo "=== final summary ==="
           python agent_trader.py summary || true
+
+      - name: Email weekly summary
+        if: always()
+        env:
+          GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
+        run: |
+          set -uo pipefail
+          python scripts/agent-trader/agent_trader.py email_html /tmp/at-email.html || true
+          SUBJECT="Agent-Trader weekly — $(date -u +%Y-%m-%d)"
+          if [ -f /tmp/at-email.html ] && [ -n "${GMAIL_USERNAME:-}" ]; then
+            node scripts/send-review-email.js /tmp/at-email.html "$SUBJECT" \
+              && echo "Email sent" || echo "::warning::Email send failed"
+          else
+            echo "::warning::No email sent (missing html or GMAIL_* secrets)"
+          fi
 
       - name: Commit track record
         run: |
