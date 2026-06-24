@@ -64,6 +64,8 @@ jobs:
             2>&1 | tee /tmp/agent-run.log || true
           echo "=== final summary ==="
           python agent_trader.py summary || true
+          # Append the per-run metrics snapshot (calibration + cost-aware P&L CI trajectory).
+          python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 
       - name: Email weekly summary
         if: always()
@@ -85,7 +87,7 @@ jobs:
       - name: Commit track record
         run: |
           set -euo pipefail
-          git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md
+          git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl
           if git diff --cached --quiet; then
             echo "No changes to commit (no bets placed / no resolutions)."
           else

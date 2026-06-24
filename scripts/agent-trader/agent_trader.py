@@ -272,11 +272,18 @@ def email_html() -> str:
         f"<td>{esc(b['side'])}</td><td>{esc(b['question'][:70])}</td></tr>"
         for b in closed[-8:])
 
+    try:
+        import metrics as _metrics
+        metrics_block = _metrics.render_html(_metrics.compute_metrics(bets))
+    except Exception:
+        metrics_block = ""
+
     return f"""<html><body style="font-family:sans-serif;max-width:720px">
 <h2>Agent-Trader — weekly run</h2>
 <p><b>Record:</b> {rec} &nbsp;|&nbsp; <b>P&amp;L net:</b> ${pnl:+.2f} &nbsp;|&nbsp;
 <b>Bankroll:</b> ${BANKROLL0 + pnl:.2f} &nbsp;|&nbsp; <b>Brier:</b> {brier or 'n/a'} &nbsp;|&nbsp;
 <b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
+{metrics_block}
 <h3>Open bets</h3>
 <table border="1" cellpadding="4" cellspacing="0">
 <tr><th>Side</th><th>Entry</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=5>none</td></tr>'}</table>
@@ -309,3 +316,13 @@ if __name__ == "__main__":
         out = sys.argv[2] if len(sys.argv) > 2 else "email.html"
         Path(out).write_text(email_html(), encoding="utf-8")
         print(f"wrote {out}")
+    elif cmd == "metrics":
+        import metrics as _metrics
+        m = _metrics.compute_metrics()
+        date = sys.argv[2] if len(sys.argv) > 2 else _now().date().isoformat()
+        _metrics.append_snapshot(m, date)   # persist first (robust to console issues)
+        try:
+            print(_metrics.render_text(m))
+        except UnicodeEncodeError:
+            print(_metrics.render_text(m).encode("ascii", "replace").decode())
+        print(f"\nappended snapshot ({date}) to metrics.jsonl")
