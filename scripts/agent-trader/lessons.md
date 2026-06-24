@@ -84,3 +84,35 @@ esports (noise — TODO: add to is_researchable exclusions); crypto/WTI threshol
 **Calibration check so far (0 resolved):** Cannot judge yet, but subjective view: Bolojan NO is near-certain win, Hormuz bets are murkier than expected. Original Hormuz thesis (40-ships, MA≥60) may have been too optimistic on the recovery speed given physical mine constraints.
 
 **Running record: 3 open, 0 resolved, $75 at risk.**
+
+## Run 4 — 2026-06-24 (one new bet, richer universe scan)
+
+**Open bet status updates:**
+
+- **Bet 2 (Romania/Bolojan NO) — thesis rock-solid.** Second PM-designate Vestea rejected June 22 (189 vs 233 needed). A THIRD nomination cycle is now required (nominate → 10-day cabinet assembly → parliamentary vote). With only 6 days to June 30, physically impossible to complete. Market still prices YES=0.276, which seems very lagged. p_hat_yes revised DOWN to ~0.02. Near-certain NO win. Market will likely crash toward 0 as the deadline approaches.
+
+- **Bet 3 (Hormuz 40-ships Jun30 YES) — uncertain.** Current AIS-visible transits hover 25-36/day. Need 40 on any single day in 6d. Market moved slightly against (0.63 → 0.61). Thesis intact but AIS-only constraint is the binding limit.
+
+- **Bet 1 (Hormuz MA≥60 Jul31 YES) — revised down.** Market moved 0.455 → 0.425. Mines take 40-50d to clear; MA≥60 requires a ramp-up after clearance (~July 17-27 window). Roughly fair at current price; held.
+
+**New universe themes (Run 4):** FIFA World Cup 2026 dominates mid-priced markets (Group I, L winners; individual match wins; Golden Boot). Also: Claude Fable 5 US suspension (unique market), Israel/Hezbollah peace deal.
+
+**Bet placed (4) — Israel/Hezbollah permanent peace deal Jul31 NO @ 0.86, p_hat_yes 0.06, edge 0.08.** Resolution requires explicit formal agreement ending hostilities permanently — not a ceasefire. Current status: temporary MOU only; active skirmishing over Lebanon security zone; no formal peace negotiations; 44-year historical baseline of zero Israel-Hezbollah peace deals. Market at 15% YES dramatically overprices speed of political resolution. High conviction NO. Independent of existing Hormuz bets (different political track, provides some portfolio balance).
+
+**Declined this run:**
+- **Claude Fable 5 restored by July 1 YES @ 0.23**: p_hat ~0.30-0.32. Edge 5-7% net, but the natural restoration path (Anthropic ID verification policy) takes effect July 8, AFTER the deadline. June 23 worsening (removed from subscription plans) argues against imminent deal. Edge too thin given timing argument strongly favors July 8+, not July 1. Declined.
+- **England win Group L @ 0.875**: p_hat ~0.90-0.93, net edge only 1.5-4.5% after 1% spread. Below 5% threshold. England faces eliminated Panama with GD cushion — highly likely to win group, but market already prices it correctly.
+- **France win Group I @ 0.795**: France needs only draw vs Norway to win on GD (+5 vs +4). p_hat ~75-78%. Market is fair to slightly generous already. No bet.
+- **Messi top goalscorer @ 0.378**: Messi leads with 5 goals (Mbappe/Haaland at 4). With many tournament games remaining, 37.8% for the current 1-goal leader seems roughly fair. Too much variance in knockout rounds and Messi is 38.
+- **Hormuz Jul15 @ 0.235**: Concentration veto — 3rd Hormuz-correlated bet would compromise calibration signal.
+- **Israel airspace Jul31 @ 0.115**: Ceasefire MOU holding, Israel has explicit policy against full closure. Fair at 11.5%. No compelling edge.
+- **World Cup individual match wins**: Sports are efficient with 1% spread; no edge without deep football analytics.
+- **Fed July markets**: CME-arbitraged, as always.
+
+**Refined selection rules (cumulative):**
+1. **NO bets on peace deals (permanent/permanent-language required)** are a reliably overpriced market segment. The resolution criteria for "permanent" deals are much stricter than casual pricing implies — ceasefires and temporary MOUs explicitly DON'T qualify. Market anchors on the word "peace" not on the resolution criteria.
+2. **Timing is often the key variable, not direction.** Both the Bolojan and the Hormuz bets were primarily about SPEED of a known-direction process, not about predicting the direction. This remains the richest seam for genuine edge.
+3. **Claude Fable 5 follow-up**: If the market extends to July 10 or July 17, p_hat for those dates is ~55-65% (ID verification path), which would represent a significant edge over current pricing. Monitor for new markets.
+4. **Sports markets for group-stage winners**: Edge exists only if the math is clear (facing an eliminated opponent with GD cushion), but the ≥5% net threshold is hard to clear once the market already prices the obvious. Pass unless a calculation clearly yields >5% net.
+
+**Running record: 4 open, 0 resolved, $100 at risk.**
