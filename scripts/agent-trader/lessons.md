@@ -116,3 +116,66 @@ esports (noise — TODO: add to is_researchable exclusions); crypto/WTI threshol
 4. **Sports markets for group-stage winners**: Edge exists only if the math is clear (facing an eliminated opponent with GD cushion), but the ≥5% net threshold is hard to clear once the market already prices the obvious. Pass unless a calculation clearly yields >5% net.
 
 **Running record: 4 open, 0 resolved, $100 at risk.**
+
+## Run 5 — 2026-06-24 (zero new bets, deepest universe scan yet)
+
+**Open bet status updates:**
+
+**Bet 2 (Romania/Bolojan NO) — NEAR-CERTAIN WIN.** Third PM-designate NOT yet nominated (President Dan pushed responsibility back to parties June 23, did NOT immediately nominate again). Constitutional process physically cannot complete before June 30. p_hat_yes revised to ~0.01-0.02. Market YES at 0.284 — still very lagged. Expected win.
+
+**Bet 3 (Hormuz 40-ships Jun30 YES) — UNCERTAIN, LIKELY LOSS.** Research confirmed: AIS-visible transits ranged 5–36/day through June 23. Highest AIS-visible was ~36 on June 22. CENTCOM cited 55 ships on June 20, but those include dark (AIS-off) vessels which Portwatch EXCLUDES. The 40-threshold on any single day in 6 days requires a meaningful step-change — possible but unlikely given current 12–36/day AIS-visible range. Revised p_hat ~0.40-0.45 vs market 0.61. Entered at 0.63; likely a loss.
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — ROUGHLY FAIR, SLIGHTLY AGAINST US.** Market moved to 0.425 (entry 0.46). Research: 4-month analyst estimate to full normalization; mine clearing July 10-20; MA≥60 window July 17-27 only. p_hat ~0.35-0.40. Thesis was correct in direction but physical constraint underestimated. Hold — no reason to close early.
+
+**Bet 4 (Israel-Hezbollah permanent peace Jul31 NO) — STRONG, CONFIRMED.** 5th round of talks scheduled June 23-25, but Hezbollah explicitly demands full Israeli military withdrawal (precondition Israel categorically rejects). No permanent peace negotiations underway — only fragile temporary ceasefire framework. p_hat_yes remains ~0.05-0.08. Market stable at YES=0.15. Our strongest remaining position.
+
+**New universe — World Cup advancement markets (thorough scan):**
+
+Discovered the "World Cup: Team to advance to Knockout Stages" event with all 48-team advancement markets. The 2026 format: 12 groups of 4, top 2 qualify directly + 8 best 3rd-place teams = 32 total advance.
+
+**Research agent data quality error detected:** Research subagent reported Croatia advancement at 37% — WRONG. Actual API price: 93.5% (correct given Croatia had 3 pts entering MD3 vs Panama who was eliminated). **Rule: Always verify market prices via direct API calls, never trust subagent-reported prices for betting decisions.**
+
+**Detailed Group H analysis (Uruguay 36.5%):**
+Reconstructed actual match results from standings:
+- Spain 4-0 Saudi Arabia, Spain 2-2 Cape Verde (Spain: 4 pts, +4 GD)
+- Uruguay 3-3 Saudi Arabia, Uruguay 0-0 Cape Verde (Uruguay: 2 pts, 0 GD, GF=3)
+- Cape Verde drew both matches (2 pts, 0 GD, GF=2)
+- Saudi Arabia: 1 pt, -4 GD
+
+MD3: Uruguay vs Spain, Cape Verde vs Saudi Arabia.
+
+Mathematical finding: In a draw scenario (Uruguay draws Spain, Cape Verde draws Saudi Arabia), Uruguay finishes 2nd ahead of Cape Verde on goals scored tiebreaker (Uruguay GF=3 > Cape Verde GF=2). The draw path is MUCH better for Uruguay than naive analysis suggests.
+
+However: Market implies Spain wins ~67% vs Uruguay. Sensitivity analysis:
+- Spain wins 60%: Uruguay advance = 42%, edge = 4.6% net (below threshold)
+- Spain wins 65%: Uruguay advance = 38%, edge = 0.9% net (no edge)  
+- Spain wins 55%: Uruguay advance = 46%, edge = 8.8% net (clears threshold)
+
+The edge exists only if Spain wins <60% of the time. For #1 ranked Spain vs #12-15 Uruguay at neutral venue, 60-65% win probability for Spain is reasonable, meaning the market's 67% is plausible. **Edge is too sensitive to Spain's win probability assumption. Decline.**
+
+**Group K analysis (DR Congo 54.5%):**
+DR Congo (1 pt, -1 GD) vs Uzbekistan (0 pts, -7 GD) in MD3. Uzbekistan conceded 7 goals in 2 games vs Colombia and Portugal — clearly the weakest team in the group. DR Congo held Colombia and Portugal to competitive results.
+
+Estimated P(DR Congo beats Uzbekistan) = 75-80%. If wins: 4 pts as 3rd-place team → P(advance) ≈ 75-82%. Estimated P(DR Congo advances) = 60-68% vs market 54.5%. Net edge = 4.5-12.5%, wide range.
+
+However: The uncertainty interval for both P(DR Congo wins) and P(3rd-place advance) is large. Under pessimistic assumptions (DR Congo wins 70%, 3rd-place advance 70%), estimated advance = 52% — essentially same as market. **Too many compounding uncertainties. Decline.**
+
+**Other World Cup markets analyzed and declined:**
+- Bosnia & Herzegovina 69.5%: On 1 pt, must win Qatar AND rely on 4-pt 3rd-place route. True p_hat ≈ 60-63% → thin NO edge (~6%), but uncertain.
+- Saudi Arabia 33%: Roughly fairly priced given their path requires beating Cape Verde to reach 2nd.
+- Scotland 75%, Algeria 81.5%: Without knowing specific standings details and match difficulty, can't establish ≥5% net edge.
+
+**Romania Grindeanu YES @ 72.35%:**
+PSD unanimously nominated Grindeanu June 23 after Vestea's rejection. PSD is the largest party; both previous nominees (Tomac, Vestea) failed without PSD. President Dan's June 23 response: pushed responsibility back to parties. PSD veto argument is strong — eventually Grindeanu or another PSD-acceptable figure wins.
+
+But: Dan might attempt one more non-PSD option (3rd designate) before capitulating. Snap elections (unprecedented in Romania) are a tail risk that could change everything. My p_hat ≈ 0.75-0.80 vs market 0.7235. Net edge ~3-8%. **Timeline is unclear (could take months), and edge is thin. Decline.**
+
+**NEW BETS: ZERO.** Universe genuinely exhausted for this run.
+
+**Refined selection rules (cumulative additions):**
+1. **Sensitivity-test your edge.** When the edge depends on a single parameter assumption (e.g., "Spain wins 60% vs 67%"), explicitly compute the break-even assumption and ask: is the market's implied assumption actually unreasonable? If not, there's no edge.
+2. **Compounding uncertainties kill edges.** A bet requiring P(A) × P(B) where both A and B are uncertain (like DR Congo WIN × 3rd-place ADVANCE) needs both to be estimated correctly. Each source of uncertainty amplifies the other. Require the edge to survive pessimistic assumptions for both.
+3. **Verify prices from API directly.** Subagents can report wrong prices (e.g., Croatia was cited at 37% by a research subagent but actual market = 93.5%). Never bet without confirming the price from the Gamma API directly.
+4. **Group advancement markets: edge requires standing-based math, not match prediction.** Uruguay's case showed the mathematical analysis (tiebreaker rules, goals scored) is tractable, but the edge still vanishes if match win probability assumptions shift by 5-7 points. Sports advancement markets are harder than they appear — reject unless both the standings math AND the match probability give clear edge.
+
+**Running record: 4 open, 0 resolved, $100 at risk.**
