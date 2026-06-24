@@ -33,3 +33,28 @@ AI-model "best by end June" (resolution ambiguity, knowledge past cutoff).
 
 **Open question to test over many bets:** does my "differentiated view" selection actually beat the
 market net of spread, or am I fooling myself? Only the resolved track record + Brier answers this.
+
+## Run 2 — 2026-06-24 (deeper search, 2 more bets)
+
+**Where edge actually lives (refined selection rule):** filter to MID-PRICED (0.10–0.90 = genuinely
+uncertain) researchable markets, then find ones whose resolution hinges on a SPECIFIC knowable
+current fact (a timeline, a status) that the market prices coarsely. The blue-chips (Fed, top-liquidity)
+are efficient; the edge is in less-watched political/event markets where fresh status research beats the
+crowd's coarse read.
+
+**Bet placed (2) — Bolojan NO @ 0.685, p_hat_yes 0.18, edge 0.135 (strongest, INDEPENDENT of Iran).**
+His govt already fell (no-confidence 281-4, May 5); he's interim PM. Market prices 32% a NEW govt is
+sworn in by Jun30, but credible reporting = "protracted negotiations lasting weeks" + still at informal
+consultations ~7 weeks in. Market overprices the speed of govt formation. This is the template: market
+mispriced the SPEED of a known-direction process.
+
+**Bet placed (3) — Hormuz "40 ships any day by Jun30" YES @ 0.63, p_hat 0.66, edge 0.03 (thin; ask
+moved up on execution).** Correlated with bet #1 (same Iran-recovery thesis) — placed mainly for FAST
+feedback (resolves Jun30, 6d) to seed the learning loop. Lesson: watch concentration — 2 of 3 bets ride
+one real-world outcome (Hormuz recovery); prefer independent bets for clean calibration.
+
+**Declined run 2:** Israel-Knesset-dissolved (≈fair at 0.13 — bill passed 1st reading but 2 more unscheduled
++ averting talks); Anthropic-best-AI-model (resolution-ambiguous + own-ecosystem); Musk-tweet-count &
+esports (noise — TODO: add to is_researchable exclusions); crypto/WTI thresholds (track spot, no edge).
+
+**3 open bets, $75 at risk.** Themes: Romania govt-formation (independent), Iran/Hormuz recovery (×2).
