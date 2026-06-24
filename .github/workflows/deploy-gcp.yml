@@ -3,12 +3,14 @@
 name: Deploy to GCP
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - '*.md'
-      - 'docs/**'
-      - '.gitignore'
+  # Auto-deploy on push DISABLED 2026-06-24 (VM stopped in quant wind-down). Manual
+  # dispatch retained — re-enable the push trigger when the VM is revived.
+  # push:
+  #   branches: [main]
+  #   paths-ignore:
+  #     - '*.md'
+  #     - 'docs/**'
+  #     - '.gitignore'
   workflow_dispatch:
 
 env:

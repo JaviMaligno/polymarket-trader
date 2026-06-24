@@ -18,8 +18,9 @@ name: FLB Early-Failure Monitor
 # records new resolutions) and before daily-trade-review.yml (08:00 UTC).
 
 on:
-  schedule:
-    - cron: '0 7 * * *'
+  # DISABLED 2026-06-24 (quant wind-down — FLB strategy closed, VM stopped).
+  # schedule:
+  #   - cron: '0 7 * * *'
   workflow_dispatch:
 
 concurrency:

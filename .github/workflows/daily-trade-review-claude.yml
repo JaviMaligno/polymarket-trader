@@ -1,7 +1,9 @@
 name: Daily Trade Review (Claude Analysis)
 
 on:
-  schedule:
+  # DISABLED 2026-06-24 (quant wind-down — no-edge program closed, VM stopped).
+  # Manual dispatch retained; re-enable on a regime change (real trading / new strategy).
+  # schedule:
     # Runs daily at 8:00 UTC. The deterministic watchdog (gather + invariants/
     # coverage/FLB-sentinel via format-review.js → email/Slack) runs every day.
     # The expensive LLM analysis (Claude → issue + PRs) is gated to Mondays only
@@ -10,7 +12,7 @@ on:
     # daily for weeks while its own fragility (prompt overflow, etc.) generated
     # the only findings. Revert to daily LLM on the next regime change
     # (market-making deployed / FLB executor enabled / real trading on).
-    - cron: '0 8 * * *'   # 8:00 UTC daily
+    # - cron: '0 8 * * *'   # 8:00 UTC daily  (disabled)
   workflow_dispatch:        # Manual trigger — always runs the full LLM analysis
 
 concurrency:

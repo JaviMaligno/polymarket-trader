@@ -8,8 +8,9 @@ name: Edge Research Weekly Scoreboard
 # `run.py --datasets-dir`.
 
 on:
-  schedule:
-    - cron: '0 9 * * 1'    # Mondays 09:00 UTC
+  # DISABLED 2026-06-24 (quant wind-down — edge-research program concluded no-edge).
+  # schedule:
+  #   - cron: '0 9 * * 1'    # Mondays 09:00 UTC
   workflow_dispatch:
 
 concurrency:

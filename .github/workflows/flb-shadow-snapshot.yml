@@ -8,8 +8,9 @@ name: FLB Shadow Snapshot
 # See the project_flb_strategy_design memo.
 
 on:
-  schedule:
-    - cron: '0 6 * * *'    # 06:00 UTC daily — before the 08:00 daily-review
+  # DISABLED 2026-06-24 (quant wind-down — FLB strategy closed, VM stopped).
+  # schedule:
+  #   - cron: '0 6 * * *'    # 06:00 UTC daily — before the 08:00 daily-review
   workflow_dispatch:
 
 concurrency:
