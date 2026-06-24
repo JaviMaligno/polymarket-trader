@@ -2,6 +2,21 @@
 
 A full-stack trading system for Polymarket prediction markets with signal generation, backtesting, paper trading, and live trading capabilities.
 
+> ## ⚠️ Project status (2026-06-24) — read this first
+>
+> This started as a quant paper-trading system and became a multi-month **search for a
+> tradeable edge**. **Verdict: no in-house quant or free-external signal survived realistic
+> execution costs** (spread + fees). The inefficiencies were often real but lived in markets
+> too illiquid to capture, or in samples too small/correlated to confirm.
+>
+> - 📋 **Full honest scoreboard of everything tried → [`docs/RESEARCH-CONCLUSIONS.md`](docs/RESEARCH-CONCLUSIONS.md)**
+> - 🟢 **Only live work:** an **LLM-as-trader experiment** — Claude researches markets and
+>   places weekly hold-to-resolution paper bets ([`scripts/agent-trader/`](scripts/agent-trader/),
+>   track record in `bets.jsonl`). Runs on GitHub Actions; first hard resolutions ~2026-06-30.
+> - 🔴 **Wound down:** the GCP VM (data-collector + paper-trading + DB) is **stopped** and the
+>   quant review/research crons are **disabled**. The architecture below is dormant — see the
+>   conclusions doc for how to revive it.
+
 ## Architecture
 
 ```
