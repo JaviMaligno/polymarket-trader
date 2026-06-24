@@ -208,6 +208,43 @@ def _latest_lessons_section() -> str:
     return "\n".join(lines[idxs[-1]:]) if idxs else ""
 
 
+def _md_to_html(md: str) -> str:
+    """Minimal Markdown -> HTML for the lessons section (headers, bold, code, lists)."""
+    out, in_ul = [], False
+
+    def inline(t):
+        t = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+        t = re.sub(r"`([^`]+?)`", r"<code>\1</code>", t)
+        return t
+
+    for raw in md.splitlines():
+        l = raw.rstrip()
+        if not l.strip():
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            continue
+        if l.startswith("### "):
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            out.append(f"<h4 style='margin:10px 0 4px'>{inline(l[4:])}</h4>")
+        elif l.startswith("## "):
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            out.append(f"<h3 style='margin:12px 0 4px'>{inline(l[3:])}</h3>")
+        elif re.match(r"^\s*(?:[-*]|\d+\.)\s+", l):
+            if not in_ul:
+                out.append("<ul style='margin:4px 0;padding-left:20px'>"); in_ul = True
+            out.append(f"<li>{inline(re.sub(r'^\\s*(?:[-*]|\\d+\\.)\\s+', '', l))}</li>")
+        else:
+            if in_ul:
+                out.append("</ul>"); in_ul = False
+            out.append(f"<p style='margin:6px 0'>{inline(l)}</p>")
+    if in_ul:
+        out.append("</ul>")
+    return "\n".join(out)
+
+
 def email_html() -> str:
     """Build an HTML weekly summary email body (record + open bets + latest lessons)."""
     bets = load_bets()
@@ -245,7 +282,7 @@ def email_html() -> str:
 <tr><th>Side</th><th>Entry</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=5>none</td></tr>'}</table>
 {"<h3>Recently resolved</h3><table border=1 cellpadding=4 cellspacing=0><tr><th>Result</th><th>P&amp;L</th><th>Side</th><th>Market</th></tr>" + resolved_rows + "</table>" if closed else ""}
 <h3>This run's notes (from lessons.md)</h3>
-<pre style="white-space:pre-wrap;background:#f6f8fa;padding:10px;border-radius:6px">{esc(_latest_lessons_section())}</pre>
+<div style="background:#f6f8fa;padding:10px 14px;border-radius:6px;line-height:1.45">{_md_to_html(_latest_lessons_section())}</div>
 <p style="color:#888;font-size:12px">Paper experiment — hypothetical $1000 bankroll, no real funds.
 Track record: scripts/agent-trader/bets.jsonl</p>
 </body></html>"""
