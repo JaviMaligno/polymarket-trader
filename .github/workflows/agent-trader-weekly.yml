@@ -1,0 +1,76 @@
+name: Agent-Trader (weekly LLM bets)
+
+# LLM-as-trader benchmark: Claude IS the signal. Each run evaluates resolved paper
+# bets, fetches researchable Polymarket candidates, researches per-market, and places
+# a few hold-to-resolution paper bets where its research beats the price net of spread.
+# Paper only (hypothetical $1000 bankroll). Track record committed to scripts/agent-trader/.
+
+on:
+  schedule:
+    - cron: '7 13 * * 1'   # Mondays 13:07 UTC (off-peak minute)
+  workflow_dispatch:        # Manual run any time
+
+concurrency:
+  group: agent-trader
+  cancel-in-progress: false
+
+permissions:
+  contents: write           # commit bets.jsonl + lessons.md
+
+jobs:
+  agent-trader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: |
+          npm install -g @anthropic-ai/claude-code
+          pip install --quiet requests
+
+      - name: Configure git
+        run: |
+          git config user.name "Claude (Agent-Trader)"
+          git config user.email "noreply@anthropic.com"
+
+      - name: Run weekly decision loop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        working-directory: scripts/agent-trader
+        run: |
+          set -uo pipefail
+          # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
+          python agent_trader.py evaluate || true
+          # Hand the decision loop to Claude with web + bash access. The prompt file
+          # drives the full research->bet->lessons routine.
+          cat agent-trader-prompt.md | claude \
+            --model claude-sonnet-4-6 \
+            --print \
+            --permission-mode acceptEdits \
+            --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
+            2>&1 | tee /tmp/agent-run.log || true
+          echo "=== final summary ==="
+          python agent_trader.py summary || true
+
+      - name: Commit track record
+        run: |
+          set -euo pipefail
+          git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md
+          if git diff --cached --quiet; then
+            echo "No changes to commit (no bets placed / no resolutions)."
+          else
+            git commit -m "chore(agent-trader): weekly run $(date -u +%Y-%m-%d) [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi

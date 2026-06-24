@@ -68,3 +68,17 @@ def test_main_datasets_dir_mode_writes_scoreboard(tmp_path):
     assert res.returncode == 0, res.stderr
     assert (tmp_path / "out" / "scoreboard.md").exists()
     assert "H-INE-5" in (tmp_path / "out" / "scoreboard.md").read_text()
+
+def test_h_ine_4_runs_when_conditional_events_present():
+    df = pd.DataFrame({
+        "pair_id": [f"p{i}" for i in range(5)],
+        "relation": ["implies_yes"] * 5, "market_type_b": ["event_short"] * 5,
+        "t_a": pd.to_datetime(["2026-01-01"] * 5, utc=True), "outcome_a": [1] * 5,
+        "entry_offset": ["1h"] * 5, "b_entry_price": [0.6] * 5,
+        "b_implied_value": [1] * 5, "b_outcome": [1] * 5,
+        "b_resolved_at": pd.to_datetime(["2026-01-08"] * 5, utc=True),
+        "hold_days": [7.0] * 5,
+    })
+    res = run_validators({"conditional_events": df}, "t")
+    ids = {v.hypothesis_id for v in res["verdicts"]}
+    assert "H-INE-4" in ids
