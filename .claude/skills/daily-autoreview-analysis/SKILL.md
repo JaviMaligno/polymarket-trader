@@ -1,9 +1,23 @@
 ---
 name: daily-autoreview-analysis
-description: Use when the user asks to review the daily auto-review, says "lo de siempre", or wants to analyze the auto-review system quality on the polymarket-trader project. Triggers on "analisis", "auto-review", "autoreview", "daily review", "lo de siempre".
+description: >-
+  DEPRECATED (2026-06-29). Analysis of the OLD quant auto-review (signals/optimizer/VM paper
+  trading). That stack is wound-down (VM stopped, crons disabled) — do NOT trigger this for
+  routine reviews. The live experiment is now the LLM-as-trader benchmark; use
+  `agent-trader-review` for "lo de siempre", "análisis del autoreview", "review del agente", etc.
+  Only use THIS skill if the user explicitly revives the quant stack (restarts the GCP VM and the
+  Optuna/SignalEngine crons) and asks to review its daily issue/PRs again.
 ---
 
-# Daily Auto-Review Analysis
+# Daily Auto-Review Analysis — DEPRECATED
+
+> ⚠️ **DEPRECATED 2026-06-29.** This reviews the OLD quant auto-review system (signal generators,
+> Optuna optimizer, GCP VM paper trading), which was **wound-down** on 2026-06-24: the GCP VM
+> is stopped, the daily-review / edge-research / FLB crons are disabled, and the deploy-gcp push
+> trigger is off. The current live experiment is the **LLM-as-trader** benchmark — review it with
+> the **`agent-trader-review`** skill. Keep this skill only as a reference for if/when the quant
+> stack is deliberately revived (`gcloud compute instances start polymarket-vm`, re-enable crons).
+> The body below is preserved unchanged for that contingency.
 
 ## Overview
 
