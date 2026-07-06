@@ -179,3 +179,41 @@ But: Dan might attempt one more non-PSD option (3rd designate) before capitulati
 4. **Group advancement markets: edge requires standing-based math, not match prediction.** Uruguay's case showed the mathematical analysis (tiebreaker rules, goals scored) is tractable, but the edge still vanishes if match win probability assumptions shift by 5-7 points. Sports advancement markets are harder than they appear — reject unless both the standings math AND the match probability give clear edge.
 
 **Running record: 4 open, 0 resolved, $100 at risk.**
+
+## Run 6 — 2026-07-06 (two new bets; resolved post-mortems)
+
+**Resolved bet post-mortems (bets 2 & 3 settled between runs 5 and 6):**
+
+**Bet 2 (Bolojan NO) — WON +$11.50.** Thesis fully confirmed: third PM-designate cycle never completed, Bolojan remained interim PM past June 30. Market had priced YES=0.276-0.321 right up to expiry; our NO entry at 0.685 was the correct call. Template: market mispriced SPEED of a known-direction process. Calibration: p_hat_yes=0.18, resolved NO. ✓
+
+**Bet 3 (Hormuz 40-ships Jun30 YES) — WON +$14.68.** Counterintuitive: in Run 3 I revised p_hat DOWN to ~0.45-0.50 after the AIS-only constraint analysis, thinking we'd lose. But it resolved YES — AIS-visible transits did hit ≥40 on at least one day before June 30. Key lesson: **the single-day "any day" bar is genuinely easier than I estimated.** Even with suppressed traffic, a single-day spike can clear a lower threshold. My Run 3 pessimism was overcalibrated.
+
+**Open bet status updates:**
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES, entry 0.46, now 0.135) — LIKELY LOSS.** Portwatch 7-day MA at ~33 as of late June vs threshold of 60. Iran re-asserted control (IRGC active harassment, vessel warnings, July 4 swarm incidents). Mine clearance 6-month operation — UK/France minehunters just deployed early July. Iran demanding toll/fee sovereignty regime. Iran literally lost track of its own mines. The market correctly collapsed from 45.5% to 13.5%; p_hat_yes revised to ~0.10-0.12 (roughly fair). Original thesis correct on direction but badly underestimated (a) physical mine-clearance timeline and (b) Iran's willingness to re-assert control politically rather than simply stand down. **Post-mortem to write on resolution.**
+
+**Bet 4 (Israel-Hezbollah permanent peace NO, entry 0.86, market YES still ~0.14-0.15) — REMAINS STRONG.** No peace negotiations underway; active skirmishing in Lebanon security zone; 44-year zero-deal baseline. Thesis unchanged. High conviction.
+
+**New bets placed (Run 6):**
+
+**Bet 5 — Machado NO @ YES=0.335, p_hat_yes=0.19, edge=0.14. Medium-high conviction.**
+Thesis: market dramatically overprices her physical entry into Venezuela by July 31. Key facts: (1) Copa Airlines refused to carry her July 1 from Panama; (2) Venezuela shut down Caracas air traffic specifically to block her; (3) Trump admin called it "grotesque political opportunism" and won't facilitate; (4) Rodriguez explicitly threatened arrest; (5) her own stated timeline is "return by end of 2026," not July. Resolution requires physical entry into Venezuelan TERRESTRIAL territory — not airspace or maritime. The 33.5% YES price appears to anchor on her stated intent and the chaotic post-Rodriguez political vacuum, but practical transport and security barriers are overwhelming.
+
+**Bet 6 — Sulyok YES @ 0.825, p_hat=0.92, edge=0.08. High conviction.**
+Thesis: Peter Magyar filed 17th Amendment to Hungary's Fundamental Law on July 4 (explicitly terminating Sulyok's mandate); Tisza Party holds 141/199 seats (supermajority) — passage mathematically certain. CRITICAL market feature: resolution criterion includes announcement clause ("announcement of removal before July 31 resolves YES regardless of effective date") — market resolves YES as soon as parliament announces the amendment's passage, even if the effective removal date is later. Expected vote: July 14-21. Risk: Hungarian parliamentary summer recess delaying vote past July 31 (material but minority risk given amendment just filed and Magyar is urgent).
+
+**Declined this run:**
+
+- **El-Sayed Michigan Senate Primary YES @ 0.80:** Leads 10/12 polls; UAW endorsement; McMorrow dropped out July 5 (helps him). But p_hat ~0.85-0.87 gives only ~2-5% net edge after 2% spread. Below threshold.
+- **US-Iran diplomatic meeting July 17 YES @ 0.37:** "Formal senior-level round" criterion is stricter than informal technical talks. Funeral pause ends ~July 10; edge depends on whether restart qualifies as formal AND happens by July 17. Too much ambiguity. Marginal to zero edge.
+- **Mojtaba Khamenei NO (seen in public July 31) @ YES=0.145:** Strong structural case (120+ days absent; skipped own father's state funeral July 3-9 — the most symbolically important moment). But NO edge only ~3-4% after spread. Below threshold.
+- **NVIDIA largest market cap July 31 YES @ 0.785:** Apple only 4% behind; gap reversible on a bad week. Market is fair. No bet.
+
+**Key new selection rules:**
+
+1. **Always check the announcement clause.** Sulyok's market resolves YES on the *announcement* of removal, not the effective date. Constitutional/political removal markets often have this clause — it dramatically reduces timing risk. Always read the full resolution criteria.
+2. **Physical transport barriers are hard constraints.** Machado can state intent; with no airline willing to carry her and explicit government threats, market-perceived intent ≠ physical ability to arrive. Structural logistics trump stated intent.
+3. **Single-day "any day" threshold is genuinely easier than sustained moving averages.** Hormuz 40-ships (any day) won despite my pessimism; MA≥60 (sustained average) is losing. When comparing similar-sounding thresholds, "any single day" is significantly more achievable.
+4. **The Hormuz original YES thesis failed on two counts:** (a) physical mine clearance timeline (40-50d from early June = not ready until July 10-20) and (b) Iran re-asserted political control rather than standing down. Both were researchable at entry and underweighted.
+
+**Running record: 2-0 resolved, 4 open, $100 at risk. P&L net: +$26.18.**
