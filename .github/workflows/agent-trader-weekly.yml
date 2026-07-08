@@ -8,6 +8,8 @@ name: Agent-Trader (weekly LLM bets)
 on:
   schedule:
     - cron: '7 13 * * 1'   # Mondays 13:07 UTC (off-peak minute)
+    - cron: '7 13 2 * *'   # 2nd-of-month self-heal catch-up (only researches if the last
+                           # Monday was a capped null run — see the guard in the run step)
   workflow_dispatch:        # Manual run any time
 
 concurrency:
@@ -52,6 +54,26 @@ jobs:
         working-directory: scripts/agent-trader
         run: |
           set -uo pipefail
+          # Self-heal for the monthly-spend-cap silent-null-run (2026-06-29): the Anthropic key's
+          # monthly budget can exhaust before the last Monday of a month, and `claude --print` exits
+          # 0 on the spend-cap error, so that week no-ops silently. The cap resets on the 1st, so this
+          # workflow also fires on the 2nd as a catch-up. On the catch-up trigger ONLY, research just
+          # if the last real research run is stale (>5 days = the previous Monday was a null run);
+          # otherwise skip cleanly — no duplicate bets, no metrics row, no email.
+          SCHEDULE='${{ github.event.schedule }}'
+          if [ "$SCHEDULE" = "7 13 2 * *" ]; then
+            LAST_RUN_DATE=$(grep -oE '^## Run [0-9]+ — [0-9]{4}-[0-9]{2}-[0-9]{2}' lessons.md \
+              | tail -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true)
+            if [ -n "$LAST_RUN_DATE" ]; then
+              AGE_DAYS=$(( ( $(date -u +%s) - $(date -u -d "$LAST_RUN_DATE" +%s) ) / 86400 ))
+              if [ "$AGE_DAYS" -le 5 ]; then
+                echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (<=5) — last Monday ran fine, skipping."
+                touch /tmp/agent-skip
+                exit 0
+              fi
+              echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (>5) — last Monday likely capped, researching now."
+            fi
+          fi
           # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
           python agent_trader.py evaluate || true
           # Hand the decision loop to Claude with web + bash access. The prompt file
@@ -95,6 +117,11 @@ jobs:
           GMAIL_TO_ADDRESS: ${{ secrets.GMAIL_TO_ADDRESS }}
         run: |
           set -uo pipefail
+          # A catch-up that skipped (healthy month) did nothing — don't email an empty report.
+          if [ -f /tmp/agent-skip ]; then
+            echo "Catch-up on a healthy month (last Monday ran) — nothing to email."
+            exit 0
+          fi
           python scripts/agent-trader/agent_trader.py email_html /tmp/at-email.html || true
           AGENT_OK=$(cat /tmp/agent-ok 2>/dev/null || echo 1)
           SUBJECT="Agent-Trader weekly — $(date -u +%Y-%m-%d)"
