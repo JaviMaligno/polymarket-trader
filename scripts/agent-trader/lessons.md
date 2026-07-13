@@ -217,3 +217,37 @@ Thesis: Peter Magyar filed 17th Amendment to Hungary's Fundamental Law on July 4
 4. **The Hormuz original YES thesis failed on two counts:** (a) physical mine clearance timeline (40-50d from early June = not ready until July 10-20) and (b) Iran re-asserted political control rather than standing down. Both were researchable at entry and underweighted.
 
 **Running record: 2-0 resolved, 4 open, $100 at risk. P&L net: +$26.18.**
+
+## Run 7 — 2026-07-13 (one new bet; open bet updates)
+
+**Open bet status updates:**
+
+**Bet 6 (Sulyok YES) — RESOLVING TODAY.** The constitutional amendment vote is scheduled for July 13 at 18:15 local Hungarian time. Tisza Party holds 141/199 seats (supermajority). Passage is near-certain. Sulyok has pre-emptively rejected signing, but parliament can pass the amendment anyway; Magyar says he'll launch impeachment if Sulyok refuses. The resolution criterion includes an announcement clause (resolves YES on announcement, not effective date). The thesis — market mispriced the announcement-vs-effective-date distinction — played out perfectly. Expected win. Market still at 0.845 (entry 0.825).
+
+**Bet 5 (Machado Venezuela NO) — STRONG, MOVING IN OUR FAVOR.** Market moved from entry YES=0.335 to YES=0.155 — a $45 gain in position value. Structural barriers remain unchanged: Copa Airlines refusal, Venezuela closed airspace to block her, Trump admin explicitly unsupportive. 18 days remaining to resolution. Thesis intact.
+
+**Bet 4 (Israel-Hezbollah permanent peace NO) — NEAR-RESOLVED WIN.** YES dropped to 0.021 (entry 0.14-0.15). With active US-Iran military exchanges restarted and Lebanon security zone still contested, permanent peace is even more remote than at entry. Hold.
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — CONFIRMED LOSS.** YES=0.036 (entry 0.46). Post-mortem: original thesis was correct on direction (recovery possible) but badly underestimated (a) the physical mine-clearance timeline (6-month operation now, not 40-50 days) and (b) Iran reasserting political control through IRGC harassment. Additionally, the ceasefire broke down entirely July 7-9 (Trump declared "ceasefire OVER," active US-Iran military strikes). Should not have entered this YES bet; physical constraint + Iran political will was the binding factor, not deal structure. Lesson: always weigh physical bottlenecks MORE than political agreements when the physical constraint has a documented multi-month clearing timeline.
+
+**Iran/Hormuz context: Major ceasefire collapse (July 7-13).** Iran targeted commercial vessels in Hormuz (July 7). US struck 170+ Iranian military targets (July 7-9). Iran struck US bases in Bahrain and Kuwait. Trump declared ceasefire "OVER" (July 8) but said talks will continue (July 10). As of July 13: ceasefire de facto suspended, active military exchange, Qatar mediating. Both sides nominally want a deal but Iran won't negotiate under fire.
+
+**Bet placed (7) — US-Iran MOU Extension NO @ YES=0.390, p_hat_yes 0.22, edge ~17%. Medium conviction.**
+Thesis: Resolves YES only if BOTH sides formally and publicly announce an extension of the 60-day negotiation framework (initiated June 17, expires ~August 13; market resolves August 20). Three compounding barriers: (1) Iran has stated it won't negotiate while under US military strikes; (2) Trump's "ceasefire OVER" rhetoric creates political barrier to formal extension; (3) "formal joint extension announcement" is a much higher bar than informal Qatari-mediated back-channels continuing. Market at 39% anchors on "both sides still talking" but confuses informal continuation with the strict resolution criterion of a formal declared extension. Pattern match: same error as Israel-Hezbollah (market prices "process existing" not "strict resolution criteria met") and Bolojan (market prices intent, not the formal procedural bar).
+
+**Declined this run:**
+
+- **Russia captures Kostyantynivka by July 31 YES @ 0.385:** Russia controls ~37% of city through infiltration but ISW explicitly says "has NOT secured control." Station not shaded red. ISW requires documented consolidated control; Russia has been advancing since December 2025 and reached only 37%. My p_hat ~25-35% — uncertainty range too wide (edge could be 0-14% NO) to bet confidently.
+- **Nirav Shah Maine Senate YES @ 0.117:** Platner withdrew July 9-10. Shah is declared but Jackson has ~69% Polymarket price, ~62% Kalshi — heavy institutional backing (Our Revolution, Ro Khanna, Maine DSA). Shah lacks institutional support by his own admission. Market's 11-15% for Shah is roughly fair. No edge.
+- **Fed +25bps July YES @ 0.263:** CME FedWatch shows ~20-22% probability; Polymarket 26.3% is slightly more hawkish. The gap (4%) is below threshold and I have no differentiated view beyond the rates curve. Rule confirmed: always skip Fed markets.
+- **US-Iran diplomatic meeting by July 31 YES @ 0.245:** Second formal senior-level round reportedly "under discussion for next week" (July 10) but ceasefire is broken and active strikes ongoing. Resolution requires "deliberate in-person diplomatic meeting" — very ambiguous given ceasefire chaos. Skip.
+- **Iran full airspace closure by July 31 YES @ 0.285:** Iran has deliberately avoided full airspace closure even under active US strikes (170+ targets hit, July 7-9). Partial/localized closures only. p_hat ~15-20% vs market 28.5% suggests NO edge (~10%) but concentration veto: three Iran-correlated bets would be two too many.
+- **US-Iran MOU withdrawal by July 17 YES @ 0.130:** No formal US withdrawal announced; Trump explicitly said "talks will continue." 4-day window too short. Edge insufficient.
+
+**Refined selection rules (cumulative additions):**
+1. **Formal extension criteria > informal talk continuation.** A market requiring a formal joint announcement between adversarial parties under active military conflict is priced very differently from "are they still talking?" Markets consistently over-price the probability that informal back-channels convert to formal announcements (Bolojan, Israel-Hezbollah, now MOU extension).
+2. **Concentration limit is 2 correlated bets max.** Three bets on Iran/Middle East outcomes simultaneously compromises calibration and increases correlated drawdown risk. The concentration veto stopped a potentially good Iran-airspace bet from being placed — this is correct process even if ex-post it might have been profitable.
+3. **Ceasefire collapse creates asymmetric regime shift.** When a negotiated framework collapses (ceasefire broken, military exchange active), ALL adjacent peace/deal markets become less likely to resolve YES. This is a correlated update across the Iran universe. Update adjacent bets accordingly.
+4. **Sulyok template — announcement clause.** When a political removal or constitutional change has a formal announcement step separate from the effective date, the market resolves FASTER than naive analysis suggests. Look for this clause in all constitutional/political removal markets.
+
+**Running record: 2-0 resolved, 5 open, $125 at risk. P&L net: +$26.18.**
