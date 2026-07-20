@@ -251,3 +251,41 @@ Thesis: Resolves YES only if BOTH sides formally and publicly announce an extens
 4. **Sulyok template — announcement clause.** When a political removal or constitutional change has a formal announcement step separate from the effective date, the market resolves FASTER than naive analysis suggests. Look for this clause in all constitutional/political removal markets.
 
 **Running record: 2-0 resolved, 5 open, $125 at risk. P&L net: +$26.18.**
+
+## Run 8 — 2026-07-20 (one new bet; open bet updates)
+
+**Open bet status updates:**
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — CONFIRMED LOSS, expiring July 31.** YES=0.017 (entry 0.46). Active US-Iran war ongoing as of July 20 — US has struck Iranian targets for 9+ consecutive nights (July 7-19, per CNN/Al Jazeera). US casualties: 2 dead, 1 missing. Portwatch MA≥60 is essentially impossible. Post-mortem: failed on (a) physical mine-clearance timeline (turned out to be 6-month operation, not 40-50 days) and (b) Iran reasserting military control rather than standing down after the MOU. **Lesson confirmed: physical bottlenecks and military will are binding constraints that override political agreements.**
+
+**Bet 4 (Israel-Hezbollah permanent peace NO) — NEAR-CERTAIN WIN.** YES=0.009 (entry 0.86). No permanent peace deal possible with Israel-Lebanon ceasefire still fragile and Hezbollah not a formal signatory. Expires July 31. ✓
+
+**Bet 5 (Machado Venezuela NO) — STRONG WIN.** YES=0.065 (entry 0.67). Moved from 0.155 → 0.065 since last run. New facts: private jet dispatched from Virginia was turned back over North Carolina by Venezuelan authorities; Trump admin has backed Delcy Rodríguez (Maduro loyalist) instead of Machado; Machado explicitly stated target of "return by end of 2026." Physical barriers intact. Expires July 31. ✓
+
+**Bet 7 (US-Iran MOU extension NO) — ACTIVE, thesis strengthened.** YES=0.415 (entry 0.39, slightly against us). US-Iran war has dramatically escalated: 9+ consecutive nights of US strikes, Iran retaliating on US bases in Jordan/Bahrain/Kuwait (2 US killed, 1 missing as of July 17). Trump also announced a naval blockade of Iran (July 13). Iran states it won't negotiate under fire. MOU effectively dead. For YES to resolve, BOTH sides must formally announce extension by August 20. With ongoing war, this is very unlikely — market at 41.5% still anchors on "both sides nominally want a deal," not the strict formal joint announcement criterion. p_hat revised DOWN to ~0.12-0.15. Hold.
+
+**Iran/Hormuz universe — concentration veto still applies.** Multiple Iran markets declined: "US halt offensive operations Aug 31" (YES=0.62, but correlated), "US-Iran effective ceasefire Aug 14/31" (correlated), "Iran full airspace closure" (correlated), "Iran MOU withdrawal Jul 31" (correlated). With Bet 1 (expiring) + Bet 7 (active) = 2 Iran-correlated bets open, no new Iran positions added.
+
+**New bet placed (8) — Apple largest market cap Jul31 YES @ ask 0.27, p_hat 0.38, edge ~11%. Medium conviction.**
+
+Thesis: NVIDIA and Apple are in a dead heat for world's largest market cap as of July 20, 2026 (NVIDIA ~$4.98T, Apple ~$4.89T, gap only ~$80-90B = ~1.8%). Apple was literally #1 on July 17 (3 days ago), then NVIDIA narrowly regained. Apple has much stronger YTD momentum (+22-23% vs NVIDIA +7.3%), suggesting trend continuation.
+
+Quantitative foundation: 11-day volatility of the NVIDIA-Apple market cap spread (accounting for ~70% correlation) is ~$250-460B — far exceeding the $80-90B gap. Pure random walk gives Apple ~36-43% probability of leading on July 31. Market prices Apple at only 25.8% (buy at ask 0.27), anchored on NVIDIA's historical dominance rather than the current near-coin-flip race.
+
+Market anchoring error identified: NVIDIA has been #1 for most of 2025-2026, so the market applies a "regime persistence" discount to Apple. But with Apple having just overtaken 3 days ago and the gap within a single day's trading range, the market should price closer to 50/50 for each. The 68.5% NVIDIA / 25.8% Apple split implies NVIDIA is priced at 2.66× Apple's probability — too asymmetric given the current data.
+
+**Declined this run:**
+
+- **NVIDIA largest market cap YES @ 0.685:** Complementary to Apple bet. If I think Apple is 38%, NVIDIA implied = 57% (with ~5% for others), so NVIDIA at 68.5% might be slightly overpriced, but I can't bet NO efficiently. The Apple YES position gives equivalent exposure.
+- **James Fishback Florida GOP nominee @ 0.043:** Primary August 18 (28 days). Fishback polling 4-8%, Donalds leads by 46 points with Trump endorsement + Turning Point. Faces residency challenge + party disinvitation. Market at 4.3% is roughly fair to slightly low vs polling. No meaningful edge.
+- **All Iran/ceasefire/MOU/blockade markets:** Concentration veto (2 Iran bets already open). Good individual edges exist on NO sides of several of these, but correlated drawdown risk is the binding constraint.
+- **Israel x Iran ceasefire continues July 31/August 31:** Resolution unclear — need to distinguish US strikes vs Israeli strikes on Iran. The April 8 Israel-Iran ceasefire (Pakistan-brokered) may still be in effect even as the US-Iran conflict escalated. Insufficient information to bet with confidence.
+
+**Calibration note on the Hormuz bets:** 3-0 record is flattering — the Hormuz 40-ships bet (#3) won despite my mid-run p_hat revision DOWN to 0.45. I was right to revise down (the "any single day" bar is easier than sustained MA), but the win was real. Brier score of 0.0515 reflects excellent calibration on resolved bets. However, Bet 1 (Hormuz MA≥60) will add a significant loss when it resolves July 31.
+
+**Refined selection rules (additions):**
+1. **Random walk analysis for near-parity market cap races.** When two companies are within ~2% of each other's market cap with significant time remaining, the market often anchors on recent history rather than the forward uncertainty. Use a simplified random walk: if 11-day spread volatility >> current gap, P(trailing company leads at expiry) >> market price. This is analogous to the "market misprices speed" pattern but applied to financial markets rather than political processes.
+2. **Check who was #1 most recently.** If Company B just overtook Company A days ago, and A is now back ahead by a small margin, the market systematically anchors on A. Company B's probability will be underpriced relative to the close current race.
+3. **Iran ceasefire geography matters.** The US-Iran ceasefire (MOU, June 17) and Israel-Iran ceasefire (April 8, Pakistan-brokered) are distinct agreements. US military strikes on Iran may not automatically break the Israel-Iran bilateral ceasefire. Always verify which bilateral relationship the market is measuring.
+
+**Running record: 3-0 resolved, 5 open, $125 at risk. P&L net: +$31.30.**
