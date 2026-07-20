@@ -50,7 +50,13 @@ jobs:
 
       - name: Run weekly decision loop
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Provider: Claude via Microsoft Foundry (Azure) since 2026-07-20 — the first-party
+          # Anthropic key was revoked. Deployment names must match the Foundry portal.
+          CLAUDE_CODE_USE_FOUNDRY: "1"
+          ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.AZURE_FOUNDRY_RESOURCE }}
+          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4-6"
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5"
         working-directory: scripts/agent-trader
         run: |
           set -uo pipefail
@@ -90,7 +96,7 @@ jobs:
             --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
             > /tmp/agent-run.log 2>&1 || AGENT_OK=0
           cat /tmp/agent-run.log
-          if grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded" /tmp/agent-run.log; then
+          if grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded|Not logged in" /tmp/agent-run.log; then
             AGENT_OK=0
           fi
           if git diff --quiet -- lessons.md bets.jsonl; then
