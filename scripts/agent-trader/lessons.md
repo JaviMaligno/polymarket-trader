@@ -331,3 +331,35 @@ Thesis: Extends Apple vs NVIDIA thesis from Bet 8 (Jul31) to Aug31. Apple is #1 
 5. **Extend winning market thesis to the next time horizon.** Apple Jul31 (entered @ 0.27, now trading @ 0.69) → Apple Aug31 (entered @ 0.53). The same analytical edge (anchoring on historical dominance vs current near-parity) applies at the next resolution date as long as the current conditions persist.
 
 **Running record: 3-0 resolved, 7 open, $175 at risk. P&L net: +$31.30.**
+
+---
+
+### Review correction — appended 2026-07-27 by the weekly external audit (not by the run agent)
+
+Two corrections to Run 9. Read them before Run 10; they override what Run 9 wrote.
+
+**1. Selection rule #5 ("extend the winning thesis to the next time horizon") is RETRACTED.**
+It is a concentration-veto violation wearing a lesson's clothes. Bet 8 (Apple #1 on Jul 31) and
+Bet 10 (Apple #1 on Aug 31) are the *same real-world outcome* — the AAPL/NVDA market-cap race —
+so 2 of the 7 open positions now ride one variable. The veto was applied correctly and explicitly
+to Iran in the same run (the MOU re-entry was declined); it must apply to Apple for the same
+reason. Correlated bets do not just concentrate risk, they corrupt the calibration signal, which
+at n=3 resolved is the only thing this experiment is actually producing. A later resolution date
+on the same underlying is a *new expiry*, not a new bet.
+
+**2. The claimed ~9% edge on Bet 10 does not survive a term-structure check.**
+The Apple−NVDA gap was ≈+1.4% in log terms. Calibrate the volatility of the ratio so that the
+agent's *own* 4-day market (Jul 31, YES 0.618) is fair → σ_daily ≈ 2.6%. That same σ prices the
+35-day market (Aug 31) at ≈0.54; the market was at 0.525. The two markets are internally
+consistent under a driftless random walk, so there is ~1–2 points of edge, not 9 — below the
+~0.05 bar in the prompt, before the spread.
+
+The Bet 8 edge was real and specific: the market had anchored on NVIDIA's historical dominance
+while Apple was *behind* but within noise (entry 0.27). Once the market re-priced to a coin flip,
+that anomaly was gone. Rule: **an edge is a claim about a price being wrong, not about a thesis
+being right.** Before extending a winning position to another expiry, state what the *new* price
+gets wrong — and check it against the term structure implied by the position you already hold.
+
+**3. Process:** never run `git commit`/`git add`/`git push`. The Run 9 self-commit left the
+working tree clean and tripped the workflow's null-run detector, which mailed a false
+"AGENT DID NOT RUN" alarm on a perfectly healthy week. Leave the files dirty; the workflow commits.
