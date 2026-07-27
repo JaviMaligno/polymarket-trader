@@ -127,7 +127,11 @@ jobs:
           # change or a new bet line as corroboration too, so a formatting drift in the header
           # can't downgrade a genuine run to a false alarm. The checksum branch requires the file
           # to exist on BOTH sides — a vanished lessons.md is a broken run, not a productive one.
-          if [ "$RUNS_AFTER" -gt "$RUNS_BEFORE" ] \
+          if [ "$LESSONS_HAD" = "1" ] && [ "$LESSONS_HAS" = "0" ]; then
+            # Fail closed: a run that destroyed the learning history is broken even if it also
+            # appended a bet — don't let the bet counter vouch for it.
+            LESSONS_TOUCHED=0
+          elif [ "$RUNS_AFTER" -gt "$RUNS_BEFORE" ] \
             || { [ "$LESSONS_HAD" = "1" ] && [ "$LESSONS_HAS" = "1" ] \
                  && [ "$LESSONS_SUM_AFTER" != "$LESSONS_SUM_BEFORE" ]; } \
             || [ "$BETS_AFTER" -gt "$BETS_BEFORE" ]; then
@@ -189,6 +193,16 @@ jobs:
           # never ran and the whole week's research died with the runner.
           if [ -n "$(git log --oneline "${GITHUB_SHA}..HEAD")" ]; then
             git log --oneline "${GITHUB_SHA}..HEAD"
+            # Pushing "whatever HEAD is ahead" means pushing whatever the agent committed, and the
+            # agent has Bash and write access to the checkout. Only the three track-record files may
+            # reach the branch; anything else is a bug or a hijacked run — refuse and fail loudly.
+            UNEXPECTED=$(git diff --name-only "${GITHUB_SHA}..HEAD" \
+              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl)$' || true)
+            if [ -n "$UNEXPECTED" ]; then
+              echo "::error::Refusing to push — commits touch files outside the track record:"
+              echo "$UNEXPECTED"
+              exit 1
+            fi
             git push origin HEAD:${GITHUB_REF_NAME}
           else
             echo "Nothing to push."
