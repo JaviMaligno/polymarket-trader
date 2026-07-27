@@ -289,3 +289,45 @@ Market anchoring error identified: NVIDIA has been #1 for most of 2025-2026, so 
 3. **Iran ceasefire geography matters.** The US-Iran ceasefire (MOU, June 17) and Israel-Iran ceasefire (April 8, Pakistan-brokered) are distinct agreements. US military strikes on Iran may not automatically break the Israel-Iran bilateral ceasefire. Always verify which bilateral relationship the market is measuring.
 
 **Running record: 3-0 resolved, 5 open, $125 at risk. P&L net: +$31.30.**
+
+## Run 9 — 2026-07-27 (two new bets; near-resolution post-mortems)
+
+**Near-resolution post-mortems (bets 1, 4, 5, 8 expire July 31 — 4 days away):**
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — CONFIRMED LOSS, expiring July 31.** YES=0.0045 (entry 0.46). Final post-mortem: active US-Iran military conflict through July 24 (9+ consecutive nights of US strikes July 7-24) made MA≥60 impossible. US paused strikes July 25 (informal, unexplained) but far too late for the moving average to recover. Original thesis failed on (a) mine-clearance timeline underestimate and (b) Iran reasserting military control. Confirmed lesson: physical bottlenecks + military will > political agreements.
+
+**Bet 4 (Israel-Hezbollah permanent peace Jul31 NO) — NEAR-CERTAIN WIN.** YES=0.009 (entry 0.86). Resolution criteria requires explicit formal permanent agreement — has never come remotely close. Thesis held perfectly.
+
+**Bet 5 (Machado Venezuela Jul31 NO) — NEAR-CERTAIN WIN.** YES=0.065 (entry 0.67). Structural transport barriers (Copa refusal, Venezuelan airspace closure, Trump backing Rodríguez) intact through July 27. Physical barriers > stated intent template holds.
+
+**Bet 8 (Apple Jul31 YES) — STRONG WIN POSITION.** YES=0.692 NOW (entry 0.27). Apple is #1 today (July 27) with ~$70-110B lead over NVIDIA (~$4.94T vs ~$4.83-4.87T). NVIDIA fell 2.1-2.64% today on WSJ report of $250B OpenAI financial guarantee commitment (balance sheet liability fears). Apple earnings July 30 expected strong (+16% revenue). Original thesis confirmed: market had anchored on NVIDIA's historical dominance vs the actual near-coin-flip race.
+
+**Open bet updates:**
+
+**Bet 7 (US-Iran MOU extension NO) — MARKET MOVED AGAINST ME.** YES=0.58 (entry 0.62 = YES 0.39). US conducted ~14 consecutive nights of strikes July 7-24, then paused informally July 25-27 (Waltz: "giving talks some room"). Iran explicitly DENIED 10-day ceasefire agreement. MOU is in effective collapse (Hormuz still closed, Trump declared it "over" July 8). Market moved 39% → 58% YES anchoring on "informal pause = likely extension" — same error as before: confusing informal continuation with strict resolution criterion requiring BOTH sides to "publicly and officially announce an extension." p_hat YES revised UP slightly to 0.25-0.30 (informal pause is a small positive signal), still far below 58%. Key: Netanyahu visits Washington July 29 — won't improve Iran extension prospects. Concentration veto prevents adding new Iran position until Bet 1 expires July 31.
+
+**New bets placed (Run 9):**
+
+**Bet 9 — Haley Stevens Michigan Primary YES @ ask 0.345, p_hat 0.50, edge ~15.5%. Medium-high conviction.**
+Thesis: Market prices El-Sayed 65.5%/Stevens 34% overwhelmingly based on PAC-commissioned internal polls (Tulchin +16, Data for Progress +13 — BOTH commissioned by pro-El-Sayed groups). The only independent nonpartisan live-caller poll (Glengariff/Detroit News, n=500, Jul 8-11) shows Stevens leading 48-41. Largest sample poll (Politico/Tavern, n=2211) shows tied at 42-41. Structural advantages for Stevens: (1) 67% support from Black voters (20% of Dem primary electorate); (2) Whitmer + Clyburn endorsements = Black voter mobilization; (3) $49M outside spending vs El-Sayed's $2.7M; (4) CNN July 27 piece shows deep Black Detroit skepticism of El-Sayed. Aggregators overweight partisan polls. p_hat_yes = 0.50 (effectively coin-flip, market pricing El-Sayed 2:1). Risk: progressive grassroots energy (Sanders/AOC/UAW), El-Sayed's college-white base.
+
+**Bet 10 — Apple largest market cap August 31 YES @ ask 0.53, p_hat 0.62, edge ~9%. Medium conviction.**
+Thesis: Extends Apple vs NVIDIA thesis from Bet 8 (Jul31) to Aug31. Apple is #1 today with ~$70-110B lead. NVIDIA has negative catalyst today (OpenAI $250B guarantee, balance sheet fears). Apple has strong positive catalyst July 30 (Q3 earnings, +16% rev expected, 4 consecutive beats). NVIDIA's next major catalyst is August 26 earnings (4d before resolution) — could catalyze catch-up, but a single earnings beat is unlikely to close a $100B+ gap unless dramatically above expectations. Market at 52.5% still applies "NVIDIA regime persistence" discount. Key risk: NVIDIA August 26 earnings surprise close to resolution.
+
+**Declined this run:**
+
+- **US-Iran MOU extension additional NO:** Concentration veto — Bet 1 still open through July 31. After Bet 1 expires, consider adding new NO position at YES~0.58 in next run (excellent edge but correlated-Iran constraint applies until July 31).
+- **AfD Sachsen-Anhalt absolute majority YES @ 43.5%:** AfD at 41% in polls but Die Linke is at 14% (well above 5% threshold). Math: if AfD+CDU+Linke+SPD all clear threshold → AfD gets 41/84 = 48.8% of seats (BELOW majority). Absolute majority requires SPD to also fail threshold (borderline at 5%) or AfD to surge to ~46%+. P(YES) ≈ 35-40% — too close to 43.5% market price for a confident NO bet. Edge uncertain. Decline.
+- **US x Iran ceasefire July 31 YES @ 53.5%:** Resolution criteria ambiguous — "14-day period that begins before July 31" could mean either (a) period starts before July 31 (which the informal July 25 pause satisfies) or (b) period completes before July 31 (impossible given last strike ~July 24). Too much model risk in interpretation. Decline.
+- **Israel-Iran ceasefire through July 31 YES @ 89%:** At 89% with 4 days to go, near-0 edge after 2% spread. No bet.
+- **US announces halt in Iran ops by August 31 YES @ 94.5%:** Near-1, no edge. Skip.
+
+**Key new selection rules:**
+
+1. **Partisan internal polls are not data — they're advocacy.** When ALL the leading polls come from PAC-commissioned research, the market is effectively pricing the PAC's narrative. The signal is the independent nonpartisan polls, not the average. In Michigan, stripping PAC polls → race is a coin flip; market pricing 65/35 was a clear inefficiency.
+2. **Check poll commissioner identity before trusting leads.** Any poll with "commissioned by [candidate name's PAC/super PAC]" should be heavily discounted or excluded. Live-caller, nonpartisan polls are the only reliable signal.
+3. **Black voter math in Dem primaries is structurally underweighted by online polls.** Online polling panels skew younger, more educated, and more progressive. Black voters 55+ (who support establishment/moderate candidates more) are systematically undersampled. When Black voters are 20%+ of the electorate and favor the establishment candidate 2:1, the online polls will systematically overstate the progressive candidate.
+4. **Concentration veto + timing:** The veto prevents adding correlated bets NOW, but expiry of the correlated bet creates an opportunity for the NEXT run. After July 31, Bet 1 expires → one new Iran-correlated bet slot opens. US-Iran MOU extension NO at ~58% YES would be an excellent re-entry at that point.
+5. **Extend winning market thesis to the next time horizon.** Apple Jul31 (entered @ 0.27, now trading @ 0.69) → Apple Aug31 (entered @ 0.53). The same analytical edge (anchoring on historical dominance vs current near-parity) applies at the next resolution date as long as the current conditions persist.
+
+**Running record: 3-0 resolved, 7 open, $175 at risk. P&L net: +$31.30.**
