@@ -82,6 +82,21 @@ jobs:
           fi
           # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
           python agent_trader.py evaluate || true
+          # Fingerprint the track record BEFORE the agent runs. The null-run corroborator below
+          # compares content, not working-tree state: the agent has Bash and has been seen running
+          # `git commit` itself (2026-07-27), which leaves `git diff` clean on a perfectly healthy
+          # run and made the detector cry wolf. Content fingerprints are immune to that.
+          # awk, not `grep -c || echo 0`: grep exits 1 on zero matches *after* printing "0", so the
+          # fallback would concatenate a second 0 and the later `-gt` would abort on a non-integer.
+          RUNS_BEFORE=$(awk '/^## Run /{n++} END{print n+0}' lessons.md 2>/dev/null || echo 0)
+          if [ -f lessons.md ]; then
+            LESSONS_HAD=1
+            LESSONS_SUM_BEFORE=$(md5sum lessons.md | cut -d' ' -f1)
+          else
+            LESSONS_HAD=0
+            LESSONS_SUM_BEFORE=absent
+          fi
+          BETS_BEFORE=$(wc -l < bets.jsonl 2>/dev/null || echo 0)
           # Hand the decision loop to Claude with web + bash access. The prompt file
           # drives the full research->bet->lessons routine. Capture the exit status:
           # `claude --print` can exit 0 on an API error (e.g. spend-cap reached), so a
@@ -99,12 +114,32 @@ jobs:
           if grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded|Not logged in" /tmp/agent-run.log; then
             AGENT_OK=0
           fi
-          if git diff --quiet -- lessons.md bets.jsonl; then
-            LESSONS_TOUCHED=0
+          RUNS_AFTER=$(awk '/^## Run /{n++} END{print n+0}' lessons.md 2>/dev/null || echo 0)
+          if [ -f lessons.md ]; then
+            LESSONS_HAS=1
+            LESSONS_SUM_AFTER=$(md5sum lessons.md | cut -d' ' -f1)
           else
-            LESSONS_TOUCHED=1
+            LESSONS_HAS=0
+            LESSONS_SUM_AFTER=absent
           fi
-          echo "AGENT_OK=$AGENT_OK LESSONS_TOUCHED=$LESSONS_TOUCHED"
+          BETS_AFTER=$(wc -l < bets.jsonl 2>/dev/null || echo 0)
+          # A real run always appends a new `## Run N — <date>` section; accept a plain content
+          # change or a new bet line as corroboration too, so a formatting drift in the header
+          # can't downgrade a genuine run to a false alarm. The checksum branch requires the file
+          # to exist on BOTH sides — a vanished lessons.md is a broken run, not a productive one.
+          if [ "$LESSONS_HAD" = "1" ] && [ "$LESSONS_HAS" = "0" ]; then
+            # Fail closed: a run that destroyed the learning history is broken even if it also
+            # appended a bet — don't let the bet counter vouch for it.
+            LESSONS_TOUCHED=0
+          elif [ "$RUNS_AFTER" -gt "$RUNS_BEFORE" ] \
+            || { [ "$LESSONS_HAD" = "1" ] && [ "$LESSONS_HAS" = "1" ] \
+                 && [ "$LESSONS_SUM_AFTER" != "$LESSONS_SUM_BEFORE" ]; } \
+            || [ "$BETS_AFTER" -gt "$BETS_BEFORE" ]; then
+            LESSONS_TOUCHED=1
+          else
+            LESSONS_TOUCHED=0
+          fi
+          echo "AGENT_OK=$AGENT_OK LESSONS_TOUCHED=$LESSONS_TOUCHED (runs ${RUNS_BEFORE}->${RUNS_AFTER}, bets ${BETS_BEFORE}->${BETS_AFTER})"
           if [ "$AGENT_OK" = "0" ] || [ "$LESSONS_TOUCHED" = "0" ]; then
             AGENT_OK=0
             echo "::warning::Agent-Trader LLM run did NOT complete (API error / no lessons written). This week produced no research — see /tmp/agent-run.log above."
@@ -148,8 +183,27 @@ jobs:
           set -euo pipefail
           git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl
           if git diff --cached --quiet; then
-            echo "No changes to commit (no bets placed / no resolutions)."
+            echo "No staged changes of our own (no bets placed / no resolutions)."
           else
             git commit -m "chore(agent-trader): weekly run $(date -u +%Y-%m-%d) [skip ci]"
+          fi
+          # Push whatever HEAD is ahead of the checked-out SHA, not just our own commit. The agent
+          # has Bash and has committed the track record itself (2026-07-27); if it does that AND we
+          # stage nothing (e.g. the metrics snapshot failed), the old `push` inside the else branch
+          # never ran and the whole week's research died with the runner.
+          if [ -n "$(git log --oneline "${GITHUB_SHA}..HEAD")" ]; then
+            git log --oneline "${GITHUB_SHA}..HEAD"
+            # Pushing "whatever HEAD is ahead" means pushing whatever the agent committed, and the
+            # agent has Bash and write access to the checkout. Only the three track-record files may
+            # reach the branch; anything else is a bug or a hijacked run — refuse and fail loudly.
+            UNEXPECTED=$(git diff --name-only "${GITHUB_SHA}..HEAD" \
+              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl)$' || true)
+            if [ -n "$UNEXPECTED" ]; then
+              echo "::error::Refusing to push — commits touch files outside the track record:"
+              echo "$UNEXPECTED"
+              exit 1
+            fi
             git push origin HEAD:${GITHUB_REF_NAME}
+          else
+            echo "Nothing to push."
           fi

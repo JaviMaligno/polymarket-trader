@@ -50,7 +50,9 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    refined selection rules. This is the learning loop — be concrete.
 
 6. **Print a short summary** of bets placed/declined and the running record. (The
-   workflow commits `bets.jsonl` + `lessons.md`.)
+   workflow commits `bets.jsonl` + `lessons.md`. **Never run `git commit`, `git add` or
+   `git push` yourself** — leave the files dirty in the working tree; committing them
+   yourself breaks the run-integrity check downstream.)
 
 ## Guardrails
 - Paper only. Never claim real trading. Realistic costs always (entry net of spread).
