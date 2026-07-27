@@ -82,6 +82,13 @@ jobs:
           fi
           # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
           python agent_trader.py evaluate || true
+          # Fingerprint the track record BEFORE the agent runs. The null-run corroborator below
+          # compares content, not working-tree state: the agent has Bash and has been seen running
+          # `git commit` itself (2026-07-27), which leaves `git diff` clean on a perfectly healthy
+          # run and made the detector cry wolf. Content fingerprints are immune to that.
+          RUNS_BEFORE=$(grep -c '^## Run ' lessons.md 2>/dev/null || echo 0)
+          LESSONS_SUM_BEFORE=$(md5sum lessons.md 2>/dev/null | cut -d' ' -f1 || echo none)
+          BETS_BEFORE=$(wc -l < bets.jsonl 2>/dev/null || echo 0)
           # Hand the decision loop to Claude with web + bash access. The prompt file
           # drives the full research->bet->lessons routine. Capture the exit status:
           # `claude --print` can exit 0 on an API error (e.g. spend-cap reached), so a
@@ -99,12 +106,20 @@ jobs:
           if grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded|Not logged in" /tmp/agent-run.log; then
             AGENT_OK=0
           fi
-          if git diff --quiet -- lessons.md bets.jsonl; then
-            LESSONS_TOUCHED=0
-          else
+          RUNS_AFTER=$(grep -c '^## Run ' lessons.md 2>/dev/null || echo 0)
+          LESSONS_SUM_AFTER=$(md5sum lessons.md 2>/dev/null | cut -d' ' -f1 || echo none)
+          BETS_AFTER=$(wc -l < bets.jsonl 2>/dev/null || echo 0)
+          # A real run always appends a new `## Run N — <date>` section; accept a plain content
+          # change or a new bet line as corroboration too, so a formatting drift in the header
+          # can't downgrade a genuine run to a false alarm.
+          if [ "$RUNS_AFTER" -gt "$RUNS_BEFORE" ] \
+            || [ "$LESSONS_SUM_AFTER" != "$LESSONS_SUM_BEFORE" ] \
+            || [ "$BETS_AFTER" -gt "$BETS_BEFORE" ]; then
             LESSONS_TOUCHED=1
+          else
+            LESSONS_TOUCHED=0
           fi
-          echo "AGENT_OK=$AGENT_OK LESSONS_TOUCHED=$LESSONS_TOUCHED"
+          echo "AGENT_OK=$AGENT_OK LESSONS_TOUCHED=$LESSONS_TOUCHED (runs ${RUNS_BEFORE}->${RUNS_AFTER}, bets ${BETS_BEFORE}->${BETS_AFTER})"
           if [ "$AGENT_OK" = "0" ] || [ "$LESSONS_TOUCHED" = "0" ]; then
             AGENT_OK=0
             echo "::warning::Agent-Trader LLM run did NOT complete (API error / no lessons written). This week produced no research — see /tmp/agent-run.log above."
