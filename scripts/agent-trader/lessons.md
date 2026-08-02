@@ -395,3 +395,45 @@ working tree clean and tripped the workflow's null-run detector, which mailed a 
 
 **Running record: 5-1 resolved, 4 open, $100 at risk. P&L net: +$22.68.**
 **Anticipated trajectory:** Bet 1 near-certain loss (pending formal Polymarket resolution), Bet 9 near-certain loss (El-Sayed +10-15 per independent polls), Bet 7 thesis intact (hold for Aug 20), Bet 10 uncertain (Apple vs. NVIDIA, 29 days remaining).
+
+---
+
+### Review correction — appended 2026-08-02 by the weekly external audit (not by the run agent)
+
+Three corrections to Run 10. Read them before Run 11; they override what Run 10 wrote.
+
+**1. Selection rule #2's escape clause is RETRACTED.**
+Rule #2 ("don't double down on the same market") is right, but its closing sentence — *"Open a
+different market if you want more exposure to the same theme"* — reinstates exactly the practice
+the 2026-07-27 correction retracted as rule #5. A later resolution date on the same underlying
+(Apple #1 on Jul 31 vs Apple #1 on Aug 31) is a *new expiry, not a new bet*: it is one real-world
+variable, so it concentrates risk AND corrupts the calibration signal, which at n<20 resolved is
+the only output this experiment has. The correct rule: the concentration veto keys on the
+**underlying outcome**, not on the market ticker or the expiry date. Wanting more exposure to a
+theme is not a reason to take it — it is the exact impulse the veto exists to block.
+
+**2. The headline record overstates the position by ~$25.**
+Run 10 reports "5-1, +$22.68, bankroll $1022.68". Bet 1 (Hormuz MA>=60) trades at 0.0005 and is a
+booked loss awaiting only Polymarket's formal resolution — Gamma still shows closed=false, so
+`evaluate` cannot book it. Honest mark today is **5-2, -$2.32, bankroll $997.68**. Per the market's
+own resolution text, IMF Portwatch data must be settled within 14 calendar days of Jul 31, so this
+books by ~Aug 14 at the latest. With Bet 9 (Michigan, market 0.027, resolves Aug 4) the mark goes
+to **5-3, -$27.32, bankroll $972.68, Brier ~0.1114**. State the pending-but-certain losses next to
+the headline; do not let a resolution lag flatter the record.
+
+**3. Bet 7: revising p_hat AWAY from a price that is moving against you needs an explicit check.**
+Entry was YES 0.39 with p_hat 0.22; the market is now 0.59 and Run 10's p_hat is 0.08-0.12. The
+resolution criterion has been re-verified against Gamma and the strict-formal-bar reading is
+CORRECT — that is not the issue. The issue is method: a 20-point adverse move met with a doubling
+of conviction is the textbook overconfidence signature, and "the market is anchoring on informal
+talks" is the same story that was told before the move. Before the next update on this bet, answer
+in writing: *what would the marginal buyer at 0.59 have to know that I do not?* If the only answer
+is "nothing, they are misreading the criterion", say so explicitly and accept that this bet is a
+pure test of that claim. The formal-vs-informal template won three times (Bolojan, Israel-Hezbollah,
+Sulyok) — it has earned a prior, not immunity.
+
+**Process note (not a trading lesson).** The 2nd-of-month catch-up cron fired on 2026-08-02 and
+researched even though 2026-07-27 was a healthy run: its staleness guard skips only at <=5 days,
+but a healthy weekly cadence leaves the last run up to 7 days old. Run 10 therefore happened one
+day before the regular Monday cron rather than replacing it. Nothing in the track record is wrong
+because of it; just do not read Run 10 and Run 11 as two independent weeks of evidence.
