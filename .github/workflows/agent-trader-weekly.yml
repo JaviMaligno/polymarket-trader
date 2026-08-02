@@ -64,20 +64,26 @@ jobs:
           # monthly budget can exhaust before the last Monday of a month, and `claude --print` exits
           # 0 on the spend-cap error, so that week no-ops silently. The cap resets on the 1st, so this
           # workflow also fires on the 2nd as a catch-up. On the catch-up trigger ONLY, research just
-          # if the last real research run is stale (>5 days = the previous Monday was a null run);
-          # otherwise skip cleanly — no duplicate bets, no metrics row, no email.
+          # if the last real research run is stale; otherwise skip cleanly — no duplicate bets, no
+          # metrics row, no email.
+          # Threshold: a HEALTHY weekly cadence leaves the last run 1-7 days old (the 2nd of the
+          # month lands anywhere in the week after a Monday), so anything <=7 must skip. A genuine
+          # null run pushes the last REAL research run to the Monday before, i.e. 8-14 days old.
+          # 7 is therefore the only boundary that separates the two without a gap or an overlap.
+          # It was 5 until 2026-08-02, when the catch-up false-fired 6 days after a healthy Monday
+          # and burned a full extra research run one day before the regular cron.
           SCHEDULE='${{ github.event.schedule }}'
           if [ "$SCHEDULE" = "7 13 2 * *" ]; then
             LAST_RUN_DATE=$(grep -oE '^## Run [0-9]+ — [0-9]{4}-[0-9]{2}-[0-9]{2}' lessons.md \
               | tail -1 | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}$' || true)
             if [ -n "$LAST_RUN_DATE" ]; then
               AGE_DAYS=$(( ( $(date -u +%s) - $(date -u -d "$LAST_RUN_DATE" +%s) ) / 86400 ))
-              if [ "$AGE_DAYS" -le 5 ]; then
-                echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (<=5) — last Monday ran fine, skipping."
+              if [ "$AGE_DAYS" -le 7 ]; then
+                echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (<=7) — last Monday ran fine, skipping."
                 touch /tmp/agent-skip
                 exit 0
               fi
-              echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (>5) — last Monday likely capped, researching now."
+              echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (>7) — last Monday likely capped, researching now."
             fi
           fi
           # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
