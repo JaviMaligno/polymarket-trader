@@ -363,3 +363,35 @@ gets wrong — and check it against the term structure implied by the position y
 **3. Process:** never run `git commit`/`git add`/`git push`. The Run 9 self-commit left the
 working tree clean and tripped the workflow's null-run detector, which mailed a false
 "AGENT DID NOT RUN" alarm on a perfectly healthy week. Leave the files dirty; the workflow commits.
+
+## Run 10 — 2026-08-02 (zero new bets; post-mortems on near-resolved positions)
+
+**Open bet status (all 4 remaining positions):**
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — CONFIRMED LOSS, formally pending.** Market at 0.0005/0.9995. The market expired July 31 but hasn't formally resolved on Polymarket yet. Loss is certain: Portwatch MA≥60 never materialized given active US-Iran war (13 consecutive nights of US strikes July 7-25) and mine clearance timeline (6-month operation). Post-mortem finalized: physical constraint + military will > political agreements. This was the single most important lesson from the experiment; documented in Runs 3, 5, 7, 8, 9.
+
+**Bet 7 (US-Iran MOU extension NO @ entry YES=0.39, current YES=0.565) — THESIS INTACT, losing on paper.** Market moved 39% → 56.5% since entry. New facts: US conducted 13 consecutive nights of strikes (July 7-25), then paused informally (~8 days as of August 2). Iran explicitly stated "we have no negotiations with the United States at present" (July 27). Resolution criterion (re-confirmed against Polymarket description): "both the United States and Iran publicly and officially announce an extension... a declarative statement... clearly and unambiguously identify an extension... Statements that merely allude to, reference, or describe an extension, without clearly communicating it, do not qualify." The informal pause, Qatar mediation, and back-channel whispers do NOT satisfy this criterion. p_hat_yes ≈ 0.08-0.12 vs market 0.565. Market is still anchoring "talks continuing" against "formal joint announcement" — the same pattern as Bolojan, Israel-Hezbollah, and Sulyok. Hold.
+
+**Bet 9 (Haley Stevens Michigan Primary YES @ entry 0.345, current YES=0.027) — LIKELY LOSS.** Primary August 4 (2 days away). El-Sayed at 97.3%. Key developments after my entry: (1) Emerson poll July 26-27 (n=500) showed El-Sayed +15 (54-39); (2) Debate July 27-28 widely judged decisive for El-Sayed — market jumped from 71% to 96% within an hour of debate end; (3) RCP average August 2: El-Sayed +10.2. My thesis failed because McMorrow's exit (July 5) fundamentally restructured the race: the progressive base consolidated behind El-Sayed, the Glengariff poll I relied on (July 8-11) was taken only 3 days post-exit before consolidation had time to materialize. **See new selection rule #1 below.**
+
+**Bet 10 (Apple Aug31 YES @ entry 0.53, current YES=0.175) — UNDERWATER, 29 days remaining.** Apple Q3 earnings (July 30): beat on revenue (+16% YoY) and EPS (+29%), but Services missed ($30.74B vs $31.22B) and China missed ($18.8B vs $19.6B). Stock fell 3-4% after hours. Apple was briefly ~$5T (July 28) with ~$70-110B lead, but post-earnings decline ceded the lead back to NVIDIA. Current market pricing: Apple 17.5%, NVIDIA 74.5%, Others ~8%. The audit correction (Run 9) was right: true edge was ~1-2%, not 9%. The term structure check (calibrating σ_daily from the Bet 8 Jul31 market) showed Bet 10 was roughly fairly priced at entry. Hold — no action possible, 29 days of variance remaining.
+
+**New bets: ZERO.** Universe fully exhausted for this run.
+
+**Candidates analyzed and declined:**
+
+- **SC Senate special Republican primary (Nordone YES @ 0.6325, 8d):** Context: Lindsey Graham died July 11, 2026; Gov. McMaster appointed his sister Darline Graham Nordone (interim senator) on July 14, endorsed by Trump. Nine-way race. Emerson poll (July 28-29, n=500): Norman 22%, Nordone 19%, Fry 12%, Sanford 11%, ~36% undecided. Market prices Nordone at 63.25% to be the FINAL nominee (including runoff if needed). Analysis: P(makes top 2) ~70-80% (close polls, but Fry/Sanford surge could displace); P(wins runoff) ~65% (Trump endorsement decisive in SC GOP). p_hat ≈ 0.52-0.62. Edge = |0.57 − 0.6325| ≈ 0-6%, too uncertain and below the 5% threshold with significant model risk (Trump effect in SC GOP is hard to calibrate). **Decline.**
+- **Hormuz Aug31 normal (YES @ 0.105, 28d):** Same Portwatch MA≥60 resolution criteria as Bet 1. Active US-Iran war ongoing; mine clearance is a 6-month operation (from June = completes ~December); Portwatch MA currently <10/day. p_hat ≈ 0.05-0.08. Thin NO edge (2.5-5.5%), below threshold. **Decline.**
+- **US-Iran ceasefire by Aug31 (YES @ 0.715, 29d):** Resolves YES if any 14-day window without US strikes occurs. Informal pause has been holding ~8 days (since July 25). Need 6 more days (until Aug 8) for this window to complete. p_hat ≈ 0.60-0.70, market at 0.715 — roughly fair. Also: concentration veto (Bet 7 is already an Iran bet). **Decline.**
+- **US-Iran MOU extension (same market as Bet 7):** Would be doubling down. Hold existing position; don't add to same market. **Decline per new rule #2.**
+- **All Fed September markets:** CME-arbitraged as always.
+- **All near-0/near-1 markets, sports/intraday:** Standard filters apply.
+
+**New selection rules (cumulative additions):**
+
+1. **Candidate exits require a structural re-read before betting.** A major candidate withdrawal fundamentally alters the vote-share math: their supporters migrate, rarely cleanly. The first independent poll post-exit often doesn't fully capture the consolidation effect (especially if taken within 7 days). Rule: after a material candidate withdrawal, require at least 2 independent, nonpartisan, post-exit polls showing a stable reading before treating the new alignment as priced. Michigan's Glengariff poll was taken 3 days after McMorrow dropped out — the structural shift hadn't had time to be measured.
+2. **Don't double down on the same market, even when the edge has grown.** When an existing position moves against you and you re-run the analysis and still find a large edge on the same side, the temptation is to add more. Resist. Doubling into the same market concentrates exposure beyond the $25-per-bet discipline, and if you're wrong about the resolution criterion, it compounds the error. Open a different market if you want more exposure to the same theme.
+3. **SC primary template — Trump endorsement in 9-way races with runoffs.** In an open-field GOP primary with a Trump-endorsed candidate: the endorsed candidate almost always makes the runoff; the runoff vs. any opponent is heavily tilted to the endorsed candidate. But in a first round with 36% undecided and 9 candidates, the pricing already reflects this (~63%). The template is priced in; only bet if polls show a clearer first-round lead or if the field is dramatically thinner.
+
+**Running record: 5-1 resolved, 4 open, $100 at risk. P&L net: +$22.68.**
+**Anticipated trajectory:** Bet 1 near-certain loss (pending formal Polymarket resolution), Bet 9 near-certain loss (El-Sayed +10-15 per independent polls), Bet 7 thesis intact (hold for Aug 20), Bet 10 uncertain (Apple vs. NVIDIA, 29 days remaining).
