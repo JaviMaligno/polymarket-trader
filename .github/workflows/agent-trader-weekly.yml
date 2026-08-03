@@ -41,7 +41,7 @@ jobs:
         run: |
           npm install -g @anthropic-ai/claude-code
           npm install --no-save nodemailer
-          pip install --quiet requests
+          pip install --quiet -r scripts/agent-trader/requirements.txt
 
       - name: Configure git
         run: |

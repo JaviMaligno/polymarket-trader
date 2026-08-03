@@ -10,12 +10,16 @@ Bankroll: $1000 hypothetical, flat $25/bet to start (clean evaluation; evolve to
 edge-sized once calibration data exists). Universe: researchable (politics/geo/macro/
 policy/tech) + crypto catalysts; per-market research. Cadence: weekly + short-horizon.
 
-Log: bets.jsonl (append-only). Lessons: lessons.md (loaded into future decisions).
+Log: bets.jsonl — rows are only ever appended by `record`; `evaluate` updates an existing
+row in place (status/pnl on resolution, mark_yes_price weekly) and never deletes one.
+Lessons: lessons.md (loaded into future decisions).
 """
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
+import tempfile
 import requests
 
 HERE = Path(__file__).resolve().parent
@@ -153,18 +157,64 @@ def _fetch_market(market_id):
     return r.json() if r.status_code == 200 else None
 
 
+def _write_bets(bets):
+    """Rewrite the track record atomically.
+
+    `evaluate` updates rows in place, so it has to rewrite the whole file — and a
+    truncated `bets.jsonl` is the only unrecoverable failure this experiment has.
+    Write a sibling temp file and `os.replace` it in, so an interrupted run leaves
+    the previous track record intact.
+    """
+    fd, tmp = tempfile.mkstemp(dir=str(BETS.parent), prefix=".bets-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for b in bets:
+                fh.write(json.dumps(b, ensure_ascii=False) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, BETS)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def evaluate():
-    """Re-fetch open bets; if resolved, compute pnl_net and update the log in place."""
+    """Re-fetch open bets; if resolved, compute pnl_net and update the log in place.
+
+    Also snapshots the current YES price of every still-open bet into `mark_yes_price`.
+    Polymarket's formal resolution can lag the real-world outcome by weeks (Bet 1 traded
+    at 0.0005 for a fortnight after expiry while `closed` stayed false), and a decided-
+    but-unbooked position silently flatters the headline record. The mark is what lets
+    the summary/email/metrics disclose those without touching the resolved-only stats.
+    """
     bets = load_bets()
     changed = False
     for b in bets:
         if b["status"] != "open":
             continue
-        m = _fetch_market(b["market_id"])
-        if not m or not m.get("closed"):
+        try:
+            # RequestException also covers requests' JSONDecodeError: a transport
+            # failure and a garbled body are the same "try again next run" case.
+            # Anything else (schema drift, a bug here) propagates instead of being
+            # silently swallowed into a stale record.
+            m = _fetch_market(b["market_id"])
+        except requests.RequestException as e:
+            print(f"  warn: fetch failed for {b['market_id']}: {e}")
+            continue
+        if not m:
             continue
         prices = json.loads(m.get("outcomePrices", "[]"))
         if not prices:
+            continue
+        if not m.get("closed"):
+            mark = round(float(prices[0]), 4)
+            # marked_at is the date the mark was last OBSERVED, not last changed —
+            # an unchanged price still means "this is today's price".
+            marked_at = _now().date().isoformat()
+            if b.get("mark_yes_price") != mark or b.get("marked_at") != marked_at:
+                b["mark_yes_price"] = mark
+                b["marked_at"] = marked_at
+                changed = True
             continue
         yes_won = float(prices[0]) > 0.5
         won = (yes_won and b["side"] == "YES") or ((not yes_won) and b["side"] == "NO")
@@ -174,9 +224,7 @@ def evaluate():
         b["status"] = "won" if won else "lost"
         changed = True
     if changed:
-        with BETS.open("w", encoding="utf-8") as fh:
-            for b in bets:
-                fh.write(json.dumps(b, ensure_ascii=False) + "\n")
+        _write_bets(bets)
     return bets
 
 
@@ -196,7 +244,41 @@ def summary():
     if closed:
         print(f"record: {wins}-{len(closed)-wins}  hit_rate: {wins/len(closed):.2%}")
         print(f"P&L net: ${pnl:+.2f}  bankroll: ${BANKROLL0 + pnl:.2f}  Brier: {brier}")
+    hr = _honest_record(bets)
+    if hr and hr["n_pending"]:
+        print(f"mark-to-market: {hr['wins']}-{hr['losses']}  P&L ${hr['pnl']:+.2f}  "
+              f"bankroll: ${hr['bankroll']:.2f}  "
+              f"({hr['n_pending']} open position(s) already decided by the market)")
     print(f"capital at risk (open): ${sum(b['stake'] for b in openb):.0f}")
+
+
+def _honest_record(bets):
+    """Resolved record plus open positions the market has already decided (mark-to-market).
+
+    Lives in metrics.py (pure, no network); imported lazily so this module keeps working
+    if metrics.py is unavailable. Returns None when it can't be computed — but says so:
+    silently dropping the disclosure is how a flattered headline gets shipped.
+    """
+    try:
+        import metrics as _metrics
+        return _metrics.honest_record(bets)
+    except ImportError:
+        return None
+    except Exception as e:
+        print(f"  warn: mark-to-market unavailable ({type(e).__name__}: {e})")
+        return None
+
+
+def _mark_outcome(b):
+    try:
+        import metrics as _metrics
+        return _metrics.mark_outcome(b)
+    except ImportError:
+        return None
+    except Exception as e:
+        print(f"  warn: mark unavailable for {b.get('bet_id')} "
+              f"({type(e).__name__}: {e})")
+        return None
 
 
 def _latest_lessons_section() -> str:
@@ -206,6 +288,12 @@ def _latest_lessons_section() -> str:
     lines = p.read_text(encoding="utf-8").splitlines()
     idxs = [i for i, l in enumerate(lines) if l.startswith("## Run")]
     return "\n".join(lines[idxs[-1]:]) if idxs else ""
+
+
+# Module level, not inline in the f-string below: a backslash inside an f-string
+# expression is a syntax error before Python 3.12, which made the whole module
+# unparseable on a stock 3.11 (CI pins 3.12; a laptop usually doesn't).
+_LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
 
 
 def _md_to_html(md: str) -> str:
@@ -232,10 +320,10 @@ def _md_to_html(md: str) -> str:
             if in_ul:
                 out.append("</ul>"); in_ul = False
             out.append(f"<h3 style='margin:12px 0 4px'>{inline(l[3:])}</h3>")
-        elif re.match(r"^\s*(?:[-*]|\d+\.)\s+", l):
+        elif _LIST_ITEM.match(l):
             if not in_ul:
                 out.append("<ul style='margin:4px 0;padding-left:20px'>"); in_ul = True
-            out.append(f"<li>{inline(re.sub(r'^\\s*(?:[-*]|\\d+\\.)\\s+', '', l))}</li>")
+            out.append(f"<li>{inline(_LIST_ITEM.sub('', l))}</li>")
         else:
             if in_ul:
                 out.append("</ul>"); in_ul = False
@@ -262,8 +350,17 @@ def email_html() -> str:
     def esc(s):
         return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
+    def mark_cell(b):
+        if b.get("mark_yes_price") is None:
+            return "<td>—</td>"
+        note = {"pending_win": " ✅ decided", "pending_loss": " ❌ decided"}.get(
+            _mark_outcome(b), "")
+        return (f"<td>{b['mark_yes_price']:.3f}{note}"
+                f"<br><span style='color:#888;font-size:11px'>"
+                f"{esc(b.get('marked_at', '?'))}</span></td>")
+
     rows = "".join(
-        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>"
+        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>{mark_cell(b)}"
         f"<td>{b.get('edge_per_contract', 0):+.3f}</td><td>{esc(b['end_date'][:10])}</td>"
         f"<td>{esc(b['question'][:70])}</td></tr>"
         for b in openb)
@@ -272,10 +369,18 @@ def email_html() -> str:
         f"<td>{esc(b['side'])}</td><td>{esc(b['question'][:70])}</td></tr>"
         for b in closed[-8:])
 
+    # The metrics block already opens with the mark-to-market paragraph when there is
+    # anything pending (metrics.render_html), and it is rendered directly under the
+    # headline — so it stays the single place that disclosure is written. Don't add a
+    # second copy here: two different-looking lines with the same numbers read as two
+    # findings.
     try:
         import metrics as _metrics
         metrics_block = _metrics.render_html(_metrics.compute_metrics(bets))
-    except Exception:
+    except ImportError:
+        metrics_block = ""
+    except Exception as e:
+        print(f"  warn: metrics block unavailable ({type(e).__name__}: {e})")
         metrics_block = ""
 
     return f"""<html><body style="font-family:sans-serif;max-width:720px">
@@ -286,7 +391,7 @@ def email_html() -> str:
 {metrics_block}
 <h3>Open bets</h3>
 <table border="1" cellpadding="4" cellspacing="0">
-<tr><th>Side</th><th>Entry</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=5>none</td></tr>'}</table>
+<tr><th>Side</th><th>Entry</th><th>Mark (YES)</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=6>none</td></tr>'}</table>
 {"<h3>Recently resolved</h3><table border=1 cellpadding=4 cellspacing=0><tr><th>Result</th><th>P&amp;L</th><th>Side</th><th>Market</th></tr>" + resolved_rows + "</table>" if closed else ""}
 <h3>This run's notes (from lessons.md)</h3>
 <div style="background:#f6f8fa;padding:10px 14px;border-radius:6px;line-height:1.45">{_md_to_html(_latest_lessons_section())}</div>
@@ -308,6 +413,29 @@ if __name__ == "__main__":
         for c in cands[:60]:
             print(f"  [{c['market_id']}] yes={c['yes_price']:.3f} spr={c['spread']:.3f} "
                   f"liq={c['liquidity']:>7d} {c['days_left']:>3d}d  {c['question'][:62]}")
+    elif cmd == "record":
+        # record <market_id> <YES|NO> <p_hat_yes> <rationale_file> [stake] [confidence]
+        #
+        # The rationale comes from a FILE, never from an argv string. Passing it as a
+        # shell argument silently corrupted four bets' rationales: bash expands `$4`,
+        # `$1`, `$7` inside double quotes to empty positional parameters, so "$4.7M"
+        # was logged as ".7M" and "$143K" as "43K" — every dollar figure in the audit
+        # trail quietly lost its leading digit. A file is immune to the shell entirely.
+        mid = sys.argv[2]
+        m = requests.get(f"{GAMMA}/{mid}", timeout=30).json()
+        p = json.loads(m["outcomePrices"])
+        mkt = {"market_id": str(mid), "slug": m["slug"], "question": m["question"],
+               "end_date": m["endDate"], "yes_price": float(p[0]),
+               "best_bid": float(m["bestBid"]), "best_ask": float(m["bestAsk"]),
+               "spread": float(m["spread"])}
+        rationale = Path(sys.argv[5]).read_text(encoding="utf-8").strip()
+        if not rationale:
+            raise SystemExit("empty rationale file — a bet needs a defensible written view")
+        bet = record_bet(mkt, sys.argv[3], float(sys.argv[4]), rationale,
+                         stake=float(sys.argv[6]) if len(sys.argv) > 6 else DEFAULT_STAKE,
+                         confidence=sys.argv[7] if len(sys.argv) > 7 else None)
+        print(f"recorded {bet['bet_id']}: {bet['side']} @ {bet['entry_price']:.3f} "
+              f"(p_hat_yes={bet['my_prob_yes']}, edge/contract={bet['edge_per_contract']:+.3f})")
     elif cmd == "evaluate":
         evaluate(); summary()
     elif cmd == "summary":

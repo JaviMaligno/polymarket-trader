@@ -554,3 +554,85 @@ be in the market price. The 85.5% McKinney consensus might reflect something I c
 
 **Honest running record: 5-3 (with Bets 1 and 9 as pending losses), 5 open, $125 at risk. Honest
 P&L net: ~-$27.32, bankroll ~$972.68.**
+
+---
+
+### Review correction — appended 2026-08-03 by the weekly external audit (not by the run agent)
+
+Corrections to Run 11. Read them before Run 12; they override what Run 11 wrote.
+
+**1. Bet 11's three load-bearing facts do not match their sources.**
+The bet is placed and will resolve on its own merits — this is about the reasoning, which is
+what the experiment actually measures. All three checks failed:
+
+- **The poll's direction is inverted.** Run 11 says *"the only available independent poll (Data
+  for Progress, mid-July) shows McKinney only +4 (46-42)"*. That poll has **Thanedar** ahead
+  46-42, not McKinney. The rationale then applies a progressive-firm haircut to a lead that
+  runs the other way.
+- **The same poll's second number is omitted.** After voters were shown both biographies,
+  **McKinney moved ahead 48-41**. A single-source poll with a topline and an informed ballot
+  must be reported with both, or not used.
+- **The spending gap is mis-stated and its interpretation likely reverses.** McKinney had
+  ~$264K cash on hand at Jun 30, not $143K; on money *raised* McKinney leads **$1.4M to
+  $390K**, and Thanedar's $4.7M is mostly >$2M of loans to his own campaign. "Spending is the
+  most predictive variable in House primaries" holds because money is a *proxy for support* —
+  self-funding is precisely the case where that proxy breaks. The single variable the whole
+  thesis rests on points the other way once measured correctly.
+
+The final p_hat (0.30) may still land near right, but only by two errors partially cancelling.
+At n<20 resolved, an honest p_hat is the only output this experiment has; a number that
+survives by cancellation teaches nothing when it resolves either way.
+**Rule: quote the figure AND its direction from the source, and cite the source in the
+rationale. If a claim cannot be quoted, it cannot carry a bet.**
+
+**2. The concentration veto was violated.** Bet 9 (Stevens vs El-Sayed) and Bet 11 (Thanedar vs
+McKinney) are the same trade: fade the progressive insurgent in a Michigan Democratic primary,
+same electorate, decided the same night. Run 11 explicitly cleared Bet 11 as *"independent of
+existing Iran/Apple bets"* — it checked the wrong axis. Per the 2026-08-02 correction the veto
+keys on the **underlying real-world outcome**, and "same electorate, same night" is that
+underlying. This was placed in the same run that wrote up Bet 9's post-mortem as a near-certain
+loss. Before each new bet, ask what single real-world event could move two open positions at
+once — not whether the topics sound different.
+
+**3. A rule invented in the same run that justifies that run's bet is not a lesson.** Run 11's
+new rule #1 (haircut progressive pollsters) was created in the run whose bet it makes possible,
+and it contradicts Run 10's rule #1 — *"require at least 2 independent, nonpartisan polls"* —
+written 24 hours earlier. Bet 11 rests on one partisan poll, three weeks old. New selection
+rules must be derived from **resolved** bets, not from the one being placed. If a run finds
+itself writing a rule that unlocks its own thesis, that is the signal to decline the bet.
+
+**4. Credit where due: the Bet 7 mandatory audit answer was done properly.** It named what the
+marginal buyer at 0.595 would have to know, gave four specific facts against YES, and accepted
+the position as a pure test of the formal-vs-informal template. That is the standard.
+
+**Harness notes (not trading lessons).**
+- The dollar figures in the `rationale` field of four bets in `bets.jsonl` are **corrupted**:
+  the rationale was passed as a double-quoted shell argument, so bash expanded `$4`, `$1`, `$7`,
+  `$6` to empty — "$4.7M" was logged as ".7M", "$143K" as "43K". History is left as-is (the log
+  is append-only); read those four rationales knowing the leading digit of each dollar figure is
+  missing. Fixed going forward: `python agent_trader.py record <id> <side> <p_hat> <file>` reads
+  the rationale from a file. **Never pass a rationale through the shell.**
+- `evaluate` now snapshots each open bet's `mark_yes_price`, and summary/email/metrics disclose
+  positions the market has already decided (≤0.02 / ≥0.98) as pending wins/losses next to the
+  headline. Calibration, Brier and the bootstrap verdict remain on formally-resolved bets only —
+  a mark is a price, not an outcome. The record no longer needs a manual honesty correction.
+- The 2nd-of-month catch-up cron that false-fired on 2026-08-02 is fixed (staleness threshold
+  5d → 7d). Run 10 and Run 11 remain one week of evidence, not two.
+
+**Sources for correction 1 — and one figure in the correction that is itself wrong.**
+The rule "quote the figure AND its direction, and cite the source" applies to the audit before
+it applies to the agent. Re-verified 2026-08-03:
+
+| Claim | Verdict | Source |
+|---|---|---|
+| DFP poll (LV, fielded Jul 9–15): Thanedar 46 – McKinney 42, 13% undecided | CONFIRMED — Run 11 had the direction inverted | Data for Progress release, as reported by [Drop Site](https://x.com/DropSiteNews/status/2078287830179045864) and [PollTracker](https://x.com/PollTracker2024/status/2078166129621492214) |
+| Informed ballot after biographies: McKinney 48 – Thanedar 41 | CONFIRMED | same DFP release |
+| Cash on hand Jun 30: Thanedar $4.7M, McKinney ~$264K | CONFIRMED | Q2 FEC filings, via [Detroit News, 2026-07-17](https://www.detroitnews.com/story/news/politics/2026/07/17/michigan-congress-campaign-fundraising-update/90945550007/) |
+| Thanedar's $4.7M is mostly self-loans: >$2M this cycle ($800K in June, >$1.3M in July), >$12M since 2021 | CONFIRMED | [The Intercept, 2026-07-17](https://theintercept.com/2026/07/17/shri-thanedar-crypto-donavan-mckinney-michigan-aipac/) + Detroit News above |
+| "On money *raised* McKinney leads $1.4M to $390K" | **NOT CONFIRMED — and Q2 runs the other way**: Thanedar raised $515.4K vs McKinney $257K last quarter; McKinney's cycle total is reported as ~$1M | Q2 FEC filings via Detroit News / The Intercept ("Thanedar outraised McKinney last quarter") |
+
+The last row does **not** rescue Run 11: the interpretive point stands on the two confirmed
+rows — Thanedar's money is a self-loan, not a proxy for support, and his cash advantage is
+17× on a balance sheet he wrote himself. But the audit stated a raised-money comparison it
+could not cite, in the same paragraph that demanded citations. Same failure mode, one level up.
+**Rule (both layers): a number without a link does not go in `lessons.md`, whoever writes it.**
