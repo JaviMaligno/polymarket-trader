@@ -437,3 +437,120 @@ researched even though 2026-07-27 was a healthy run: its staleness guard skips o
 but a healthy weekly cadence leaves the last run up to 7 days old. Run 10 therefore happened one
 day before the regular Monday cron rather than replacing it. Nothing in the track record is wrong
 because of it; just do not read Run 10 and Run 11 as two independent weeks of evidence.
+
+## Run 11 — 2026-08-03 (one new bet; Bet 7 mandatory audit answer; open bet updates)
+
+**Honest record at run start (per Run 10 audit correction):**
+Official evaluate shows 5-1 (+$22.68, bankroll $1022.68) but Bets 1 and 9 are certain/near-certain losses
+pending formal Polymarket resolution. Honest mark: **5-3, -$27.32, bankroll ~$972.68, Brier ~0.1114**.
+State this going forward — do not let resolution lag flatter the headline.
+
+**Open bet status:**
+
+**Bet 1 (Hormuz MA≥60 Jul31 YES) — BOOKED LOSS PENDING FORMAL RESOLUTION.** YES=0.0005 (entry 0.46).
+Active US-Iran war through July 25, mine clearance a 6-month operation. Polymarket formal resolution
+expected by ~Aug 14. Confirmed lesson: physical bottlenecks + military will > political agreements.
+
+**Bet 7 (US-Iran MOU Extension NO @ entry YES=0.39, current YES=0.595) — THESIS INTACT, MANDATORY AUDIT ANSWER:**
+The audit required: *"What would the marginal buyer at 0.595 have to know that I do not?"*
+
+Answer: The marginal buyer at 59.5% is extrapolating "informal pause (~9 days) → formal extension
+imminent." They are reading "both sides still want a deal" rather than the explicit resolution
+criterion: "both the United States and Iran publicly and officially announce an extension... a
+declarative statement... clearly and unambiguously identify an extension... Statements that merely
+allude to, reference, or describe an extension, without clearly communicating it, do not qualify."
+
+Specific facts against YES: (1) Iran's Foreign Minister stated July 27 "we have no negotiations with
+the United States at present" — Iran cannot make a JOINT announcement while publicly denying talks exist;
+(2) Iran-Oman talks are about Hormuz reopening, not about the MOU extension; (3) the informal pause
+does not satisfy the declarative-statement bar any more than Qatari back-channels did; (4) Trump
+declared the ceasefire "OVER" July 8 — a formal US extension would require reversing that public stance.
+
+The only information that would justify 59.5% is if private US-Iran backchannel negotiations are near
+a formal announcement — which is possible but not documented. The formal-vs-informal template has won
+three times (Bolojan, Israel-Hezbollah, Sulyok). I accept this is a pure test of that claim at the
+current price. p_hat_yes remains ~0.10-0.12. **Hold.**
+
+**Bet 9 (Michigan Stevens YES @ entry 0.345, current YES=0.018) — NEAR-CERTAIN LOSS, resolves today (Aug 4).**
+El-Sayed +10-15 in all post-debate independent polls. Market confirms likely loss. Post-mortem: relied
+on pre-McMorrow-exit polls; failed to account for progressive base consolidation effect in the week
+following a major candidate withdrawal.
+
+**Bet 10 (Apple Aug31 YES @ entry 0.53, current YES=0.145) — UNDERWATER, 28d remaining.**
+Apple missed Services ($30.74B vs $31.22B) and China ($18.8B vs $19.6B) in Q3 earnings July 30.
+Stock fell 3-4% post-earnings; NVIDIA regained the #1 market cap position. Run 9 audit was correct:
+edge was ~1-2%, not 9%. Holding — no action possible, variance must run its course.
+
+**New bet placed (11) — Thanedar YES (MI-13) @ ask 0.15, p_hat 0.30, edge ~15%. Medium conviction.**
+
+Thesis: Market prices McKinney at 85.5% but the only available independent poll (Data for Progress,
+mid-July) shows McKinney only +4 (46-42) — and DFP is a progressive-leaning firm that systematically
+overestimates progressive candidates. True race is likely a genuine toss-up, yet market prices it 85-15.
+
+Structural case FOR Thanedar winning:
+(1) $4.7M vs McKinney $143K — 33:1 spending advantage is historically the single most predictive
+variable in House primaries; (2) Incumbent protection — Thanedar has ground-level name recognition
+across the full district; (3) Detroit News endorsement; (4) Moderate Democrats exist in MI-13
+(Grosse Pointe suburbs); (5) Money disadvantage is one of the few variables that reliably predicts
+challenger losses.
+
+Structural case AGAINST (market's likely reasoning):
+(1) Thanedar's extreme ethics violations: #1 taxpayer ad spender in all 435 House members ($789K),
+$630K crypto loss from campaign funds, receipts refused on $484K self-reimbursements, AIPAC money
+in a hostile 2026 cycle; (2) 46.9% Black district + McKinney's "first Black congressman from Detroit
+since 1955" narrative is powerful; (3) Unified challenger — in 2022, Thanedar won ONLY because the
+Black vote was fragmented. McKinney is the consolidated opponent.
+
+p_hat_thanedar: 0.28-0.33 (center: 0.30). At ask 0.15, edge = 0.30 - 0.15 = 0.15 (15% net).
+This is the pattern: market anchors on the vivid narrative (progressive hero vs corrupt incumbent),
+while the quantitative fundamentals (33:1 spending, incumbency) tell a different story.
+
+Risk: primary is tomorrow — late information (canvass returns, final GOTV reporting) could already
+be in the market price. The 85.5% McKinney consensus might reflect something I cannot see.
+
+**Candidates researched and declined:**
+
+- **MO-01 Bush YES @ 0.35 (primary tomorrow):** Only poll = Bush-commissioned HIT Strategies (Bell +4,
+  17% undecided, Feb 2026). Bell has 4x fundraising, incumbency, CBC/Pelosi establishment. Bush was
+  never personally indicted (husband's case collapsed). AIPAC spending down from $8.6M → $3.1M.
+  True p_hat ≈ 0.35-0.38. Net edge ≈ 0-3%. Below threshold. **Decline.**
+
+- **US-Iran Ceasefire by Aug 14 YES @ ask 0.70:** Resolution criterion confirmed: "continuous 14-day
+  period during which the United States does not take a qualifying military action against Iran."
+  Informal pause at ~9 days; needs 5 more days (through ~Aug 8) to complete the window. p_hat ~0.73-0.78,
+  edge ~3-8%. BUT: concentration veto — this would be the 2nd concurrent Iran-correlated bet.
+  Edge is narrow and I already hold Bet 7. **Decline.**
+
+- **Bangsamoro UBJP YES @ 0.475 (resolves Sept 14):** Election is September 14, not 4 days away
+  (candidates list showed wrong timing). UBJP is the dominant incumbent party but faces an intra-MILF
+  split (BFP formed by MILF defectors). No reliable polls. Insufficient knowledge to establish a
+  differentiated view. **Decline.**
+
+- **MI-01 Blomquist YES @ 0.23 (primary tomorrow):** Three-way race; Barr has $824K vs Blomquist's
+  minimal fundraising, plus Buttigieg/Slotkin/UAW endorsements. Market-consistent with fundamentals.
+  No edge. **Decline.**
+
+- **All Fed September markets:** CME-arbitraged as always. **Decline.**
+
+**New selection rules (cumulative additions):**
+
+1. **Progressive-leaning polling firms: apply a 2-4 point haircut to progressive candidate leads.**
+   DFP, Sunrise poll, Data for Progress, etc. systematically overestimate progressive primary
+   candidates. When the only available poll comes from such a firm and shows a close race, the true
+   race is probably even closer. DFP showing McKinney +4 implies a genuine toss-up.
+
+2. **Spending gap is the anchor, ethics is the updater, not the inverse.** In a primary between an
+   incumbent with 33x the spending advantage vs a challenger, the prior is strongly for the incumbent.
+   Ethics violations UPDATE that prior down from the default; they don't reverse it. The market
+   appears to have applied the update so heavily (85.5% for the challenger) that it has overcorrected.
+   The correct Bayesian framing: start at "incumbent with 33x spending wins 70-75%" and adjust down
+   for ethics → arrive at ~65-70% for incumbent. NOT "challenger wins 85.5%" from the narrative alone.
+
+3. **The 14-day ceasefire market is an easy YES given a running pause.** Once an informal military
+   pause exceeds 9 days, only 5 more days are needed to trigger the resolution criterion (no qualifying
+   US strike for 14 consecutive days). At that point, the edge on YES is likely slim because the market
+   already prices the 9-day head start. Don't expect to find edge late in the window — enter earlier
+   or not at all.
+
+**Honest running record: 5-3 (with Bets 1 and 9 as pending losses), 5 open, $125 at risk. Honest
+P&L net: ~-$27.32, bankroll ~$972.68.**
