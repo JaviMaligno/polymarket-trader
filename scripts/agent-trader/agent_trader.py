@@ -252,6 +252,12 @@ def _latest_lessons_section() -> str:
     return "\n".join(lines[idxs[-1]:]) if idxs else ""
 
 
+# Module level, not inline in the f-string below: a backslash inside an f-string
+# expression is a syntax error before Python 3.12, which made the whole module
+# unparseable on a stock 3.11 (CI pins 3.12; a laptop usually doesn't).
+_LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
+
+
 def _md_to_html(md: str) -> str:
     """Minimal Markdown -> HTML for the lessons section (headers, bold, code, lists)."""
     out, in_ul = [], False
@@ -276,10 +282,10 @@ def _md_to_html(md: str) -> str:
             if in_ul:
                 out.append("</ul>"); in_ul = False
             out.append(f"<h3 style='margin:12px 0 4px'>{inline(l[3:])}</h3>")
-        elif re.match(r"^\s*(?:[-*]|\d+\.)\s+", l):
+        elif _LIST_ITEM.match(l):
             if not in_ul:
                 out.append("<ul style='margin:4px 0;padding-left:20px'>"); in_ul = True
-            out.append(f"<li>{inline(re.sub(r'^\\s*(?:[-*]|\\d+\\.)\\s+', '', l))}</li>")
+            out.append(f"<li>{inline(_LIST_ITEM.sub('', l))}</li>")
         else:
             if in_ul:
                 out.append("</ul>"); in_ul = False
