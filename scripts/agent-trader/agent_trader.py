@@ -154,17 +154,35 @@ def _fetch_market(market_id):
 
 
 def evaluate():
-    """Re-fetch open bets; if resolved, compute pnl_net and update the log in place."""
+    """Re-fetch open bets; if resolved, compute pnl_net and update the log in place.
+
+    Also snapshots the current YES price of every still-open bet into `mark_yes_price`.
+    Polymarket's formal resolution can lag the real-world outcome by weeks (Bet 1 traded
+    at 0.0005 for a fortnight after expiry while `closed` stayed false), and a decided-
+    but-unbooked position silently flatters the headline record. The mark is what lets
+    the summary/email/metrics disclose those without touching the resolved-only stats.
+    """
     bets = load_bets()
     changed = False
     for b in bets:
         if b["status"] != "open":
             continue
-        m = _fetch_market(b["market_id"])
-        if not m or not m.get("closed"):
+        try:
+            m = _fetch_market(b["market_id"])
+        except Exception as e:                      # transient network/proxy failure
+            print(f"  warn: fetch failed for {b['market_id']}: {e}")
+            continue
+        if not m:
             continue
         prices = json.loads(m.get("outcomePrices", "[]"))
         if not prices:
+            continue
+        if not m.get("closed"):
+            mark = round(float(prices[0]), 4)
+            if b.get("mark_yes_price") != mark:
+                b["mark_yes_price"] = mark
+                b["marked_at"] = _now().date().isoformat()
+                changed = True
             continue
         yes_won = float(prices[0]) > 0.5
         won = (yes_won and b["side"] == "YES") or ((not yes_won) and b["side"] == "NO")
@@ -196,7 +214,33 @@ def summary():
     if closed:
         print(f"record: {wins}-{len(closed)-wins}  hit_rate: {wins/len(closed):.2%}")
         print(f"P&L net: ${pnl:+.2f}  bankroll: ${BANKROLL0 + pnl:.2f}  Brier: {brier}")
+    hr = _honest_record(bets)
+    if hr and hr["n_pending"]:
+        print(f"mark-to-market: {hr['wins']}-{hr['losses']}  P&L ${hr['pnl']:+.2f}  "
+              f"bankroll: ${hr['bankroll']:.2f}  "
+              f"({hr['n_pending']} open position(s) already decided by the market)")
     print(f"capital at risk (open): ${sum(b['stake'] for b in openb):.0f}")
+
+
+def _honest_record(bets):
+    """Resolved record plus open positions the market has already decided (mark-to-market).
+
+    Lives in metrics.py (pure, no network); imported lazily so this module keeps working
+    if metrics.py is unavailable. Returns None when it can't be computed.
+    """
+    try:
+        import metrics as _metrics
+        return _metrics.honest_record(bets)
+    except Exception:
+        return None
+
+
+def _mark_outcome(b):
+    try:
+        import metrics as _metrics
+        return _metrics.mark_outcome(b)
+    except Exception:
+        return None
 
 
 def _latest_lessons_section() -> str:
@@ -262,8 +306,17 @@ def email_html() -> str:
     def esc(s):
         return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
+    def mark_cell(b):
+        if b.get("mark_yes_price") is None:
+            return "<td>—</td>"
+        note = {"pending_win": " ✅ decided", "pending_loss": " ❌ decided"}.get(
+            _mark_outcome(b), "")
+        return (f"<td>{b['mark_yes_price']:.3f}{note}"
+                f"<br><span style='color:#888;font-size:11px'>"
+                f"{esc(b.get('marked_at', '?'))}</span></td>")
+
     rows = "".join(
-        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>"
+        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>{mark_cell(b)}"
         f"<td>{b.get('edge_per_contract', 0):+.3f}</td><td>{esc(b['end_date'][:10])}</td>"
         f"<td>{esc(b['question'][:70])}</td></tr>"
         for b in openb)
@@ -278,15 +331,26 @@ def email_html() -> str:
     except Exception:
         metrics_block = ""
 
+    hr = _honest_record(bets)
+    mtm_line = ""
+    if hr and hr["n_pending"]:
+        mtm_line = (
+            f"<p style='color:#b34700;margin:2px 0'><b>Mark-to-market:</b> "
+            f"{hr['wins']}-{hr['losses']} &nbsp;|&nbsp; <b>P&amp;L:</b> ${hr['pnl']:+.2f} "
+            f"&nbsp;|&nbsp; <b>Bankroll:</b> ${hr['bankroll']:.2f} &nbsp;|&nbsp; "
+            f"{hr['n_pending']} open position(s) already decided by the market, "
+            f"awaiting formal Polymarket resolution.</p>")
+
     return f"""<html><body style="font-family:sans-serif;max-width:720px">
 <h2>Agent-Trader — weekly run</h2>
 <p><b>Record:</b> {rec} &nbsp;|&nbsp; <b>P&amp;L net:</b> ${pnl:+.2f} &nbsp;|&nbsp;
 <b>Bankroll:</b> ${BANKROLL0 + pnl:.2f} &nbsp;|&nbsp; <b>Brier:</b> {brier or 'n/a'} &nbsp;|&nbsp;
 <b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
+{mtm_line}
 {metrics_block}
 <h3>Open bets</h3>
 <table border="1" cellpadding="4" cellspacing="0">
-<tr><th>Side</th><th>Entry</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=5>none</td></tr>'}</table>
+<tr><th>Side</th><th>Entry</th><th>Mark (YES)</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=6>none</td></tr>'}</table>
 {"<h3>Recently resolved</h3><table border=1 cellpadding=4 cellspacing=0><tr><th>Result</th><th>P&amp;L</th><th>Side</th><th>Market</th></tr>" + resolved_rows + "</table>" if closed else ""}
 <h3>This run's notes (from lessons.md)</h3>
 <div style="background:#f6f8fa;padding:10px 14px;border-radius:6px;line-height:1.45">{_md_to_html(_latest_lessons_section())}</div>
@@ -308,6 +372,29 @@ if __name__ == "__main__":
         for c in cands[:60]:
             print(f"  [{c['market_id']}] yes={c['yes_price']:.3f} spr={c['spread']:.3f} "
                   f"liq={c['liquidity']:>7d} {c['days_left']:>3d}d  {c['question'][:62]}")
+    elif cmd == "record":
+        # record <market_id> <YES|NO> <p_hat_yes> <rationale_file> [stake] [confidence]
+        #
+        # The rationale comes from a FILE, never from an argv string. Passing it as a
+        # shell argument silently corrupted four bets' rationales: bash expands `$4`,
+        # `$1`, `$7` inside double quotes to empty positional parameters, so "$4.7M"
+        # was logged as ".7M" and "$143K" as "43K" — every dollar figure in the audit
+        # trail quietly lost its leading digit. A file is immune to the shell entirely.
+        mid = sys.argv[2]
+        m = requests.get(f"{GAMMA}/{mid}", timeout=30).json()
+        p = json.loads(m["outcomePrices"])
+        mkt = {"market_id": str(mid), "slug": m["slug"], "question": m["question"],
+               "end_date": m["endDate"], "yes_price": float(p[0]),
+               "best_bid": float(m["bestBid"]), "best_ask": float(m["bestAsk"]),
+               "spread": float(m["spread"])}
+        rationale = Path(sys.argv[5]).read_text(encoding="utf-8").strip()
+        if not rationale:
+            raise SystemExit("empty rationale file — a bet needs a defensible written view")
+        bet = record_bet(mkt, sys.argv[3], float(sys.argv[4]), rationale,
+                         stake=float(sys.argv[6]) if len(sys.argv) > 6 else DEFAULT_STAKE,
+                         confidence=sys.argv[7] if len(sys.argv) > 7 else None)
+        print(f"recorded {bet['bet_id']}: {bet['side']} @ {bet['entry_price']:.3f} "
+              f"(p_hat_yes={bet['my_prob_yes']}, edge/contract={bet['edge_per_contract']:+.3f})")
     elif cmd == "evaluate":
         evaluate(); summary()
     elif cmd == "summary":
