@@ -30,12 +30,17 @@ claude       # once, to authenticate
 
 ```bash
 ./run-local.sh          # evaluate -> summary -> metrics row -> email preview
-./run-local.sh --dry    # evaluate + summary only; appends nothing, writes nothing
+./run-local.sh --dry    # evaluate + summary only; no metrics row, no email file
 ./run-local.sh --agent  # the full weekly loop, including the LLM research run
 ```
 
 The script never commits or pushes — inspect `git diff` and commit yourself. Use `--dry` when
 poking at state, so a debugging session doesn't append a bogus row to `metrics.jsonl`.
+
+`--dry` is not read-only: `evaluate` runs in every mode, so it can still write `bets.jsonl`
+(book a market that resolved, refresh the open marks). What `--dry` skips is the run history
+and the email. Nothing here is destructive — but if you want a genuinely untouched tree, run
+the individual read-only commands below instead.
 
 Individual commands, if you prefer them raw:
 
@@ -48,8 +53,10 @@ Individual commands, if you prefer them raw:
 | `python agent_trader.py candidates --research` | Liquid, ≤45d, spread ≤3%, non-sports candidate markets | yes | — |
 | `python agent_trader.py email_html out.html` | Render the weekly email | no | `out.html` |
 
-`evaluate` is deterministic and safe to run any day. The cron only evaluates weekly, so a bet
-that resolves mid-week sits `open` until the next Monday unless you run it yourself.
+`evaluate` is deterministic and safe to run any day: it rewrites `bets.jsonl` atomically (temp
+file + `os.replace`), so an interrupted run cannot truncate the track record. It only evaluates
+on the cron's own schedule, so a bet that resolves mid-week sits `open` until the next scheduled
+run (Monday, or the 2nd-of-month catch-up) unless you run it yourself.
 
 ## Placing a bet by hand
 
@@ -61,14 +68,15 @@ python agent_trader.py record <MARKET_ID> <YES|NO> <p_hat_yes> rationale.txt 25.
 **Never pass the rationale as a shell argument.** It was inlined in a double-quoted string until
 2026-08-03, and bash expanded `$4`, `$1`, `$7`, `$6` to empty positional parameters — every
 dollar figure in four bets' rationales silently lost its leading digit (`$4.7M` → `.7M`). The
-`record` subcommand reads the file verbatim; the corrupted rows are left in place because the log
-is append-only, and are documented in `lessons.md`.
+`record` subcommand reads the file's contents as-is (only leading/trailing whitespace is
+stripped); the corrupted rows are left in place because the log is never rewritten by hand, and
+are documented in `lessons.md`.
 
 ## Files
 
 | File | Role |
 |---|---|
-| `bets.jsonl` | Append-only track record — the source of truth |
+| `bets.jsonl` | The track record — the source of truth. `record` only ever appends; `evaluate` updates a row in place (status/P&L on resolution, `mark_yes_price` weekly). Rows are never deleted |
 | `lessons.md` | The learning loop: one `## Run N — <date>` per run, fed into every decision prompt |
 | `metrics.jsonl` | Trajectory: one cumulative-metrics snapshot per run |
 | `agent-trader-prompt.md` | The decision prompt handed to headless Claude |

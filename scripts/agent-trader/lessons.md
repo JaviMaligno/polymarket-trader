@@ -618,3 +618,21 @@ the position as a pure test of the formal-vs-informal template. That is the stan
   a mark is a price, not an outcome. The record no longer needs a manual honesty correction.
 - The 2nd-of-month catch-up cron that false-fired on 2026-08-02 is fixed (staleness threshold
   5d → 7d). Run 10 and Run 11 remain one week of evidence, not two.
+
+**Sources for correction 1 — and one figure in the correction that is itself wrong.**
+The rule "quote the figure AND its direction, and cite the source" applies to the audit before
+it applies to the agent. Re-verified 2026-08-03:
+
+| Claim | Verdict | Source |
+|---|---|---|
+| DFP poll (LV, fielded Jul 9–15): Thanedar 46 – McKinney 42, 13% undecided | CONFIRMED — Run 11 had the direction inverted | Data for Progress release, as reported by [Drop Site](https://x.com/DropSiteNews/status/2078287830179045864) and [PollTracker](https://x.com/PollTracker2024/status/2078166129621492214) |
+| Informed ballot after biographies: McKinney 48 – Thanedar 41 | CONFIRMED | same DFP release |
+| Cash on hand Jun 30: Thanedar $4.7M, McKinney ~$264K | CONFIRMED | Q2 FEC filings, via [Detroit News, 2026-07-17](https://www.detroitnews.com/story/news/politics/2026/07/17/michigan-congress-campaign-fundraising-update/90945550007/) |
+| Thanedar's $4.7M is mostly self-loans: >$2M this cycle ($800K in June, >$1.3M in July), >$12M since 2021 | CONFIRMED | [The Intercept, 2026-07-17](https://theintercept.com/2026/07/17/shri-thanedar-crypto-donavan-mckinney-michigan-aipac/) + Detroit News above |
+| "On money *raised* McKinney leads $1.4M to $390K" | **NOT CONFIRMED — and Q2 runs the other way**: Thanedar raised $515.4K vs McKinney $257K last quarter; McKinney's cycle total is reported as ~$1M | Q2 FEC filings via Detroit News / The Intercept ("Thanedar outraised McKinney last quarter") |
+
+The last row does **not** rescue Run 11: the interpretive point stands on the two confirmed
+rows — Thanedar's money is a self-loan, not a proxy for support, and his cash advantage is
+17× on a balance sheet he wrote himself. But the audit stated a raised-money comparison it
+could not cite, in the same paragraph that demanded citations. Same failure mode, one level up.
+**Rule (both layers): a number without a link does not go in `lessons.md`, whoever writes it.**

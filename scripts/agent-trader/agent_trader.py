@@ -10,12 +10,16 @@ Bankroll: $1000 hypothetical, flat $25/bet to start (clean evaluation; evolve to
 edge-sized once calibration data exists). Universe: researchable (politics/geo/macro/
 policy/tech) + crypto catalysts; per-market research. Cadence: weekly + short-horizon.
 
-Log: bets.jsonl (append-only). Lessons: lessons.md (loaded into future decisions).
+Log: bets.jsonl — rows are only ever appended by `record`; `evaluate` updates an existing
+row in place (status/pnl on resolution, mark_yes_price weekly) and never deletes one.
+Lessons: lessons.md (loaded into future decisions).
 """
 from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 import json
+import os
+import tempfile
 import requests
 
 HERE = Path(__file__).resolve().parent
@@ -153,6 +157,27 @@ def _fetch_market(market_id):
     return r.json() if r.status_code == 200 else None
 
 
+def _write_bets(bets):
+    """Rewrite the track record atomically.
+
+    `evaluate` updates rows in place, so it has to rewrite the whole file — and a
+    truncated `bets.jsonl` is the only unrecoverable failure this experiment has.
+    Write a sibling temp file and `os.replace` it in, so an interrupted run leaves
+    the previous track record intact.
+    """
+    fd, tmp = tempfile.mkstemp(dir=str(BETS.parent), prefix=".bets-", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            for b in bets:
+                fh.write(json.dumps(b, ensure_ascii=False) + "\n")
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, BETS)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
 def evaluate():
     """Re-fetch open bets; if resolved, compute pnl_net and update the log in place.
 
@@ -168,8 +193,12 @@ def evaluate():
         if b["status"] != "open":
             continue
         try:
+            # RequestException also covers requests' JSONDecodeError: a transport
+            # failure and a garbled body are the same "try again next run" case.
+            # Anything else (schema drift, a bug here) propagates instead of being
+            # silently swallowed into a stale record.
             m = _fetch_market(b["market_id"])
-        except Exception as e:                      # transient network/proxy failure
+        except requests.RequestException as e:
             print(f"  warn: fetch failed for {b['market_id']}: {e}")
             continue
         if not m:
@@ -179,9 +208,12 @@ def evaluate():
             continue
         if not m.get("closed"):
             mark = round(float(prices[0]), 4)
-            if b.get("mark_yes_price") != mark:
+            # marked_at is the date the mark was last OBSERVED, not last changed —
+            # an unchanged price still means "this is today's price".
+            marked_at = _now().date().isoformat()
+            if b.get("mark_yes_price") != mark or b.get("marked_at") != marked_at:
                 b["mark_yes_price"] = mark
-                b["marked_at"] = _now().date().isoformat()
+                b["marked_at"] = marked_at
                 changed = True
             continue
         yes_won = float(prices[0]) > 0.5
@@ -192,9 +224,7 @@ def evaluate():
         b["status"] = "won" if won else "lost"
         changed = True
     if changed:
-        with BETS.open("w", encoding="utf-8") as fh:
-            for b in bets:
-                fh.write(json.dumps(b, ensure_ascii=False) + "\n")
+        _write_bets(bets)
     return bets
 
 
@@ -226,12 +256,16 @@ def _honest_record(bets):
     """Resolved record plus open positions the market has already decided (mark-to-market).
 
     Lives in metrics.py (pure, no network); imported lazily so this module keeps working
-    if metrics.py is unavailable. Returns None when it can't be computed.
+    if metrics.py is unavailable. Returns None when it can't be computed — but says so:
+    silently dropping the disclosure is how a flattered headline gets shipped.
     """
     try:
         import metrics as _metrics
         return _metrics.honest_record(bets)
-    except Exception:
+    except ImportError:
+        return None
+    except Exception as e:
+        print(f"  warn: mark-to-market unavailable ({type(e).__name__}: {e})")
         return None
 
 
@@ -239,7 +273,11 @@ def _mark_outcome(b):
     try:
         import metrics as _metrics
         return _metrics.mark_outcome(b)
-    except Exception:
+    except ImportError:
+        return None
+    except Exception as e:
+        print(f"  warn: mark unavailable for {b.get('bet_id')} "
+              f"({type(e).__name__}: {e})")
         return None
 
 
@@ -331,28 +369,25 @@ def email_html() -> str:
         f"<td>{esc(b['side'])}</td><td>{esc(b['question'][:70])}</td></tr>"
         for b in closed[-8:])
 
+    # The metrics block already opens with the mark-to-market paragraph when there is
+    # anything pending (metrics.render_html), and it is rendered directly under the
+    # headline — so it stays the single place that disclosure is written. Don't add a
+    # second copy here: two different-looking lines with the same numbers read as two
+    # findings.
     try:
         import metrics as _metrics
         metrics_block = _metrics.render_html(_metrics.compute_metrics(bets))
-    except Exception:
+    except ImportError:
         metrics_block = ""
-
-    hr = _honest_record(bets)
-    mtm_line = ""
-    if hr and hr["n_pending"]:
-        mtm_line = (
-            f"<p style='color:#b34700;margin:2px 0'><b>Mark-to-market:</b> "
-            f"{hr['wins']}-{hr['losses']} &nbsp;|&nbsp; <b>P&amp;L:</b> ${hr['pnl']:+.2f} "
-            f"&nbsp;|&nbsp; <b>Bankroll:</b> ${hr['bankroll']:.2f} &nbsp;|&nbsp; "
-            f"{hr['n_pending']} open position(s) already decided by the market, "
-            f"awaiting formal Polymarket resolution.</p>")
+    except Exception as e:
+        print(f"  warn: metrics block unavailable ({type(e).__name__}: {e})")
+        metrics_block = ""
 
     return f"""<html><body style="font-family:sans-serif;max-width:720px">
 <h2>Agent-Trader — weekly run</h2>
 <p><b>Record:</b> {rec} &nbsp;|&nbsp; <b>P&amp;L net:</b> ${pnl:+.2f} &nbsp;|&nbsp;
 <b>Bankroll:</b> ${BANKROLL0 + pnl:.2f} &nbsp;|&nbsp; <b>Brier:</b> {brier or 'n/a'} &nbsp;|&nbsp;
 <b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
-{mtm_line}
 {metrics_block}
 <h3>Open bets</h3>
 <table border="1" cellpadding="4" cellspacing="0">

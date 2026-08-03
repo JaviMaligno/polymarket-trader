@@ -42,7 +42,8 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    **Never pass the rationale as a shell argument** and never inline it in a `python -c`
    string: bash expands `$4`, `$1`, `$7` inside double quotes, which silently ate the
    leading digit of every dollar figure in four bets' rationales ("$4.7M" → ".7M").
-   Write it to a file; the command reads it verbatim.
+   Write it to a file; the command records the file's contents as-is (it only strips
+   leading/trailing whitespace).
    Target 1–4 quality bets per run; zero is acceptable if nothing clears the bar.
 
 5. **Append a `## Run N — <date>` section to `lessons.md`**: what you bet and why, what
