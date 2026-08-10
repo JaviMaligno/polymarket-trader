@@ -37,7 +37,10 @@ def mark_outcome(b):
     if b["status"] != "open" or b.get("mark_yes_price") is None:
         return None
     yes = float(b["mark_yes_price"])
-    p_win = yes if b["side"] == "YES" else 1 - yes
+    # Case-normalised: an exact comparison sends a lowercase "yes" down the NO branch and
+    # complements the mark, which turns a pending LOSS into a pending WIN and flatters the
+    # honest record. record_bet writes side.upper(), so this only bites hand-edited rows.
+    p_win = yes if str(b["side"]).upper() == "YES" else 1 - yes
     if p_win >= 1 - DECIDED_P:
         return "pending_win"
     if p_win <= DECIDED_P:

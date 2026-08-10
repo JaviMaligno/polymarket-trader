@@ -12,8 +12,19 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
 ## Steps (do them in order)
 
 1. **Evaluate resolved bets + read state.** Run:
-   `python agent_trader.py evaluate` then `python agent_trader.py summary`.
+   `python agent_trader.py evaluate`, then `python agent_trader.py summary`, then
+   `python agent_trader.py positions`.
    Read `lessons.md` fully — it is your accumulated learning; apply it.
+   **Every statement you make about an open position — entry, mark, direction and size
+   of the move — must come from THIS run's `positions` output, verbatim.** Never from
+   memory, never from a previous run's numbers, never recomputed by hand. `positions`
+   labels each price with its frame: `(held)` is the token you own (the NO token on a NO
+   bet), `(YES)` is the market's YES price. Compare like with like; subtracting a held
+   price from a YES price is meaningless. Bet 7 is the worked example: `lessons.md` quotes
+   it in the YES frame in two different runs — Run 11 "current YES=0.595" and Run 12 "mark
+   YES=0.325" — while the position is a NO. Treat those two quotes as its entry and mark
+   and you report a 0.27 move; the position's actual move is +0.055 (entry(held) 0.620 →
+   mark(held) 0.675). Quote `positions`, not prose from an earlier run.
 
 2. **Fetch candidates.** Run `python agent_trader.py candidates --research`. Then in
    Python, narrow to the genuinely-uncertain, researchable set:
@@ -29,6 +40,27 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    `p_hat` (your probability of YES) + a written rationale. Decline (efficient/marginal/
    ambiguous) freely; the strongest historical edges were where the market mispriced the
    SPEED or STATUS of a known-direction process, not blue-chip consensus.
+
+   **Enumerate every payout condition in writing before fixing `p_hat`** — one line per
+   condition, not a summary of the criterion. If payout depends on a multi-party deal or
+   announcement, list the parties that must each pronounce, with **one cited source per
+   party**. A party with no cited announcement is an unpriced binary risk: price it or
+   decline. And when the criterion excludes prospective statements, a source describing
+   the deal as draft, under review, pending sign-off or under negotiation counts
+   AGAINST — it is evidence the condition is unmet, never evidence it will be met.
+
+   **Count the description's paragraphs and say how many you read.** Bet 14 quoted a
+   fragment of 2 of 7; the two that decided it were among the 5 never opened. Read the
+   whole description, including the timing/ambiguity clauses — they are load-bearing on a
+   short hold.
+
+   **Before calling any price stale, anchored or mispriced, pull that market's own price
+   history** and state what the path did since the news that motivates your view:
+   `https://clob.polymarket.com/prices-history?market=<clobTokenId>&interval=max&fidelity=60`
+   (`clobTokenIds` comes from the Gamma market; index 0 is YES). Two observations taken the
+   same day say nothing about movement since a story broke — that is a claim about a time
+   series and needs the series. A path that has been repricing AGAINST your thesis for days
+   is evidence, not noise: say what the market learned that you have not.
 
 4. **Place bets** only where `|p_hat − price| − spread` clears a meaningful threshold
    (aim ≥ ~0.05 net edge; never bet a view you can't defend). Watch concentration — the

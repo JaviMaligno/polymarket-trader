@@ -281,6 +281,120 @@ def _mark_outcome(b):
         return None
 
 
+# --- Open positions: every price tagged with the frame it lives in -------------------
+#
+# Two frames exist and they are NOT interchangeable:
+#   HELD frame  — the price of the token you actually own (YES token for a YES bet, NO
+#                 token for a NO bet). `entry_price` is always in this frame.
+#   YES frame   — the market's YES price. `market_yes_price` and `mark_yes_price` are
+#                 always in this frame, whichever side was taken.
+# Mixing them is not hypothetical. lessons.md quotes bet 7 (a NO position) in the YES frame
+# twice: Run 11 "current YES=0.595" and Run 12 "mark YES=0.325". Read as this position's
+# entry and mark they imply a 0.27 move; in the held frame the move is 0.620 -> 0.675, i.e.
+# +0.055 — about a fifth of that. The old email table invited precisely that subtraction:
+# an unlabelled "Entry" column (held frame, 0.62 on a NO) sat next to "Mark (YES)".
+# Anything that reports on an open position must go through these two functions.
+
+_MISSING = "—"
+
+
+def open_positions(bets):
+    """One row per OPEN bet, with every price labelled by frame. Pure — no network.
+
+    Returned keys:
+      bet_id, side, question, end_date, stake, confidence
+      entry_held  — entry in the HELD-token frame (= entry_price, as logged)
+      mark_held   — last mark in the HELD-token frame (mark_yes_price for YES,
+                    1 - mark_yes_price for NO); None when there is no mark
+      delta_held  — mark_held - entry_held, i.e. the move in your favour; None w/o a mark
+      entry_yes   — entry in the YES frame (= market_yes_price at the time of the bet)
+      mark_yes    — last mark in the YES frame (= mark_yes_price, as logged)
+      marked_at   — the date the mark was last observed
+      decided     — metrics.mark_outcome(): 'pending_win' / 'pending_loss' / None
+
+    CAVEAT, and it is not cosmetic: `entry_held` is the price actually PAID, i.e. the ask
+    after crossing the spread, while `mark_held` derives from `outcomePrices` (a mid),
+    which crosses nothing. So `delta_held` is APPROXIMATE and slightly PESSIMISTIC versus
+    a like-for-like mid-to-mid comparison — by roughly the half-spread paid on entry. It
+    is a position-tracking number, not a realisable P&L; the realisable figure only exists
+    at resolution (`pnl_net`) or in metrics' mark-to-market for already-decided positions.
+    """
+    rows = []
+    for b in bets:
+        if b.get("status") != "open":
+            continue
+        entry_held = b.get("entry_price")
+        mark_yes = b.get("mark_yes_price")
+        if mark_yes is None:
+            mark_held = delta = None
+        else:
+            mark_yes = float(mark_yes)
+            # Case-normalised on purpose: a lowercase "yes" compared exactly would fall
+            # into the NO branch and complement the mark — a silent frame inversion, the
+            # one failure this whole function exists to make impossible. record_bet
+            # writes side.upper(), so this only ever matters for hand-edited rows.
+            is_yes = str(b.get("side") or "").upper() == "YES"
+            mark_held = round(mark_yes if is_yes else 1 - mark_yes, 4)
+            delta = (round(mark_held - float(entry_held), 4)
+                     if entry_held is not None else None)
+        rows.append({
+            "bet_id": b.get("bet_id"), "side": b.get("side"),
+            "question": b.get("question"), "end_date": b.get("end_date"),
+            "stake": b.get("stake"), "confidence": b.get("confidence"),
+            "entry_held": entry_held, "mark_held": mark_held, "delta_held": delta,
+            "entry_yes": b.get("market_yes_price"), "mark_yes": mark_yes,
+            # NOT `or 0.0`: a missing edge would print as "+0.000", i.e. a measured zero,
+            # inventing the one number this view exists to stop inventing. None renders
+            # as the em-dash in both the ASCII table and the email.
+            "edge_at_entry": b.get("edge_per_contract"),
+            "marked_at": b.get("marked_at"), "decided": _mark_outcome(b),
+        })
+    return rows
+
+
+def format_positions(rows) -> str:
+    """Deterministic ASCII table of `open_positions` rows. Frames named in the headers."""
+    if not rows:
+        return "no open positions."
+
+    def num(v, sign=False):
+        if v is None:
+            return _MISSING
+        return f"{v:+.3f}" if sign else f"{v:.3f}"
+
+    hdr = ["side", "entry(held)", "mark(held)", "delta(held)", "edge@entry",
+           "entry(YES)", "mark(YES)", "decided", "stake", "marked", "resolves",
+           "question"]
+    body = [[
+        str(r["side"]), num(r["entry_held"]), num(r["mark_held"]),
+        num(r["delta_held"], sign=True), num(r["edge_at_entry"], sign=True),
+        num(r["entry_yes"]), num(r["mark_yes"]),
+        {"pending_win": "WIN", "pending_loss": "LOSS"}.get(r["decided"], ""),
+        f"${r['stake']:.0f}" if r["stake"] is not None else _MISSING,
+        str(r["marked_at"] or _MISSING), str(r["end_date"] or "")[:10],
+        (r["question"] or "")[:60],
+    ] for r in rows]
+    w = [max(len(h), *(len(row[i]) for row in body)) for i, h in enumerate(hdr)]
+    line = "  ".join(h.ljust(w[i]) for i, h in enumerate(hdr)).rstrip()
+    out = [line, "-" * len(line)]
+    out += ["  ".join(c.ljust(w[i]) for i, c in enumerate(row)).rstrip() for row in body]
+    out += [
+        "",
+        "(held) = frame of the token you own: YES token for a YES bet, NO token for a NO "
+        "bet.",
+        "(YES)  = the market's YES price, whichever side was taken. entry(YES) is the YES "
+        "price when the bet was placed; mark(YES) is the latest observed YES price.",
+        "delta(held) = mark(held) - entry(held). APPROXIMATE and slightly pessimistic: "
+        "entry(held) is the ask actually paid (spread crossed), the mark is a mid "
+        "(spread not crossed). Not a realisable P&L.",
+        "The entry(YES)/mark(YES) pair is mid-to-mid, so the move it implies is LARGER "
+        "than delta(held) by the half-spread paid on entry. delta(held) is the position's "
+        "number; the YES pair is the market's quote.",
+        "Never subtract across frames — entry(held) minus mark(YES) is meaningless.",
+    ]
+    return "\n".join(out)
+
+
 def _latest_lessons_section() -> str:
     p = HERE / "lessons.md"
     if not p.exists():
@@ -296,46 +410,97 @@ def _latest_lessons_section() -> str:
 _LIST_ITEM = re.compile(r"^\s*(?:[-*]|\d+\.)\s+")
 
 
-def _md_to_html(md: str) -> str:
-    """Minimal Markdown -> HTML for the lessons section (headers, bold, code, lists)."""
-    out, in_ul = [], False
+_BLOCKQUOTE = re.compile(r"^\s*>\s?")
+# Italic runs AFTER bold, so every '**' is already consumed and a lone '*' is unambiguous.
+# The lookarounds refuse a marker that hugs whitespace or a word character, which is what
+# keeps arithmetic ("2 * 3") and leftover list markers from being read as emphasis.
+_ITALIC = re.compile(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])")
 
+
+def _md_to_html(md: str) -> str:
+    """Minimal Markdown -> HTML for the lessons section.
+
+    Assembles BLOCKS first and renders inline spans once per block, rather than rendering
+    line by line. That ordering is the whole point: lessons.md is hard-wrapped prose written
+    by a different author every week, so an inline span routinely straddles a line break.
+    The old line-based version emitted the 2026-08-10 audit correction with 10 literal '**',
+    24 literal '*', 11 escaped '&gt;' and 14 fragmented <ul> blocks — no exception, no lost
+    text, just silent fidelity loss in the one artefact a human actually reads.
+
+    Supports headers, bold, italic, code, bullet/numbered lists (with wrapped continuations)
+    and blockquotes. Anything else degrades to a paragraph, which is the safe direction.
+    """
     def inline(t):
         t = t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
         t = re.sub(r"`([^`]+?)`", r"<code>\1</code>", t)
+        t = _ITALIC.sub(r"<em>\1</em>", t)
         return t
 
+    out = []
+    kind = None          # None | 'p' | 'li' | 'quote'
+    buf = []
+    in_ul = False
+
+    def flush():
+        nonlocal kind, buf
+        if kind and buf:
+            text = inline(" ".join(s.strip() for s in buf if s.strip()))
+            if kind == "li":
+                out.append(f"<li>{text}</li>")
+            elif kind == "quote":
+                out.append("<blockquote style='margin:6px 0 6px 12px;padding-left:10px;"
+                           f"border-left:3px solid #d0d7de;color:#444'>{text}</blockquote>")
+            else:
+                out.append(f"<p style='margin:6px 0'>{text}</p>")
+        kind, buf = None, []
+
+    def close_ul():
+        nonlocal in_ul
+        if in_ul:
+            out.append("</ul>")
+            in_ul = False
+
     for raw in md.splitlines():
-        l = raw.rstrip()
-        if not l.strip():
-            if in_ul:
-                out.append("</ul>"); in_ul = False
+        line = raw.rstrip()
+        if not line.strip():
+            flush(); close_ul()
             continue
-        if l.startswith("### "):
-            if in_ul:
-                out.append("</ul>"); in_ul = False
-            out.append(f"<h4 style='margin:10px 0 4px'>{inline(l[4:])}</h4>")
-        elif l.startswith("## "):
-            if in_ul:
-                out.append("</ul>"); in_ul = False
-            out.append(f"<h3 style='margin:12px 0 4px'>{inline(l[3:])}</h3>")
-        elif _LIST_ITEM.match(l):
+        if line.startswith("### ") or line.startswith("## "):
+            flush(); close_ul()
+            tag, text = ("h4", line[4:]) if line.startswith("### ") else ("h3", line[3:])
+            margin = "10px 0 4px" if tag == "h4" else "12px 0 4px"
+            out.append(f"<{tag} style='margin:{margin}'>{inline(text)}</{tag}>")
+        elif _LIST_ITEM.match(line):
+            flush()
             if not in_ul:
-                out.append("<ul style='margin:4px 0;padding-left:20px'>"); in_ul = True
-            out.append(f"<li>{inline(_LIST_ITEM.sub('', l))}</li>")
+                out.append("<ul style='margin:4px 0;padding-left:20px'>")
+                in_ul = True
+            kind, buf = "li", [_LIST_ITEM.sub("", line)]
+        elif _BLOCKQUOTE.match(line):
+            if kind != "quote":
+                flush(); close_ul()
+                kind = "quote"
+            buf.append(_BLOCKQUOTE.sub("", line))
+        elif kind in ("li", "quote", "p"):
+            # A continuation line: same block, joined with a space. This is what lets a
+            # bold span, a code span or a list item survive the author's line wrapping.
+            buf.append(line)
         else:
-            if in_ul:
-                out.append("</ul>"); in_ul = False
-            out.append(f"<p style='margin:6px 0'>{inline(l)}</p>")
-    if in_ul:
-        out.append("</ul>")
+            close_ul()
+            kind, buf = "p", [line]
+    flush(); close_ul()
     return "\n".join(out)
 
 
-def email_html() -> str:
-    """Build an HTML weekly summary email body (record + open bets + latest lessons)."""
-    bets = load_bets()
+def email_html(bets=None) -> str:
+    """Build an HTML weekly summary email body (record + open bets + latest lessons).
+
+    `bets` defaults to the real track record; it is a parameter so the frame contract of
+    the open-bets table can be pinned by a test without touching bets.jsonl. The email is
+    the artefact a human actually reads, so its frames need a test of their own.
+    """
+    bets = load_bets() if bets is None else bets
     closed = [b for b in bets if b["status"] in ("won", "lost")]
     openb = [b for b in bets if b["status"] == "open"]
     pnl = sum(b["pnl_net"] for b in closed if b["pnl_net"] is not None)
@@ -350,20 +515,33 @@ def email_html() -> str:
     def esc(s):
         return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
-    def mark_cell(b):
-        if b.get("mark_yes_price") is None:
+    # Open bets: entry and mark side by side ONLY in the same frame (the held token).
+    # The YES-frame pair is kept for reference but labelled so it can't be mistaken for
+    # the position's own prices — the previous table put an unlabelled "Entry" (held
+    # frame) next to "Mark (YES)", which is a subtraction across frames waiting to happen
+    # (see the frames note above open_positions for the bet-7 case).
+    def num(v, sign=False):
+        if v is None:
+            return "—"
+        return f"{v:+.3f}" if sign else f"{v:.3f}"
+
+    def mark_cell(r):
+        if r["mark_held"] is None:
             return "<td>—</td>"
         note = {"pending_win": " ✅ decided", "pending_loss": " ❌ decided"}.get(
-            _mark_outcome(b), "")
-        return (f"<td>{b['mark_yes_price']:.3f}{note}"
+            r["decided"], "")
+        return (f"<td>{num(r['mark_held'])}{note}"
                 f"<br><span style='color:#888;font-size:11px'>"
-                f"{esc(b.get('marked_at', '?'))}</span></td>")
+                f"{esc(r.get('marked_at') or '?')}</span></td>")
 
     rows = "".join(
-        f"<tr><td>{esc(b['side'])}</td><td>{b['entry_price']:.3f}</td>{mark_cell(b)}"
-        f"<td>{b.get('edge_per_contract', 0):+.3f}</td><td>{esc(b['end_date'][:10])}</td>"
-        f"<td>{esc(b['question'][:70])}</td></tr>"
-        for b in openb)
+        f"<tr><td>{esc(r['side'])}</td><td>{num(r['entry_held'])}</td>{mark_cell(r)}"
+        f"<td>{num(r['delta_held'], sign=True)}</td>"
+        f"<td>{num(r['edge_at_entry'], sign=True)}</td>"
+        f"<td style='color:#888'>{num(r['entry_yes'])} → {num(r['mark_yes'])}</td>"
+        f"<td>{esc(str(r['end_date'] or '')[:10])}</td>"
+        f"<td>{esc((r['question'] or '')[:70])}</td></tr>"
+        for r in open_positions(bets))
     resolved_rows = "".join(
         f"<tr><td>{esc(b['status'].upper())}</td><td>${b['pnl_net']:+.2f}</td>"
         f"<td>{esc(b['side'])}</td><td>{esc(b['question'][:70])}</td></tr>"
@@ -390,8 +568,17 @@ def email_html() -> str:
 <b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
 {metrics_block}
 <h3>Open bets</h3>
+<p style="color:#666;font-size:12px;margin:4px 0">Entry and mark are both in the
+<b>held-token frame</b> (the YES token on a YES bet, the NO token on a NO bet), so the
+delta is the move in your favour. The greyed column is the same position in the
+<b>YES frame</b> for reference only — never subtract across the two.</p>
 <table border="1" cellpadding="4" cellspacing="0">
-<tr><th>Side</th><th>Entry</th><th>Mark (YES)</th><th>Edge</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=6>none</td></tr>'}</table>
+<tr><th>Side</th><th>Entry<br>(held)</th><th>Mark<br>(held)</th><th>Δ<br>(held)</th><th>Edge<br>at entry</th><th>Market mid at entry →<br>latest mid (YES frame)</th><th>Resolves</th><th>Market</th></tr>{rows or '<tr><td colspan=8>none</td></tr>'}</table>
+<p style="color:#888;font-size:11px;margin:4px 0">Δ is approximate and slightly
+pessimistic: entry is the ask actually paid (spread crossed), the mark is a mid (spread
+not crossed). Not a realisable P&amp;L. The greyed YES-frame pair is mid-to-mid, so the
+move it implies is <b>larger</b> than Δ(held) by the half-spread paid on entry — Δ(held)
+is the position's number, the greyed pair is the market's quote.</p>
 {"<h3>Recently resolved</h3><table border=1 cellpadding=4 cellspacing=0><tr><th>Result</th><th>P&amp;L</th><th>Side</th><th>Market</th></tr>" + resolved_rows + "</table>" if closed else ""}
 <h3>This run's notes (from lessons.md)</h3>
 <div style="background:#f6f8fa;padding:10px 14px;border-radius:6px;line-height:1.45">{_md_to_html(_latest_lessons_section())}</div>
@@ -440,6 +627,15 @@ if __name__ == "__main__":
         evaluate(); summary()
     elif cmd == "summary":
         summary()
+    elif cmd == "positions":
+        # The ONLY sanctioned source for any claim about an open position. Reciting
+        # entries/marks from memory or from a previous run is what produced the Run 12
+        # error; paste this output instead.
+        text = format_positions(open_positions(load_bets()))
+        try:
+            print(text)
+        except UnicodeEncodeError:
+            print(text.encode("ascii", "replace").decode())
     elif cmd == "email_html":
         out = sys.argv[2] if len(sys.argv) > 2 else "email.html"
         Path(out).write_text(email_html(), encoding="utf-8")
