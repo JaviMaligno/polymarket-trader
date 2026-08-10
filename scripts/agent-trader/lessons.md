@@ -688,3 +688,181 @@ Thesis: Iranian FM spokesman Baghaei stated on August 8 (CNN, https://www.cnn.co
 
 **Running record: 5-4 resolved, 5 open ($125 at risk), P&L -$52.32, bankroll $947.68.**
 Pending expected loss: Bet 10 (Apple Aug31, mark YES=0.045) essentially booked at -$25. Honest forward mark: ~-$77.32.
+
+---
+
+### Review correction — appended 2026-08-10 by the weekly external audit (not by the run agent)
+
+Two corrections to Run 12. Read them before Run 13; they override what Run 12 wrote.
+
+**1. Bet 14 (Iran-Oman Hormuz Agreement, market_id 3348048) reads the criterion incomplete.**
+The rationale quotes one spliced fragment of the first two paragraphs of the Gamma description
+(*"a diplomatic agreement between Oman and Iran... an official agreement, treaty, deal, or
+substantially similar diplomatic instrument..."*, with the ellipsis in the original) — the
+definition of a "diplomatic agreement" — and concludes correctly that this is a *bilateral*
+Iran-Oman instrument that does not require US approval. That part is right. It then never quotes
+the paragraphs that actually decide the bet. Verbatim from
+[gamma-api.polymarket.com/markets/3348048](https://gamma-api.polymarket.com/markets/3348048),
+re-pulled 2026-08-10:
+
+> All listed countries must announce their acceptance of the same qualifying diplomatic agreement
+> for the Payout Condition to be met. A joint announcement will qualify, as will separate
+> announcements from each entity of its own acceptance of an agreement which, taken together,
+> directly indicate that all the listed countries accepted the same agreement. Separate
+> announcements of individual policies will not qualify if the policies are not announced as part
+> of a diplomatic agreement.
+
+> Each announcement must be a declarative statement that clearly and unambiguously communicates
+> acceptance of an agreement. Statements that reference ongoing negotiations or a prospective
+> agreement, or that allude to or express support for an agreement without confirming acceptance
+> of the agreement, do not qualify. A qualifying announcement need not reference the agreement by
+> name or use specific terminology, provided it clearly communicates acceptance of an agreement.
+
+Three consequences.
+
+- **Oman has to speak, and no Omani announcement is cited anywhere in the rationale.** The
+  rationale cites five sources — Bloomberg, Fortune, Al Jazeera, CNN, NPR — and every one of them
+  reports Iran saying so.
+  - **Bloomberg** ([2026-08-05](https://www.bloomberg.com/news/articles/2026-08-05/iran-says-agreement-on-hormuz-shipping-route-reached-with-oman)):
+    the URL slug reads `iran-says-agreement-on-hormuz-shipping-route-reached-with-oman`, but the
+    page returns HTTP 403 to this audit and the headline was **not** fetched — treat the wording
+    as unverified.
+  - **Fortune** carries the same wire story and *is* fetchable:
+    *"Iran says agreement on Hormuz shipping reached with Oman"*
+    ([2026-08-07](https://fortune.com/2026/08/07/iran-agreement-oman-strait-of-hormuz-shipping/),
+    headline read directly, 2026-08-10 — note it lacks the word "route"). Read in full, every
+    attribution of the agreement claim is Iranian: FM spokesman Baghaei, Deputy FM Gharibabadi via
+    IRNA, and Iranian state television. The only non-Iranian voices in the piece are Trump, Vance
+    and a White House that "didn't respond to a request for comment". No Omani statement appears.
+  - **NPR**, headline fetched and verbatim: *"Iran says agreement with Oman for Strait of Hormuz
+    prohibits U.S. and Israeli vessels"*
+    ([2026-08-07](https://www.npr.org/2026/08/07/nx-s1-5923962/iran-says-agreement-with-oman-for-strait-of-hormuz-prohibits-u-s-and-israeli-vessels)).
+  - **CNN** is the Baghaei drafting quote (see next bullet). **Al Jazeera** is cited in the
+    rationale without a URL and was not checked here.
+  - Not cited by the run, but the same pattern from a source this audit did fetch: Euronews,
+    *"Iran and Oman agree route for ships in Strait of Hormuz, Tehran says"*
+    ([2026-08-05](https://www.euronews.com/2026/08/05/iran-and-oman-agree-route-for-ships-in-strait-of-hormuz-tehran-says)).
+
+  The description's own resolution sources are "official information from the governments of Oman
+  and Iran and a consensus of credible reporting". Credible reporting can corroborate, but
+  paragraph 4 independently requires that ALL listed countries announce acceptance, and no volume
+  of reporting substitutes for an announcement Oman has not made. One of the two listed parties
+  has zero cited announcements. That is a binary factor, and p_hat = 0.78 does not discount it.
+- **The rationale's strongest piece of evidence is the one the criterion disqualifies.** It cites
+  the joint statement being "under review and in the final drafting stage" (FM spokesman Baghaei,
+  Aug 8, [CNN](https://www.cnn.com/2026/08/08/world/live-news/iran-war-trump)) as support for YES.
+  A statement that a text is in drafting is a *prospective agreement* — the second clause excludes
+  it by name. Evidence was booked in favour when the text of the criterion books it against.
+- **The market moved hard against the thesis, and the rationale never looked at the tape.**
+  Hourly YES history for this market
+  ([CLOB prices-history](https://clob.polymarket.com/prices-history?market=71542982741394376771627006689338880117415417908788827680925028639627563224055&interval=max&fidelity=60),
+  137 points, pulled 2026-08-10, times UTC): the series opens Aug 5 at 0.72 (one thin 0.525 print
+  at 01:00), is at 0.82 by 06:00 and 0.93 by 23:00 — the market repricing the Bloomberg/Fortune
+  news — and **peaks at 0.935 on Aug 6, 14:00-16:00**. Then four straight days of repricing DOWN:
+  0.875 through Aug 7 midday, 0.855 through Aug 8 morning, 0.685 at Aug 9 03:00, **trough 0.585 at
+  Aug 9 23:00**, recovering to 0.66 by Aug 10 15:00. Gamma the same day: mid 0.655, bid 0.64 / ask 0.67, last trade 0.67.
+  So entry at 0.66 on Aug 10 14:35 was buying a market ~28 points below its Aug 6 peak and ~7
+  points above a trough set 15 hours earlier. The rationale describes 0.66 as the market undervaluing a
+  near-done deal; the tape says the market spent four days progressively discounting it — most
+  plausibly because the joint statement never appeared and Oman stayed silent. **A price path that
+  contradicts the thesis is itself evidence, and it must be pulled before fixing p_hat.**
+  Method note: entry price and today's mid are both 2026-08-10 observations an hour apart, so
+  comparing them says nothing about movement since the news. "The price hasn't moved" is a claim
+  about a time series and can only be made from the time series.
+
+Two more unquoted paragraphs belong in the enumeration. **Paragraph 6 governs timing:** where all
+listed countries have announced but it remains ambiguous whether the announcements constitute a
+qualifying agreement, the market stays open until either definitive confirmation (through further
+announcements or a consensus of credible reporting), or 14 calendar days (ET) after the last
+country's first potentially-qualifying announcement — and only then resolves on the totality of
+information. With expiry on Aug 31, a first Omani announcement late in the month does not
+guarantee a resolution inside the window; this clause is load-bearing on a 21-day hold and the
+rationale never mentions it. **Paragraph 3** adds a subject-matter condition — the agreement must
+establish policies "aimed at managing, permitting, restoring, or increasing vessel or shipping
+traffic through the Strait of Hormuz" — which the reported terms do appear to satisfy, but it is
+a condition and it was not enumerated either.
+
+The turn that makes this serious: every win in this track record came from reading the resolution
+criterion **literally and in full**. Sometimes that makes the bar *harder* than the market assumes
+— Israel-Hezbollah (the criteria explicitly bar temporary ceasefires, statements of progress and
+negotiations), Machado (resolution requires physical entry into Venezuelan terrestrial territory)
+— and sometimes it makes it *easier*, which is precisely why two of the five wins were taken:
+Hormuz-40-ships (">=40 transit calls on ANY day", a one-day low bar) and Sulyok (the announcement
+clause: "even an announcement of removal before July 31 resolves YES regardless of effective
+date"). Bolojan is the third mode, process speed rather than bar height. So the failure on Bet 14
+is not looseness — it is **incompleteness**: the description has seven paragraphs, the rationale
+quoted a fragment of two, and the two that decide the bet are among the five it never opened. The
+invariant is exhaustiveness, not severity. A rule of "read it strictly" would have vetoed two of
+the five wins.
+
+**Rule 1 (operative, cumulative): in any market whose payout depends on a multi-party agreement,
+announcement or action, enumerate in writing ALL payout conditions before fixing p_hat — in
+particular the list of parties that must speak — and cite one source per party. A party with zero
+cited announcements is not a detail; it is an unpriced binary factor. And a source describing an
+agreement as drafted, under review or under negotiation counts as evidence AGAINST, not for,
+whenever the criterion explicitly excludes prospective statements. Enumerate every paragraph of
+the description, not the ones that confirm the thesis — count them, and say how many you read.
+Finally, before calling any price stale or mispriced, pull that market's own price history
+(`https://clob.polymarket.com/prices-history?market=<clobTokenId>&interval=max&fidelity=60`) and
+state what the path did since the news: a single snapshot cannot support a claim about
+movement.**
+
+**2. Every loss lives in the middle band of p_hat.**
+Computed over `bets.jsonl` and reproducible with `python metrics.py`. The partition below is
+arithmetic; the *band* is not — it was fitted after seeing these outcomes, and the honesty clause
+below quantifies how fragile that makes it. Read both together. The nine resolved bets split on
+the `my_prob_yes` field:
+
+- **`my_prob_yes` inside [0.20, 0.60]: 4 bets, 0 wins.** Bet 1 (Hormuz Jul31, 0.55), Bet 8 (Apple
+  Jul31, 0.38), Bet 9 (Stevens Michigan, 0.50), Bet 11 (Thanedar MI-13, 0.30). These are exactly
+  the four losses in the track record.
+- **`my_prob_yes` outside that band: 5 bets, 5 wins.** Bet 2 (Bolojan, 0.18), Bet 3
+  (Hormuz-40-ships, 0.66), Bet 4 (Israel-Hezbollah, 0.06), Bet 5 (Machado, 0.19), Bet 6 (Sulyok,
+  0.92).
+
+It matches the confidence table from the same `metrics.py` run: high 2/2 (+$9.19), medium-high
+2/3 (-$1.19), medium 1/4 (-$60.32). It also matches the calibration table, whose 0.2-0.4 (n=2)
+and 0.4-0.6 (n=2) bins are those same four bets, actual YES 0.000 in both.
+
+**Proposed mechanism — hypothesis, not result, and it has a counterexample inside its own
+cohort.** The agent's demonstrated edge is reading resolution criteria and process speeds against
+the market's casual reading: situations where the correct answer sits near 0 or near 1. Three of
+the four in-band losses fit the complement of that — Bet 8 (Apple vs NVIDIA on a date), Bet 9 and
+Bet 11 (two Michigan primaries) exploit no criterion asymmetry; they are discretionary forecasts
+of genuinely uncertain contests, and there the market is not systematically wrong. The fourth does
+**not** fit: Bet 1 (Hormuz MA>=60) is a resolution-threshold and process-speed argument by its own
+rationale ("37-day window + any-single-day low bar"), i.e. exactly the family the mechanism says
+should win, and its post-mortem lesson is recorded above as "physical constraint + military will >
+political agreements". Bet 1 is a counterexample to this mechanism, not support for it. (The
+second Apple bet, Bet 10, is *not* in this cohort: `my_prob_yes` 0.62, outside the band, and still
+open.)
+
+**Honesty clause, non-negotiable.** n = 9. `metrics.py` still returns VERDICT = too few resolved
+bets (need >=20), mean -$5.813/bet, bootstrap 95% CI [-17.244, +6.204] — crossing zero. And the
+band edges are **fitted to these 9 outcomes, not chosen in advance**: Bet 2 (0.18) and Bet 5
+(0.19) are winners sitting 0.01-0.02 below the lower edge, and moving that edge from 0.20 to 0.18
+turns the split into 2 wins / 6 bets inside versus 3 wins / 3 bets outside. The clean 0/4-vs-5/5
+partition is therefore a property of a threshold chosen after seeing the outcomes it is used to
+explain, not a robust feature of the data. This is a hypothesis with a mechanism, a free
+parameter and insufficient n, **not** a demonstrated effect. The experiment's formal bar (n >= 20
+and `pnl_boot_lo` > 0) has not been reached. Do not turn a pattern in 9 observations into a law.
+
+**Rule 2 (operative, cumulative): every bet states in its rationale which family of edge it
+claims — (i) the market misreads the resolution criterion or the speed of a process, or (ii) I
+forecast the outcome better than the market. Family (ii) accounts for 3 of the 4 in-band losses
+and 0 of the 5 wins, so it carries the higher bar: name the concrete asymmetry it exploits, and
+record the family label explicitly in the rationale so the cohort can be measured once n >= 20.**
+At n = 9 with a post-hoc band the useful output is the labelling, not a veto — this rule does not
+authorise declining a bet purely for sitting in the band.
+
+**Disposition of Run 12's selection rule #3 (injury information in sports markets): STANDS**, and
+it is subordinate to Rule 2 rather than overridden by it. An officially announced, documentable
+injury that the market has not yet repriced *is* a named concrete asymmetry, so Bet 13 (Sinner,
+`my_prob_yes` 0.42) satisfies family (ii)'s bar despite sitting inside the band. What rule #3 does
+not license is a middle-band bet whose only support is a general read of who is better.
+
+**Live exposure under this lens.** Of the 5 open bets, two sit inside [0.20, 0.60] on
+`my_prob_yes`: Bet 7 (US-Iran MOU, 0.22, resolves Aug 20) and Bet 13 (Sinner, 0.42, resolves
+Sep 13). The other three are outside it: Bet 10 (0.62), Bet 12 (0.70), Bet 14 (0.78). Bet 13's
+family-(ii) asymmetry is named in the disposition above; Bet 7 is family (i) (formal-announcement
+criterion). Flagged, not actionable — closing is not part of this experiment.
