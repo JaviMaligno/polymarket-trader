@@ -636,3 +636,55 @@ rows — Thanedar's money is a self-loan, not a proxy for support, and his cash 
 17× on a balance sheet he wrote himself. But the audit stated a raised-money comparison it
 could not cite, in the same paragraph that demanded citations. Same failure mode, one level up.
 **Rule (both layers): a number without a link does not go in `lessons.md`, whoever writes it.**
+
+## Run 12 — 2026-08-10 (three new bets; resolved post-mortems)
+
+**Honest record at run start:** 5-4 resolved, P&L -$52.32, bankroll $947.68, Brier 0.109.
+Open positions: Bet 7 (US-Iran MOU NO, mark YES=0.325, gaining), Bet 10 (Apple Aug31 YES, mark YES=0.045, near-certain loss).
+
+**Resolved post-mortems (Bets 8, 9, 11):**
+
+**Bet 8 (Apple Jul31 YES, entry 0.27) — LOSS (-$25).** Paper gain peaked at YES~0.692 on July 27 when Apple held a ~$70-110B lead over NVIDIA. But Apple Q3 earnings on July 30 missed on Services ($30.74B vs $31.22B estimate) and China ($18.8B vs $19.6B) — stock fell 3-4% post-earnings, NVIDIA regained #1 on July 31. Resolution: NO. The entry was correctly identified (market anchored on NVIDIA dominance at entry 0.27); the loss came from a discrete adverse catalyst 1 day before resolution. Key lesson: for resolution-date-specific "state at exact moment" bets, identify any discrete events (earnings, major announcements) near the resolution date and price them separately. A random-walk framework doesn't capture concentrated event risk at one specific date.
+
+**Bet 9 (Stevens MI Senate YES, entry 0.345) — LOSS (-$25).** El-Sayed won. Already post-mortemed in Runs 10-11: relied on pre-McMorrow-exit polls; progressive consolidation wasn't yet measurable at the time of polling. Confirmed: major candidate withdrawal requires 2+ independent post-exit polls before betting the adjusted race.
+
+**Bet 11 (Thanedar MI-13 YES, entry 0.15) — LOSS (-$25).** McKinney won. Audit corrections (Run 11) fully documented: poll direction inverted, spending gap was self-loans not genuine fundraising, same-night Michigan electorate = concentration violation with Bet 9. McKinney's victory confirms: self-financed spending is NOT a proxy for voter support (the template that makes spending predictive is external fundraising reflecting supporters, not candidate writing checks to himself).
+
+**Open bet update — Bet 7 (US-Iran MOU NO, entry NO=0.62, current YES=0.325):**
+
+New information: US resumed strikes after Iran attacked a US base in Jordan (July 27-29), then another informal pause since early August. Iran explicitly denies negotiations ("we have no negotiations with the United States at present" — July 27, FM statement). No formal joint extension announcement has been made. Trump said the 60-day timeline is "not a hard deadline" (The Hill), but this does not create or substitute for the resolution criterion requiring "a declarative statement... clearly and unambiguously identify[ing] an extension." The Iran-Oman Hormuz bilateral deal being negotiated separately further reduces Iran's incentive to formally acknowledge US-Iran MOU extension. p_hat YES remains ~0.08-0.12 vs market 0.325. Hold.
+
+**Open bet update — Bet 10 (Apple Aug31 YES, entry 0.53, mark YES=0.045):**
+
+Apple post-earnings decline confirmed (missed Services, China). NVIDIA strongly regained #1. Mark YES=0.045 implies near-certain loss. The audit correction from Run 9 was correct: true edge at entry was ~1-2% (term-structure calibration), not 9%. Holding — no action possible, 21 days of variance but market has spoken. Confirmed: "an edge is a claim about a price being wrong, not about a thesis being right" (Run 9 audit). The thesis that Apple was temporarily #1 was CORRECT; the pricing error had already been arbitraged away by entry time.
+
+**New bets placed:**
+
+**Bet 12 — Nordone YES (SC Senate first-round plurality) @ ask 0.60, p_hat 0.70, edge ~9%. Medium-high conviction.**
+Thesis: The resolution criterion asks who gets the MOST VOTES (plurality), not 50%+. Resonance Media Strategies poll (August 5, n=600 likely GOP primary voters, reported FITSNews 2026-08-07): Nordone 25.2%, Norman 18.2%, Fry 11.9%, Sanford 11.2%, Undecided 22.9%. Nordone has a 7-point lead with 22.9% undecided. For Norman to overcome this, he'd need an implausibly large undecided share (>35%) in a 9-way race the day before the primary. Earlier Emerson poll (July 28-29) had Norman 22% / Nordone 19% — the trend is consistent with Trump endorsement (mid-July) materializing in the August poll. Independent of all open bets.
+
+**Bet 13 — Sinner NO (US Open YES=0.53) @ NO entry ~0.48, p_hat_yes 0.42, edge ~9% on NO. Medium conviction.**
+Thesis: Sinner withdrew from the Cincinnati Open (August 13-20) due to a right knee injury, announced August 9 (Al Jazeera, https://www.aljazeera.com/sports/2026/8/9/jannik-sinner-withdraws-from-cincinnati-open-with-knee-injury). He also missed the Montreal Masters (prior week) with the same issue. Zero warm-up competitive matches before the US Open starts August 23. Despite being #1 and defending champion (2024, 2025), injury-adjusted p_hat YES ≈ 0.42. Market at 52.5% applies a "he's so dominant" discount to the injury that is too small. Edge lives in the gap between narrative-anchored pricing ("defending champion") and the specific, current, verifiable fact of a significant knee injury with no warm-up. Independent of all open bets.
+
+**Bet 14 — Iran-Oman Hormuz Agreement YES @ ask 0.66, p_hat 0.78, edge ~10%. Medium-high conviction.**
+Thesis: Iranian FM spokesman Baghaei stated on August 8 (CNN, https://www.cnn.com/2026/08/08/world/live-news/iran-war-trump) that the Iran-Oman joint statement is "under review and in the final drafting stage." Iran and Oman have agreed on coordinates, lane structure, joint coordination center, and maritime security terms (Bloomberg 2026-08-05, Fortune 2026-08-07). Polymarket resolution criterion: "official agreement, treaty, deal, or substantially similar diplomatic instrument between Oman and Iran." This is a BILATERAL agreement — does NOT require US approval. Iran explicitly bans US/Israeli vessels (NPR 2026-08-07), showing Iran is comfortable finalizing this without US buy-in. 21 days to August 31 with draft nearly complete. p_hat 0.78 vs market 0.66. CONCENTRATION NOTE: This is the 2nd Iran-correlated open bet (Bet 7 = MOU NO). Concentration limit = 2 Iran bets, so this exhausts the Iran slot. These are ANTI-correlated in directional risk: a formal US-Iran MOU extension (hurts Bet 7) is a SEPARATE event from an Iran-Oman bilateral agreement (helps Bet 14).
+
+**Candidates researched and declined:**
+
+- **CDU win most seats in 2026 Berlin election (YES @ 0.235, Sept 20):** Latest polling (Civey, Aug 3): Die Linke 21%, CDU 19%, AfD 18%, Greens 17%. CDU is in 2nd place. Kai Wegner withdrew as lead candidate after power outage fallout (July). Market at 23.5% is roughly fair given polling. Edge unclear and below threshold. **Decline.**
+- **US-Iran ceasefire through Aug 31 (YES @ 0.945):** Near-1, no edge after spread. Skip.
+- **Sinner YES @ 0.525:** Research confirmed significant knee injury → bet NO instead (Bet 13). Same market, opposite direction.
+- **Alcaraz YES @ 0.135:** Also injured (wrist per research). Could be underpriced too but without specific wrist severity data and given tennis market efficiency, insufficient edge to establish a differentiated view for Alcaraz YES. Decline.
+- **US-Iran MOU extension (Bet 7):** Already holding this position. Don't double down (Rule: no same-market doubling).
+- **All Fed September markets:** CME-arbitraged as always.
+
+**New selection rules (derived from RESOLVED bets only):**
+
+1. **Resolution-date event risk is separate from holding-period probability.** For "state at exact date" bets (e.g., Apple largest cap on July 31), identify all discrete events (earnings releases, scheduled votes, announcements) that fall within 3 days of the resolution date. A random-walk or momentum framework prices the distribution over holding period, but doesn't capture point-in-time event risk. The Apple Jul31 loss: the thesis was right for 14 of 15 holding days; Apple's earnings miss on day 14 was the fatal event. If a major earnings release falls on day T-1 of resolution, the market-at-exact-date bet has concentrated event risk that must be analyzed separately and discounted from the edge.
+
+2. **Self-financed campaign spending is not a predictor of support.** In Bet 11 (Thanedar), the "33:1 spending advantage" thesis failed because the spending was primarily self-loans (>$12M self-loaned since 2021, >$2M this cycle). External fundraising is a proxy for voter support (supporters giving you money); self-loans are a proxy for the candidate's personal wealth. The spending signal only works for externally raised funds, not candidate self-financing.
+
+3. **Specific verifiable injury information is actionable edge in sports markets.** The "sports are efficient" heuristic applies to background consensus (who's ranked higher, recent form). A NEW specific injury with an official withdrawal announcement is a discrete information event — it's the same type of edge as "market mispriced the SPEED of a process." The market at 52.5% for Sinner is using "regime persistence" (defending champion) while the new information (knee injury, no warm-up matches) isn't fully discounted. Edge requires: injury officially announced, severity documentable (missed multiple events), and market not already repricing.
+
+**Running record: 5-4 resolved, 5 open ($125 at risk), P&L -$52.32, bankroll $947.68.**
+Pending expected loss: Bet 10 (Apple Aug31, mark YES=0.045) essentially booked at -$25. Honest forward mark: ~-$77.32.
