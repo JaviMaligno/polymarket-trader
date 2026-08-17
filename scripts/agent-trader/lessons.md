@@ -866,3 +866,57 @@ not license is a middle-band bet whose only support is a general read of who is 
 Sep 13). The other three are outside it: Bet 10 (0.62), Bet 12 (0.70), Bet 14 (0.78). Bet 13's
 family-(ii) asymmetry is named in the disposition above; Bet 7 is family (i) (formal-announcement
 criterion). Flagged, not actionable — closing is not part of this experiment.
+
+## Run 13 — 2026-08-17 (zero new bets; open bet updates)
+
+**Official record at run start:** 6-4 resolved, P&L -$35.65, bankroll $964.35, Brier 0.1071.
+**Mark-to-market (honest):** 6-5, P&L -$60.65, bankroll $939.35 (Bet 10 Apple YES already decided by market at mark YES=0.017).
+
+**Open bet status (verbatim from `positions` output, this run):**
+
+**Bet 7 (US-Iran MOU Extension NO, entry(held)=0.620, mark(held)=0.903, delta=+0.283, mark YES=0.097, resolves Aug 20) — NEAR-CERTAIN WIN.**
+No formal joint US-Iran announcement extending the 60-day period has been made. Research confirmed: both sides "agreed informally" through Pakistani intermediaries, but no official declarative statement from either government. Iran FM stated July 27 "we have no negotiations with the United States at present." With 3 days to resolution, the formal-vs-informal template held perfectly: market at 9.7% correctly reflects that an informal pause ≠ the resolution criterion ("both the United States and Iran publicly and officially announce an extension... a declarative statement... clearly and unambiguously identify an extension"). Thesis vindicated.
+
+**Bet 10 (Apple Aug31 YES, entry(held)=0.530, mark(held)=0.017, delta=-0.513, mark YES=0.017, decided=LOSS) — CONFIRMED LOSS, pending formal resolution.**
+Apple missed Services and China in Q3 earnings (July 30). NVIDIA regained #1 and has held it. The Run 9 audit correction was fully right: true edge at entry was ~1-2% (term-structure calibration), not 9%. The "thesis was right" (Apple was temporarily #1) but the pricing edge had already been arbitraged away. Confirmed lesson: an edge is a claim about a price being wrong, not about a thesis being right.
+
+**Bet 13 (Sinner US Open NO, entry(held)=0.480, mark(held)=0.495, delta=+0.015, mark YES=0.505, resolves Sept 13) — SMALL POSITIVE, THESIS INTACT.**
+Research today confirms: Sinner withdrew from Montreal AND Cincinnati with right knee injury. Returning to Turin for shockwave therapy (Aug 15), planning to travel to New York Aug 18. Planning to play US Open (starts Aug 30) with zero warm-up matches. Alcaraz also compromised (4.5-month wrist absence, withdrew Cincinnati). Djokovic has a chronic health condition (lost Round 2 in Cincinnati to a No. 50 while visibly unwell). Field is weakened. Sinner at YES=0.505 with uncertain knee fitness vs entry YES=0.525 — thesis slightly moving in our favor but market has only partially repriced the injury. Hold. Do NOT add to this position (no same-market doubling).
+
+**Bet 14 (Iran-Oman Hormuz Agreement YES, entry(held)=0.660, mark(held)=0.315, delta=-0.345, mark YES=0.315, resolves Aug 31) — UNDERWATER, THESIS WEAKENING.**
+Price path (this run's pull): opened Aug 5 at 0.72, peaked 0.935 Aug 6, then declined four straight days to trough 0.585 Aug 9, volatile 0.35-0.77 Aug 11-12, settled Aug 13-17 in range 0.21-0.43, current mid ~0.285-0.315.
+Current status: Oman has NOT officially announced acceptance of any agreement. All sources attributing the agreement are Iranian (FM spokesman Baghaei, IRNA, Iranian state TV). PBS News reports the deal "fell apart" or faces "significant obstacles." IRGC demanding additional concessions. The agreement remains "in principle" and "in final drafting stage" — the resolution criterion explicitly excludes prospective statements. US-Iran ceasefire expires Aug 18 (tomorrow) with no formal extension announced, adding military escalation risk. p_hat YES revised DOWN to ~0.12-0.18 (below current market 0.285-0.315). The Run 12 audit was correct on every count. Cannot close position. Hold.
+
+**Candidates researched and declined:**
+
+- **AfD absolute majority in Sachsen-Anhalt (YES=0.305, resolves Sept 6):** Full seat arithmetic performed. Latest polls (Pollytix Aug 8, INSA Aug 6): AfD 43%, CDU 23%, Die Linke 13%, SPD 7%, Greens 4-5%, BSW 4-5%, FDP 2-4%. Key scenarios:
+  - Greens pass 5% (all 5 parties above threshold, total=91%): AfD gets 43/91=47.3% → 46 seats in 97-seat → 3 seats short of majority. NO.
+  - Greens fail 5% (4 parties, total=86%): AfD gets 43/86=50% → 48.5 seats in 97-seat → KNIFE EDGE, rounds to 48 or 49 (P(majority) ≈ 45-50%).
+  - AfD surges to 46%, Greens fail: AfD gets 50.1 seats → clear majority. But P(surge) ≈ 8%.
+  P(Greens >= 5%) ≈ 40% (avg polling 4.6%). Probability-weighted calculation (4 paths): **p_hat YES = 0.307 vs market 0.305.** Edge = -0.002. Market is correctly priced. **Decline — no edge.**
+  
+  *Resolved rule: "AfD at 43% → absolute majority" conflates vote share with seat share. The seat arithmetic shows 43% vote → ~50% of seats when Greens fail threshold, which is exactly at the knife edge. The narrative "AfD at record 43%" does not imply "majority" without the full threshold/rounding calculation.*
+
+- **Carlos Alcaraz US Open YES (YES=0.125, 26d):** Out 4.5 months (wrist tenosynovitis since April, missed French Open and Wimbledon). Withdrew Cincinnati. Deciding about US Open entry this week. P(plays) ≈ 55-60%. P(wins | plays) ≈ 18-20% (rusty, injury risk, returning from career-longest layoff). Expected YES = 0.58 × 0.19 ≈ 0.11. Market 0.125. Edge < 2% on NO. Below threshold. **Decline.**
+
+- **All Iran/Hormuz markets (US-Iran MOU no meeting by Sept 30, end of Iranian blockade by Sept 30, Israel x Iran ceasefire, US-Iran nuclear deal, Hormuz traffic normal):** Concentration veto — Bets 7 and 14 are both open Iran-correlated bets. No new Iran bets until both resolve. Note: once Bet 7 resolves Aug 20, "US announces end of Iranian blockade by Sept 30 (YES=0.385, 44d)" becomes the first Iran-candidate worth researching in the next run (only Bet 14 Iran-correlated would remain). Flag for Run 14.
+
+- **All Fed September markets (no change 74.5%, +25bps 23.5%):** CME-arbitraged, as always. **Decline.**
+
+- **Russian election "most seats" markets (United Russia 69.5%, New People 19.8%):** No differentiated view on Russian domestic politics. Resolution criteria not researched. Would need to understand the Sainte-Laguë allocation, single-member districts, and whether results from a non-free election are disputed. Insufficient edge confidence to bet. **Decline.**
+
+- **Wyoming/Florida primaries (resolving today/tomorrow):** Donalds won Florida Governor primary (at 0.992 = correctly priced). Insufficient time to research WY-AL, FL-25. **Decline.**
+
+- **Sinner US Open YES (same market as Bet 13):** Already hold Bet 13 (Sinner NO). Cannot double into same market per Rule #2 from Run 10 audit. **Decline.**
+
+**NEW BETS: ZERO.** Universe genuinely exhausted this run. The one candidate that appeared to have edge (AfD) dissolved when the full seat arithmetic was performed. The second candidate (Alcaraz) had edge well below the 5% threshold. All Iran-correlated markets blocked by concentration veto.
+
+**New selection rules (derived from analysis this run):**
+
+1. **Absolute majority markets require full seat arithmetic before forming p_hat.** The AfD case shows a market at 30.5% YES is correctly pricing a multi-pathway scenario (Greens pass/fail 5% × parliament size × seat rounding). The narrative "AfD at record 43%" does not translate to "majority likely" — that requires computing proportional seat allocation under multiple threshold scenarios. Perform the 4-path calculation: (i) leading party polls at X, (ii) which small parties are borderline on threshold, (iii) if each fails, what is the proportional seat share, (iv) does that clear 50%+1? Do this BEFORE concluding the market is wrong.
+
+2. **When a bet's p_hat tracks the market price after exhaustive research, that is a result: the market is efficient on this market. Accept it.** The temptation is to rationalize a small discrepancy as edge. The AfD analysis drove p_hat from an initial "maybe 0.17" down to 0.307 as each layer of analysis (threshold scenarios, overhang mandates, rounding) was added. The market's 0.305 was doing the same work. "Market is wrong" requires a specific, named pricing error — not just a narrative asymmetry.
+
+**Running record: 6-4 resolved, 4 open ($100 at risk). Official P&L: -$35.65, bankroll $964.35.**
+**Honest mark (including Bet 10 decided as LOSS): 6-5, -$60.65, bankroll $939.35.**
+**Expected trajectory: Bet 7 near-certain win (+~$15, bankroll → ~$955); Bet 10 confirmed loss (-$25, bankroll → ~$914 honest); Bet 14 likely loss (p_hat YES ~0.15); Bet 13 slight edge on NO (p_hat YES ~0.40 vs mark 0.505).**
