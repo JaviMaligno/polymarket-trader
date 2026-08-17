@@ -26,6 +26,16 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    and you report a 0.27 move; the position's actual move is +0.055 (entry(held) 0.620 →
    mark(held) 0.675). Quote `positions`, not prose from an earlier run.
 
+   **For every open position, answer this checklist explicitly before updating its
+   `p_hat` or describing the thesis:**
+   1. What does the marginal buyer know that I may be missing?
+   2. Was the motivating news already reflected in the price before entry? Use the
+      market's pre-entry price history, not only the latest mark.
+   3. What probability remains that the criterion is met before the deadline? An unmet
+      criterion today is not a zero probability while time remains.
+   4. Do not call a thesis confirmed or vindicated before resolution. Describe an open
+      position as strengthened, weakened, or unchanged and state what would falsify it.
+
 2. **Fetch candidates.** Run `python agent_trader.py candidates --research`. Then in
    Python, narrow to the genuinely-uncertain, researchable set:
    `from agent_trader import fetch_candidates, is_researchable` → keep
@@ -66,7 +76,11 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    (aim ≥ ~0.05 net edge; never bet a view you can't defend). Watch concentration — the
    veto keys on the underlying real-world outcome, NOT on the ticker or the expiry date:
    two markets settled by the same event, the same electorate on the same night, or the
-   same variable at a later date are ONE bet for this purpose. Record each via:
+   same variable at a later date are ONE bet for this purpose.
+   **A resolved correlated bet does not immediately free a concentration slot** during
+   the run that resolves it. **Do not replace it during the same run**; wait until the
+   next scheduled run so the remaining cluster can be reassessed without exposure churn.
+   Record each accepted bet via:
    ```bash
    # Write the rationale to a file first (Write tool), then:
    python agent_trader.py record <MARKET_ID> <YES|NO> <p_hat_yes> /tmp/rationale.txt 25.0 <confidence>
