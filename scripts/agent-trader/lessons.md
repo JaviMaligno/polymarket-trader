@@ -920,3 +920,60 @@ Current status: Oman has NOT officially announced acceptance of any agreement. A
 **Running record: 6-4 resolved, 4 open ($100 at risk). Official P&L: -$35.65, bankroll $964.35.**
 **Honest mark (including Bet 10 decided as LOSS): 6-5, -$60.65, bankroll $939.35.**
 **Expected trajectory: Bet 7 near-certain win (+~$15, bankroll → ~$955); Bet 10 confirmed loss (-$25, bankroll → ~$914 honest); Bet 14 likely loss (p_hat YES ~0.15); Bet 13 slight edge on NO (p_hat YES ~0.40 vs mark 0.505).**
+
+## Run 14 — 2026-08-24 (zero new bets; three post-mortems)
+
+**Official record at run start:** 8-4 resolved, P&L +$6.75, bankroll $1006.75, Brier 0.108.
+Capital at risk (open): $50 (Bets 10 + 14, both near-certain losses).
+
+**Resolved post-mortems since Run 13 (Bets 7, 12, 13):**
+
+**Bet 7 (US-Iran MOU Extension NO, entry YES=0.39) — WON.** Resolved Aug 20. No formal joint US-Iran announcement was made extending the 60-day period. Trump posted Aug 18: "There are no talks or conversations going on... the Naval Blockade remains in full force and effect." Thesis confirmed in full. The formal-vs-informal template wins 4 of 4 (Bolojan, Israel-Hezbollah, Sulyok, MOU). Family (i) edge — market misread the resolution criterion.
+
+**Bet 12 (Nordone SC Senate plurality YES, entry YES=0.60) — WON.** Nordone won the first-round plurality in the SC GOP Senate primary (held Aug 12). The Resonance Media poll (Aug 5, n=600: Nordone 25.2%, Norman 18.2%) was accurate. Trump endorsement + polling lead template confirmed. Simple criterion (most votes in first round, not 50%) + recent legitimate polling = sufficient edge.
+
+**Bet 13 (Sinner US Open NO, entry YES=0.525) — WON.** Sinner officially withdrew Aug 21 due to persistent right knee injury (confirmed via ATP Tour, Al Jazeera, Olympics.com). The resolution criterion states: "If at any point it becomes impossible for a listed player to win... the market will resolve to No." Withdrawal = impossible to win → market resolved NO. Confirms Run 12's selection rule: an officially announced, documentable withdrawal is actionable edge in "win the tournament" markets.
+
+**Open bet status (verbatim from this run's `positions` output):**
+
+**Bet 10 (Apple Aug31 YES, entry(held)=0.530, mark(held)=0.046, entry YES=0.525, mark YES=0.046) — NEAR-CERTAIN LOSS.**
+1. Marginal buyer at YES=0.046: speculative bet on unexpected NVIDIA collapse or Apple surprise in 7 days.
+2. Motivating news (Apple briefly #1, July 17): was reflected in the entry price (0.525). Run 9 audit was correct — true edge at entry was ~1-2%. The thesis that Apple was temporarily #1 was correct; the pricing anomaly had already been resolved before entry.
+3. Probability remaining: ~4.6% per market. NVIDIA reported strong earnings Aug 26 (4 days away). Apple needs to close an ~$80-100B+ gap in 7 days.
+4. Thesis weakened (confirmed). Expected loss. Cannot close; accept outcome.
+
+**Bet 14 (Iran-Oman Hormuz Agreement YES, entry(held)=0.660, mark(held)=0.145, entry YES=0.650, mark YES=0.145) — LIKELY LOSS, one notable intraday spike.**
+1. Marginal buyer at YES=0.145: sees ongoing deal-close signals and believes a last-minute Omani announcement is possible before Aug 31. The market spiked this morning (Aug 24 05:00 UTC) from ~0.065 to 0.165, then settled ~0.140-0.150. No confirmed Omani announcement found that triggered this spike — most likely thin-market noise or a fresh rumor about deal being imminent. The resolution criterion excludes prospective statements ("in final drafting stage" explicitly fails).
+2. Motivating news (Iranian FM "final drafting stage," Aug 8): was NOT new when entry was made on Aug 10 — the market had already processed it, peaking at 0.935 on Aug 6 and declining four straight days to 0.585 trough by Aug 9. Run 12 audit was correct: entry was buying into a declining market, not a stale one.
+3. Probability remaining: The price path from Aug 17-24 confirms further deterioration (0.315 → 0.065 through Aug 22-23, today's spike to 0.150 notwithstanding). Trump threatened military action against Oman on Aug 18 if it obstructs US operations. No Omani announcement in any source. p_hat YES revised to ~0.07-0.10 (market 0.145 is above my p_hat).
+4. Thesis weakened. The Run 12 audit's three-part analysis was correct on every count. Expected loss.
+
+**Price path summary for Bet 14 (key waypoints, this run's pull):**
+Aug 6 peak 0.935 → Aug 9 trough 0.585 → Aug 10 entry 0.660 → Aug 17 range 0.215-0.335 → Aug 18 Trump "no talks" drop to 0.240 → Aug 20-21 decline to 0.075-0.130 → Aug 22-23 trough ~0.055-0.080 → Aug 24 spike to 0.165 then settling ~0.140-0.150. Net direction: consistently down from entry.
+
+**Candidates analyzed and declined:**
+
+- **Carlos Alcaraz US Open YES @ 0.315 (19d):** Alcaraz confirmed playing (Aug 20, 4+ month wrist absence). Sinner withdrew Aug 21. Kalshi: ~36%; sportsbooks: +140 to +195 (34-42% implied). Polymarket: 31.5%. DECLINE reasons: (1) Price history shows the market ACTIVELY repriced both catalysts — +0.105 on Alcaraz confirmation (Aug 20 18:00 UTC: 0.155→0.260), +0.12 on Sinner withdrawal (Aug 21 14:00 UTC: 0.245→0.365). Both news items were processed rapidly. (2) Since the peak (0.365), the market drifted DOWN to 0.335-0.345 for 2 days and further to 0.315 today — consistent with the crowd pricing Alcaraz's 4+ months of rust heavier than the "defending champion" narrative. (3) Net edge vs. Kalshi/sportsbooks: ~3%, below 5% threshold. (4) Per the lesson: "A path that has been repricing against your thesis is evidence, not noise." The path repriced in my direction initially, then reversed — market is not anchored. **Rule learned (below).**
+
+- **Lula Brazil presidential YES @ 0.625 (40d):** Lula leads Flávio Bolsonaro in polling but in tight runoff simulations: Datafolha Aug 21 has runoff at 47-43 (within MoE on some surveys); Quaest Aug 14 has 43-40 (statistical tie). Market at 62.5% for Lula winning overall is roughly consistent with a 4-7 point runoff lead that could shift. No differentiated view beyond what the polls already show. **Decline — roughly fair.**
+
+- **US announces end of Iranian blockade by Sept 30 YES @ 0.375 (37d):** CONCENTRATION VETO — Bet 14 (Iran-Oman) is still open. Additionally: Trump Aug 18 explicitly denied any talks ("Naval Blockade remains in full force and effect"). DoD stated blockade is sustainable indefinitely. p_hat YES ~0.15-0.20. But cannot bet this run. Flag for Run 15 after Bet 14 resolves Aug 31: strong NO edge (~15-20% net) if status hasn't changed. **Decline — concentration veto this run.**
+
+- **United Russia gains most seats in Russia Duma @ 0.705 (36d):** Resolution criterion explicitly says "compared to before the election" — this measures incremental GAINS, not total seats. In 2021, United Russia lost 19 seats; KPRF gained 15 (biggest gainer), New People gained 13. If the 2021 pattern holds, United Russia would NOT win this market. However: (1) I have no 2026 Duma polling, (2) Russian elections are managed and the Kremlin can engineer outcomes, (3) uncertainty about whether the market is interpreting "gains" correctly (total seats vs. incremental). Too uncertain without current data to form a confident p_hat. **Decline — insufficient research data.**
+
+- **US ceasefire against Iran through Aug 31 @ 0.905 (7d):** Iran-correlated — same underlying as Bet 14. Also at 90.5%, near-1 = minimal edge even if pricing is slightly off. **Decline — concentration + near-1.**
+
+- **All Fed September markets (no change 67.5%, +25bps 31.5%):** CME-arbitraged as always. **Decline.**
+
+- **All near-0/near-1 markets, exact-score, crypto thresholds:** Standard filters apply.
+
+**New selection rules (derived from resolved bets and this run's analysis):**
+
+1. **Active repricing ≠ anchoring.** The Alcaraz case: the market repriced +0.105 on his confirmation (Aug 20) and +0.12 on Sinner's withdrawal (Aug 21) — both within hours of the news. A market that has already processed the catalysts motivating your view is NOT anchored. "The market hasn't noticed X yet" is a legitimate edge claim only when X is recent news. If the market has already moved on the news, the edge claim requires something BEYOND that news — not just the news itself. Always check the price history around the exact events that motivate your view; a clear price jump on the news proves it was incorporated.
+
+2. **Post-peak drift is a signal.** After processing a discrete catalyst, if the market drifts DOWN from its initial response over several days, that is the crowd's secondary reassessment — not noise, not anchoring. Alcaraz: peaked 0.365 immediately after Sinner's withdrawal, then settled to 0.335-0.345, then 0.315 over 3 days. The crowd is assigning more weight to Alcaraz's rust than the initial euphoric response did. This drift direction is evidence to take seriously before betting against it.
+
+3. **Iran blockade end: flag for next run.** After Bet 14 resolves Aug 31, the Iranian blockade-end market (YES=0.375, 37d) becomes the first Iran candidate with no concentration constraint. Research priority for Run 15: check latest US-Iran diplomatic status, verify the resolution criterion's "declarative statement" bar (same family as MOU Extension and Israel-Hezbollah — likely overpriced at 37.5% given Trump's Aug 18 "no talks" and blockade-indefinitely statements). Do not pre-commit based on this note — verify current state at Run 15 start.
+
+**Running record: 8-4 resolved, 2 open ($50 at risk). Official P&L: +$6.75, bankroll $1006.75.**
+**Expected mark (both open positions resolve as losses): -$42.34, forward bankroll ~$964.**
