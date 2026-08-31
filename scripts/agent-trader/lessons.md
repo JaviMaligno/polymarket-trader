@@ -977,3 +977,73 @@ Aug 6 peak 0.935 → Aug 9 trough 0.585 → Aug 10 entry 0.660 → Aug 17 range 
 
 **Running record: 8-4 resolved, 2 open ($50 at risk). Official P&L: +$6.75, bankroll $1006.75.**
 **Expected mark (both open positions resolve as losses): -$42.34, forward bankroll ~$964.**
+
+## Run 15 — 2026-08-31 (one new bet; Bets 10 + 14 post-mortems)
+
+**Official record at run start:** 8-4 resolved, P&L +$6.75, bankroll $1006.75 (Brier 0.108).
+**Honest mark-to-market at run start:** 8-6, P&L -$43.25, bankroll $956.75 — Bets 10 and 14 are both at mark ~0.001-0.011, confirmed losses pending today's formal resolution.
+
+**Post-mortems (Bets 10 and 14, both resolving 2026-08-31):**
+
+**Bet 10 (Apple Aug31 YES, entry(held)=0.530, mark(held)=0.001) — CONFIRMED LOSS (-$25).**
+1. Marginal buyer at YES=0.001: no real buyer; market has settled to near-zero.
+2. Motivating news (Apple briefly #1, July 17) was already reflected in entry price (0.525). Run 9 audit correctly identified ~1-2% true edge; the pricing anomaly had been arbitraged.
+3. Probability remaining: 0.1% — essentially zero. NVIDIA maintained ~$80-100B lead through resolution date.
+4. Thesis falsified. NVIDIA retained #1 on Aug 31. Confirmed lesson: an edge is a claim about a price being wrong, not about a thesis being right. The thesis was directionally correct (Apple was temporarily #1) but the PRICE was already fair at entry.
+
+**Bet 14 (Iran-Oman Hormuz Agreement YES, entry(held)=0.660, mark(held)=0.011) — CONFIRMED LOSS (-$25).**
+1. Marginal buyer at YES=0.011: no real buyer; essentially resolved.
+2. Motivating news (Iranian FM "final drafting stage," Aug 8) was NOT new at entry (Aug 10). Market peaked at 0.935 on Aug 6, then declined four straight days to 0.585 trough by Aug 9 — entry bought into a declining market, not a stale one. Run 12 audit correct on all three counts.
+3. Probability remaining: 1.1% — essentially zero. Oman never officially announced. Resolution criterion requires Oman to explicitly announce acceptance; "under review" and "in final drafting stage" are prospective statements explicitly excluded.
+4. Thesis falsified. The unpriced binary factor (Oman's silence) was identified by the Run 12 audit and it decided the outcome. Post-mortem invariant confirmed: in multi-party agreement markets, enumerate ALL parties that must speak with a cited source per party. Silence from one listed party = NO bet.
+
+**Open position checklist (Bet 15, placed this run):**
+See Bet 15 rationale below.
+
+**New bet placed:**
+
+**Bet 15 — United Russia (ER) gains most seats NO @ YES=0.695, entry NO=0.310, p_hat_yes=0.11, net edge ~0.58. High conviction. Family (i).**
+
+Description: 6 paragraphs read in full (all paragraphs).
+
+Payout conditions enumerated (for YES to resolve — UR gains the MOST seats):
+- Condition A: UR's 2026 seat count must EXCEED its 2021 baseline (324 seats). If UR ends below 324, they cannot be the "biggest gainer" — they have a negative or zero gain.
+- Condition B: UR's positive seat change must exceed any other party's positive seat change (LDPR, New People, KPRF, etc.)
+- Tie-breaker: If tied on seat gains → resolved by valid votes; if still tied → alphabetical by abbreviation.
+- Resolution source: Official Central Election Commission (Russian government) results corroborated by credible reporting.
+
+Evidence against YES (all cited):
+1. PolitPro Election Trend (Aug 27-31, politpro.eu/en/russia): UR projected to LOSE ~90 seats (324 → ~231-234). Every available projection shows UR declining, not gaining.
+2. PolitPro Russia parliamentary forecast: Projected gainers are LDPR (+42 to +45 seats from baseline 21) and New People (+42 seats from baseline 13). Both far exceed any plausible UR positive change.
+3. In 2021, UR lost 19 seats (343 → 324); KPRF was the biggest gainer (+15). The pattern of UR losing while other parties gain is established (Wikipedia 2021 Russian legislative election).
+4. Kremlin is managing expectations downward with "lowered target benchmarks" for UR; no signals of a maximalist UR seat push. (The Moscow Times, Aug 10, 2026.)
+5. Even under aggressive manipulation (220+/225 single-mandate seats + 45% proportional), UR's total seat ceiling is ~320-325 — at the absolute maximum, still at or below their 2021 count of 324.
+
+Marginal buyer at YES=0.695: Almost certainly pricing "UR wins the election / dominates total seats" (true — UR will have the most total seats) NOT "UR gains the most seats from its 2021 baseline" (which requires getting above 324). This is the same Family (i) criterion misread that won: Bolojan (Jun 30 deadline vs. eventual formation), Israel-Hezbollah (formal permanent agreement vs. ceasefire process), Sulyok (announcement clause vs. effective removal date), MOU extension (formal joint declaration vs. informal continuation). Template: "market prices the surface outcome, not the exact resolution criterion."
+
+Price path: YES started at 0.615 on July 31, drifted up to 0.765 on Aug 28, settled to 0.695 today. The upward drift most likely reflects speculative buying by market participants who equate "most seats" with "gains most seats." This is not informed repricing (no news would make UR going above 324 more plausible) — it is the anchoring error deepening over time.
+
+Concentration: Independent of all resolved bets. Russia Duma election is a completely separate real-world outcome from Iran-Oman agreement, Apple market cap race, and every other prior position.
+
+**Candidates analyzed and declined:**
+
+- **Magdalena Andersson next PM of Sweden NO (YES=0.865, 12d):** Left bloc leads by 5-7pp in polling (Aug 26 Indikator poll: 51.3% vs 46.6%); Liberals at 2% (below 4% threshold) — structural advantage for left. Research agent estimate: p_hat YES 0.72-0.78. However: (1) My own analysis, incorporating the structural advantage (Liberals' elimination gives left a near-unbeatable coalition math), places p_hat YES closer to 0.80-0.85, shrinking NO edge to 1-5%. (2) Family (ii) bet — no resolution criterion asymmetry. (3) The market itself repriced from peak 0.935 (Aug 23) to 0.865 today, already partly processing the lead narrowing. (4) 12 days to election with a 5-7pp lead is not sufficient to override the structural math. **Decline — Family (ii), uncertain edge (0-5% depending on p_hat assumption), structural factors favor Andersson strongly.**
+
+- **Flávio Bolsonaro wins Brazil presidential YES (YES=0.393, 33d):** Research found Bolsonaro trailing Lula in first-round polls (Lula 38-39% vs. Bolsonaro 31-38%) and tied in runoff (dead heat in most pollsters; Gerp outlier shows Flávio +5 in runoff). p_hat: 0.42-0.48. Net edge 2-8% — near or below 5% threshold. Most respected pollsters (Quaest, Nexus) still show Lula ahead in the runoff. Family (ii) bet. **Decline — thin edge, Family (ii), established pollsters still favor Lula.**
+
+- **Lula finishes 2nd in first round YES (YES=0.120, 33d):** Market repriced from 0.060 (Aug 22) to 0.120 (Aug 31) — doubling in 9 days. This reflects the same Gerp poll that showed Bolsonaro numerically ahead in first round (38% vs 37% within MoE). p_hat: 0.08-0.12. Roughly fairly priced; no clear edge. **Decline — roughly fair given only one outlier poll (Gerp) motivates any YES probability.**
+
+- **Russia: United Russia Wins Every Region (YES=0.660, 20d):** In 2021, UR did NOT win every region's party-list vote — CPRF beat UR in Yakutia (CPRF 35.2% vs UR 33.2%) and Nenets AO (CPRF 32.0% vs UR 29.1%). In 2026, with UR polling lower (~47% vs 50% in 2021), more regional losses are plausible. p_hat YES: ~35-45%. Net NO edge: ~21-31%. But concentration veto applies: this market is the SAME underlying real-world event as Bet 15 (Sept 20 Duma election). Can only hold one Russia Duma bet. "Gains most seats" NO was the clearly superior bet (edge ~58% vs ~26%). **Decline — concentration with Bet 15, lower edge.**
+
+- **All Iran markets (end blockade Sept 21/Sept 30, diplomatic meeting Sept 30):** Concentration veto — Bet 14 (Iran-Oman) resolves TODAY (Aug 31) but the veto applies to the same run that resolves it. Per standing rule: "Do not replace [a correlated bet] during the same run; wait until the next scheduled run." Even though Bet 14 is at 0.011, the veto stands for this run. Flag for Run 16: "US announces end of Iranian blockade by Sept 30" (YES=0.195, 30d) is the priority — same Family (i) criterion asymmetry (blockade is a formal US policy announcement, not an informal cessation), Trump explicitly stated Aug 18 "Naval Blockade remains in full force and effect," p_hat YES likely 0.10-0.15. **Decline — concentration veto this run.**
+
+- **All Fed September markets (no change 41.5%, +25bps 56.5%):** CME-arbitraged as always. **Decline.**
+
+**New selection rules (derived from resolved bets only):**
+
+1. **"Gains most seats" ≠ "wins the most seats."** This is the 5th instance of Family (i) edge in this experiment (Bolojan = deadline, Israel-Hezbollah = permanent language, Sulyok = announcement clause, MOU = formal declaration, now Russia = "gains" vs. "wins"). The pattern: a market prices a superficially plausible outcome (UR dominates Russian politics → UR wins) while missing the resolution criterion's specific measuring unit (NET seat change from 2021, not total seats). When a criterion uses a comparative word (gain, change, increase, decrease, most improved), always compute the baseline explicitly and verify whether the superficially dominant party actually leads on THAT metric.
+
+2. **In managed elections, distinguish "wins total seats" from "gains most seats."** UR will almost certainly win the most total seats in 2026 (~231-234). But "gains" requires exceeding their own 2021 count of 324. Even with heavy manipulation, this is implausible. The market conflates UR's structural dominance with the specific resolution criterion. This is the correct model: the structural outcome (UR dominant) is priced, not the specific measured outcome (net gains).
+
+**Running record: 8-6 honest, 3 open ($75 at risk: Bets 10 + 14 decided LOSS, Bet 15 new). Official P&L: +$6.75 (will become -$43.25 on Bets 10+14 formal resolution today). Honest P&L: -$43.25, bankroll $956.75.**
+**Expected forward trajectory: Bets 10 + 14 resolve today as formal losses (-$50 total). Bet 15 (UR NO) high conviction win at Sept 30; p_hat NO ≈ 0.89, entry NO=0.310, edge ~0.58.**
