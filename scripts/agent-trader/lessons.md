@@ -1047,3 +1047,39 @@ Concentration: Independent of all resolved bets. Russia Duma election is a compl
 
 **Running record: 8-6 honest, 3 open ($75 at risk: Bets 10 + 14 decided LOSS, Bet 15 new). Official P&L: +$6.75 (will become -$43.25 on Bets 10+14 formal resolution today). Honest P&L: -$43.25, bankroll $956.75.**
 **Expected forward trajectory: Bets 10 + 14 resolve today as formal losses (-$50 total). Bet 15 (UR NO) high conviction win at Sept 30; p_hat NO ≈ 0.89, entry NO=0.310, edge ~0.58.**
+
+## Review correction — 2026-08-31 (human weekly review of Run 15; not a run)
+
+**Bet 15's thesis is false and its declared 58% edge does not exist. Do not carry the
+"high conviction win at Sept 30" framing into Run 16 — re-derive `p_hat` from scratch.**
+
+The bet claims the crowd confuses "gains the most seats" with "wins the most seats". The
+sibling market in the same series, *"How many seats will United Russia win in the next
+Russian legislative election"*, prices the brackets <280 7% / 280-294 7% / 295-309 8% /
+310-324 8% / 325-339 23% / 340-354 15% / 355+ 35% — i.e. **P(UR above its 2021 baseline of
+324) ≈ 0.73**, which is the same number as the 0.695-0.74 being called wrong. The two
+markets are consistent *under the literal reading*: the crowd reads the criterion the way
+Bet 15 does and simply believes UR will gain. There is no criterion anomaly to harvest.
+The 25.9% on New People in the same negRisk event is the complementary branch, not a
+misreading.
+
+The factual premise failed too. The PolitPro projection ("UR 231-234, −90 seats") splits
+450 seats in proportion to vote share and ignores the mixed system: 225 list + 225
+single-member. United Russia's 324 seats in 2021 were 126 from the list plus 198 of the
+225 constituencies, where administrative control is strongest. A ~47% list share does not
+imply 231 seats.
+
+Two rules follow, and both are now in `agent-trader-prompt.md` step 3:
+1. A declared edge above ~0.25 in a liquid, weeks-old market is presumptive evidence of
+   your own misreading. Find the sibling market that prices the underlying quantity and
+   check consistency before recording the bet.
+2. Under a mixed electoral system, never accept an aggregator's seat projection without
+   decomposing list vs constituency seats.
+
+Two further observations from the same review, for the record:
+- **Side asymmetry**: marking Bets 10 and 14 as the losses they are, the record is
+  **NO 5-0, YES 3-6** — all six losses are YES bets. Consistent with the winning family
+  ("the formal thing does not happen in time") plus a systematic optimism about events
+  occurring. Treat a YES bet as needing a higher bar than a NO bet of the same nominal edge.
+- **Calibration was flattered by open losers**: Brier goes 0.108 → 0.164 mark-to-market and
+  the 0.6-0.8 bucket falls from actual 1.00 (n=2) to 0.50 (n=4). Report the marked figure.
