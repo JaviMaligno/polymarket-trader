@@ -72,6 +72,29 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    series and needs the series. A path that has been repricing AGAINST your thesis for days
    is evidence, not noise: say what the market learned that you have not.
 
+   **A large declared edge is a claim about the crowd, and the crowd gets the benefit of
+   the doubt.** When `|p_hat − price|` exceeds ~0.25 in a liquid market that has traded
+   for weeks, the default hypothesis is that YOU are misreading the criterion, not that
+   the market is. Before recording such a bet, find the **sibling market** — another
+   market in the same event, or in the same series, that prices the underlying quantity
+   your thesis turns on — and check the two for consistency. If the sibling implies
+   roughly the price you are calling wrong, the crowd reads the criterion the way you do
+   and there is no anomaly to harvest: decline. Bet 15 is the worked example. "Will United
+   Russia gain the most seats" was bought NO at 0.31 on the claim that the crowd confuses
+   "gains most" with "wins most", while the sibling seat-count market ("How many seats
+   will United Russia win", brackets 325-339 / 340-354 / 355+) priced P(UR above its 2021
+   baseline of 324) ≈ 0.73 — the same number as the price being called wrong, under the
+   literal reading. The declared 58% edge never existed.
+
+   **Never take a seat projection from a polling aggregator at face value under a mixed
+   electoral system.** Decompose it into list seats vs constituency seats, each with its
+   own mechanism, before it can support a `p_hat`. Multiplying a vote share by the whole
+   chamber is arithmetic that only holds under pure proportional representation: United
+   Russia's 324 seats in 2021 were 126 from the party list plus 198 of the 225
+   single-member constituencies, so a ~47% list share implies nothing like the "231
+   seats" that Bet 15's `p_hat` rested on. The same caution applies to any projection
+   whose method you cannot inspect.
+
 4. **Place bets** only where `|p_hat − price| − spread` clears a meaningful threshold
    (aim ≥ ~0.05 net edge; never bet a view you can't defend). Watch concentration — the
    veto keys on the underlying real-world outcome, NOT on the ticker or the expiry date:
