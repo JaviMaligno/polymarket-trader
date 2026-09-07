@@ -1,0 +1,27 @@
+{
+  "market_id": "REPLACE_WITH_GAMMA_ID",
+  "side": "YES",
+  "p_hat_yes": 0.6,
+  "stake": 25,
+  "confidence": "medium",
+  "risk_group": "example-treaty",
+  "rationale": "Fictional example. Replace every fact and source before submission.",
+  "description": "Replace with the exact complete Gamma description, including all paragraphs.",
+  "paragraphs_read": 1,
+  "conditions": [
+    {"condition": "Enumerate each trigger, party, deadline, exclusion and tie-breaker separately.", "source_ids": ["s1"]}
+  ],
+  "sources": [
+    {"id": "s1", "url": "https://example.org/replace-with-actual-source", "accessed_at": "2026-09-07T12:00:00Z", "finding": "Exact verified finding, including whether an announcement is merely prospective."}
+  ],
+  "scenarios": [
+    {"name": "Qualifying signature before deadline", "weight": 0.6, "p_yes": 1.0, "reason": "Replace with source-grounded justification for the 60% weight.", "source_ids": ["s1"]},
+    {"name": "Delay or failure", "weight": 0.4, "p_yes": 0.0, "reason": "Replace with a quantified explanation of remaining barriers and surprise risk.", "source_ids": ["s1"]}
+  ],
+  "counterargument": "State what an informed buyer of the opposite side knows.",
+  "falsifier": "Name a concrete observation that would invalidate the estimate.",
+  "news_at": "2026-09-06T12:00:00Z",
+  "price_history_analysis": "Explain the path before/after this catalyst and what remains unpriced. Reversal alone does not establish its cause.",
+  "sibling_markets": [],
+  "seat_model": null
+}

@@ -43,6 +43,9 @@ PY=${PYTHON:-python3}
   echo "Missing deps. Run:  $PY -m venv .venv && . .venv/bin/activate && pip install -r requirements.txt"
   exit 1; }
 
+export AGENT_TRADER_RUN_STATE="$RUN_TMP/run-state.json"
+"$PY" entry_gate.py begin || exit 1
+
 echo "=== 1. Evaluate open bets (resolve + mark to market) ==="
 # Deterministic: re-fetches every open bet from Gamma, books the ones Polymarket has
 # formally resolved, and snapshots the rest as `mark_yes_price`. Safe to run any day —
@@ -80,6 +83,10 @@ if [ "$AGENT" = "1" ]; then
 fi
 
 echo
+"$PY" entry_gate.py audit || {
+  echo "Entry audit failed. Inspect $RUN_TMP; no metrics or email generated."
+  exit 1
+}
 echo "=== 3. Record ==="
 "$PY" agent_trader.py summary || RC=1
 

@@ -122,7 +122,12 @@ def _entry_and_pnl_factors(side, best_bid, best_ask):
 
 
 def record_bet(market, side, my_prob, rationale, stake=DEFAULT_STAKE, confidence=None):
-    """Append a hold-to-resolution paper bet net of spread."""
+    """Legacy prose-only entry is intentionally disabled."""
+    raise ValueError('structured proposal required: use record <proposal.json>')
+
+
+def _build_bet(market, side, my_prob, rationale, stake=DEFAULT_STAKE, confidence=None):
+    """Construct a row; only entry_gate may append after independent review."""
     entry = _entry_and_pnl_factors(side, market["best_bid"], market["best_ask"])
     if not entry or entry <= 0 or entry >= 1:
         raise ValueError(f"bad entry price {entry}")
@@ -141,15 +146,14 @@ def record_bet(market, side, my_prob, rationale, stake=DEFAULT_STAKE, confidence
         "rationale": rationale, "status": "open",
         "resolved_outcome": None, "pnl_net": None,
     }
-    with BETS.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(bet, ensure_ascii=False) + "\n")
     return bet
 
 
 def load_bets():
     if not BETS.exists():
         return []
-    return [json.loads(l) for l in BETS.open(encoding="utf-8") if l.strip()]
+    with BETS.open(encoding="utf-8") as fh:
+        return [json.loads(l) for l in fh if l.strip()]
 
 
 def _fetch_market(market_id):
@@ -601,28 +605,20 @@ if __name__ == "__main__":
             print(f"  [{c['market_id']}] yes={c['yes_price']:.3f} spr={c['spread']:.3f} "
                   f"liq={c['liquidity']:>7d} {c['days_left']:>3d}d  {c['question'][:62]}")
     elif cmd == "record":
-        # record <market_id> <YES|NO> <p_hat_yes> <rationale_file> [stake] [confidence]
-        #
-        # The rationale comes from a FILE, never from an argv string. Passing it as a
-        # shell argument silently corrupted four bets' rationales: bash expands `$4`,
-        # `$1`, `$7` inside double quotes to empty positional parameters, so "$4.7M"
-        # was logged as ".7M" and "$143K" as "43K" — every dollar figure in the audit
-        # trail quietly lost its leading digit. A file is immune to the shell entirely.
-        mid = sys.argv[2]
-        m = requests.get(f"{GAMMA}/{mid}", timeout=30).json()
-        p = json.loads(m["outcomePrices"])
-        mkt = {"market_id": str(mid), "slug": m["slug"], "question": m["question"],
-               "end_date": m["endDate"], "yes_price": float(p[0]),
-               "best_bid": float(m["bestBid"]), "best_ask": float(m["bestAsk"]),
-               "spread": float(m["spread"])}
-        rationale = Path(sys.argv[5]).read_text(encoding="utf-8").strip()
-        if not rationale:
-            raise SystemExit("empty rationale file — a bet needs a defensible written view")
-        bet = record_bet(mkt, sys.argv[3], float(sys.argv[4]), rationale,
-                         stake=float(sys.argv[6]) if len(sys.argv) > 6 else DEFAULT_STAKE,
-                         confidence=sys.argv[7] if len(sys.argv) > 7 else None)
+        # The CLI and imported API share the same mandatory entry gate.
+        if len(sys.argv) != 3:
+            raise SystemExit("use: record <proposal.json>; prose-only recording is disabled")
+        from entry_gate import record_proposal
+        run_state = os.environ.get("AGENT_TRADER_RUN_STATE")
+        if not run_state:
+            raise SystemExit("initialize run state before evaluate/research (see README)")
+        try:
+            proposal = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
+            bet = record_proposal(proposal, run_state)
+        except (ValueError, OSError, requests.RequestException) as exc:
+            raise SystemExit(f"entry rejected: {exc}")
         print(f"recorded {bet['bet_id']}: {bet['side']} @ {bet['entry_price']:.3f} "
-              f"(p_hat_yes={bet['my_prob_yes']}, edge/contract={bet['edge_per_contract']:+.3f})")
+              f"(reviewed edge={bet['reviewed_edge']:+.3f})")
     elif cmd == "evaluate":
         evaluate(); summary()
     elif cmd == "summary":

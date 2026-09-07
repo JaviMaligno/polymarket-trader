@@ -58,18 +58,74 @@ file + `os.replace`), so an interrupted run cannot truncate the track record. It
 on the cron's own schedule, so a bet that resolves mid-week sits `open` until the next scheduled
 run (Monday, or the 2nd-of-month catch-up) unless you run it yourself.
 
+## Guarded entries and independent review
+
+Every new entry must pass three gates: frozen concentration exposure, structured
+evidence, and a fresh independent Claude reviewer. Both runners create private
+run state **before** `evaluate`; a position resolved during the run continues to
+block its underlying risk group. A new scheduled/manual run releases resolved
+groups. Open groups and markets in the same Gamma event also block new entries.
+Known legacy themes (Iran/Hormuz, Russia Duma, etc.) are classified automatically;
+unknown legacy exposure stops the run until an explicit group is supplied through
+a reviewed data migration. Historical entry probabilities are never rewritten.
+
+The investigator writes a proposal; `record` launches a separate CLI session with
+only WebSearch/WebFetch, no Bash/Write/Edit, no MCP servers and no conversation
+reuse. It can veto without offering another trade. The default review model is
+`claude-sonnet-4-6`; `AGENT_REVIEW_MODEL` may override it. It inherits the existing
+local login or Foundry authentication. Allow up to 10 minutes per review.
+
+Python requires the full current description and paragraph count, sourced payout
+conditions, recently checked URLs, justified probability scenarios, counterargument,
+falsifier and price-history analysis. It fetches the market's own history around
+the motivating news and passes it to the reviewer. It then refreshes the rules and
+quote; **both** probability estimates must clear 5% net edge, spread must be at
+most 3%, and stake is fixed at $25 paper. Missing data, malformed output, timeouts,
+provider errors and vetoes all reject the entry.
+
+Each accepted row retains the proposal, independent verdict, reviewed market and
+price history, risk group, event IDs, reviewed edge and run ID. Rejected reviews
+and provider errors remain in private run state; record veto reasons in lessons.
+A final audit compares entries with per-run receipts and
+protects historical entry fields. Failed audits stop metrics/email/persistence.
+These controls prevent accidental bypass; shared filesystem access is not an
+adversarial security boundary. Source truth, scenario weights and previously unseen
+correlations still require sound reviewer judgment.
+
 ## Placing a bet by hand
 
+Use one state file per complete run, shared by all proposals. Do not initialize
+again between bets or after evaluation. Run-state files expire after 12 hours.
+
 ```bash
-# Write the rationale to a file FIRST, then:
-python agent_trader.py record <MARKET_ID> <YES|NO> <p_hat_yes> rationale.txt 25.0 medium
+cd scripts/agent-trader
+RUN_TMP=$(mktemp -d)
+export AGENT_TRADER_RUN_STATE="$RUN_TMP/run-state.json"
+python entry_gate.py begin
+python agent_trader.py evaluate
+# Write a fully researched JSON proposal using proposal.example.json as the schema.
+python agent_trader.py record "$RUN_TMP/proposal.json"
+python entry_gate.py audit
 ```
+
+The example is fictional and deliberately not tradeable. Source IDs must resolve
+within `sources`; scenario weights must sum to 1 and reproduce `p_hat_yes` within
+0.005. `accessed_at` timestamps must include a timezone and be within 48 hours.
+For an edge above 0.25, `sibling_markets` is required: each item needs `market_id`,
+`url`, `criterion`, `comparison`, `yes_price`, `liquidity`, and `source_ids`.
+For seat markets, `seat_model` requires `chamber_size`, `method`, and `parties`:
+each party needs `party`, `baseline`, `list_seats`, `constituency_seats`, and
+`source_ids`. Include all parties/others so projected seats sum to the chamber.
+For pure proportional systems, constituency seats are zero. The reviewer checks
+the mechanisms, thresholds and joint feasibility beyond this arithmetic.
+The old multi-argument CLI
+and imported `record_bet(...)` now reject instead of appending unreviewed prose.
 
 **Never pass the rationale as a shell argument.** It was inlined in a double-quoted string until
 2026-08-03, and bash expanded `$4`, `$1`, `$7`, `$6` to empty positional parameters — every
 dollar figure in four bets' rationales silently lost its leading digit (`$4.7M` → `.7M`). The
-`record` subcommand reads the file's contents as-is (only leading/trailing whitespace is
-stripped); the corrupted rows are left in place because the log is never rewritten by hand, and
+`record` subcommand decodes a JSON file, preserving dollar figures in its rationale;
+the corrupted historical rows are left in place because the log is never rewritten by hand, and
 are documented in `lessons.md`.
 
 ## Files
@@ -107,3 +163,6 @@ Secrets: `AZURE_FOUNDRY_RESOURCE`, `AZURE_FOUNDRY_API_KEY` (Claude via Microsoft
 2026-07-20), `GMAIL_USERNAME`, `GMAIL_APP_PASSWORD`, `GMAIL_TO_ADDRESS`.
 
 Manual trigger: the Actions "Run workflow" button, or `gh workflow run agent-trader-weekly.yml`.
+
+Deployment validation (tests only, no research, bets, email or history writes):
+`gh workflow run agent-trader-weekly.yml -f validation_only=true`.

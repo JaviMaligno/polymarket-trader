@@ -11,6 +11,11 @@ on:
     - cron: '7 13 2 * *'   # 2nd-of-month self-heal catch-up (only researches if the last
                            # Monday was a capped null run — see the guard in the run step)
   workflow_dispatch:        # Manual run any time
+    inputs:
+      validation_only:
+        description: 'Run tests only; no research, bets, email or track-record writes'
+        type: boolean
+        default: false
 
 concurrency:
   group: agent-trader
@@ -22,7 +27,7 @@ permissions:
 jobs:
   agent-trader:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 90  # research plus up to four independent reviews (10 min each)
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -43,13 +48,19 @@ jobs:
           npm install --no-save nodemailer
           pip install --quiet -r scripts/agent-trader/requirements.txt
 
+      - name: Test Agent-Trader entry gates
+        run: python -m unittest discover -s scripts/agent-trader/tests -v
+
       - name: Configure git
         run: |
           git config user.name "Claude (Agent-Trader)"
           git config user.email "noreply@anthropic.com"
 
       - name: Run weekly decision loop
+        id: decision
+        if: inputs.validation_only != true
         env:
+          AGENT_TRADER_RUN_STATE: ${{ runner.temp }}/agent-trader-run.json
           # Provider: Claude via Microsoft Foundry (Azure) since 2026-07-20 — the first-party
           # Anthropic key was revoked. Deployment names must match the Foundry portal.
           CLAUDE_CODE_USE_FOUNDRY: "1"
@@ -86,6 +97,8 @@ jobs:
               echo "Catch-up: last research run ($LAST_RUN_DATE) was ${AGE_DAYS}d ago (>7) — last Monday likely capped, researching now."
             fi
           fi
+          # Freeze exposure BEFORE evaluate, including positions resolved this run.
+          python entry_gate.py begin || exit 1
           # Evaluate resolved bets first (deterministic), so the agent sees fresh state.
           python agent_trader.py evaluate || true
           # Fingerprint the track record BEFORE the agent runs. The null-run corroborator below
@@ -117,6 +130,12 @@ jobs:
             --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
             > /tmp/agent-run.log 2>&1 || AGENT_OK=0
           cat /tmp/agent-run.log
+          # Never report or persist entries written outside the guarded record path.
+          if ! python entry_gate.py audit; then
+            echo "::error::Entry audit failed; refusing to publish this run."
+            exit 1
+          fi
+          echo "audit_ok=1" >> "$GITHUB_OUTPUT"
           if grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded|Not logged in" /tmp/agent-run.log; then
             AGENT_OK=0
           fi
@@ -157,7 +176,7 @@ jobs:
           python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 
       - name: Email weekly summary
-        if: always()
+        if: always() && steps.decision.outputs.audit_ok == '1'
         env:
           GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -185,6 +204,7 @@ jobs:
           fi
 
       - name: Commit track record
+        if: success() && steps.decision.outputs.audit_ok == '1'
         run: |
           set -euo pipefail
           git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl

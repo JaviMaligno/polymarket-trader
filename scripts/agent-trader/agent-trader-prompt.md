@@ -11,7 +11,10 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
 
 ## Steps (do them in order)
 
-1. **Evaluate resolved bets + read state.** Run:
+1. **Evaluate resolved bets + read state.** The runner has already initialized
+   `AGENT_TRADER_RUN_STATE` BEFORE evaluation. Read that file for the frozen
+   exposure; never recreate, reset, edit or delete it. If it is absent, stop the
+   research run and report the setup failure. Run:
    `python agent_trader.py evaluate`, then `python agent_trader.py summary`, then
    `python agent_trader.py positions`.
    Read `lessons.md` fully — it is your accumulated learning; apply it.
@@ -103,10 +106,35 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    **A resolved correlated bet does not immediately free a concentration slot** during
    the run that resolves it. **Do not replace it during the same run**; wait until the
    next scheduled run so the remaining cluster can be reassessed without exposure churn.
-   Record each accepted bet via:
+   **Mandatory guarded entry.** Read `proposal.example.json` and create a complete
+   JSON proposal in the directory containing `AGENT_TRADER_RUN_STATE`. It must
+   contain the exact FULL Gamma description, paragraph count, every payout
+   condition with source IDs, sources with exact URLs/findings/access timestamps,
+   at least two justified exhaustive scenarios whose weights sum to 1 and whose
+   weighted YES probabilities reproduce `p_hat_yes`, the strongest counterargument,
+   a falsifier, motivating news timestamp and analysis of the actual price path.
+   Include a stable `risk_group` for the underlying real-world outcome, not its
+   ticker or expiry. Reuse the group from frozen/current exposure where related.
+
+   For multi-party agreements, enumerate each required party and its cited
+   announcement separately. For ALL seat projections, including rival parties,
+   add `seat_model` with list/constituency decomposition, thresholds and joint
+   totals. When claiming >0.25 edge, add `sibling_markets` with exact IDs/URLs,
+   criteria, prices, liquidity and consistency calculations. A modal bracket is
+   not a probability that a party gains more than all rivals.
+
+   The command below invokes a fresh independent reviewer with web tools only.
+   It verifies sources, calculations, criteria, already-priced news and correlated
+   exposure; it can veto. Python checks evidence, the frozen concentration veto,
+   the review verdict and BOTH probability estimates against a fresh executable
+   quote. Missing evidence, provider errors and net edge below 0.05 reject entry.
+   Old prose-only recording is disabled. Do not write bets.jsonl directly or call
+   private helpers. Do not reroll a veto unchanged: report the reason in lessons;
+   resubmit only after obtaining material new evidence or correcting the error.
+   Record a proposal via:
    ```bash
-   # Write the rationale to a file first (Write tool), then:
-   python agent_trader.py record <MARKET_ID> <YES|NO> <p_hat_yes> /tmp/rationale.txt 25.0 <confidence>
+   # Write JSON to a file with the Write tool first, preserving dollar figures:
+   python agent_trader.py record /path/to/proposal.json
    ```
    **Never pass the rationale as a shell argument** and never inline it in a `python -c`
    string: bash expands `$4`, `$1`, `$7` inside double quotes, which silently ate the
