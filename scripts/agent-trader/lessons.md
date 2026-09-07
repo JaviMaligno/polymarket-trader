@@ -1048,6 +1048,73 @@ Concentration: Independent of all resolved bets. Russia Duma election is a compl
 **Running record: 8-6 honest, 3 open ($75 at risk: Bets 10 + 14 decided LOSS, Bet 15 new). Official P&L: +$6.75 (will become -$43.25 on Bets 10+14 formal resolution today). Honest P&L: -$43.25, bankroll $956.75.**
 **Expected forward trajectory: Bets 10 + 14 resolve today as formal losses (-$50 total). Bet 15 (UR NO) high conviction win at Sept 30; p_hat NO ≈ 0.89, entry NO=0.310, edge ~0.58.**
 
+## Run 16 — 2026-09-07 (one new bet; Bet 15 mandatory re-derivation)
+
+**Official record at run start:** 8-6 resolved, P&L -$43.25, bankroll $956.75, Brier 0.1635.
+**Open positions:** Bet 15 (UR NO, mark(held)=0.305, mark(YES)=0.695, essentially unchanged since entry Aug 31).
+
+**Bet 15 (UR NO) — mandatory open-position checklist (re-derivation per Aug 31 review correction):**
+
+All numbers from this run's `positions` output: entry(held)=0.310, mark(held)=0.305, delta(held)=-0.005, entry(YES)=0.695, mark(YES)=0.695. Position is essentially flat since entry.
+
+1. **What does the marginal buyer know?** The sibling bracket market ("How many seats will UR win") currently prices the distribution as: <280 3%, 280-294 2%, 295-309 5%, 310-324 27%, 325-339 **37%**, 340-354 22%, 355+ **7%**. P(UR > 324) = 66%. The crowd reads the criterion literally (gains = net change from 2021 baseline of 324) and believes Kremlin engineering pushes UR above 324. The Aug 31 human review said the markets were consistent at the time: then, 355+ was at 35% and P(UR > 324) ≈ 73%. **The sibling market has since repriced substantially**: 355+ dropped from 35% to 7%, and 310-324 surged from 8% to 27%. The two markets are now potentially inconsistent: if the modal UR outcome is 325-339 (gain of +1 to +15 seats), that does NOT beat LDPR's projected +38-47 seat gain (baseline 21, projected 60-68), yet the gains-most market is unchanged at 69.5%.
+
+2. **Was motivating news reflected before entry?** The market has been stable at 0.685-0.695 since August 7 — no news has moved it. Entry was at the same level the market had been trading for 3 weeks. The sibling market's post-entry shift (355+ from 35% → 7%) is new information that was not in the price at entry.
+
+3. **Probability remaining?** Election September 20, 13 days away. Results known quickly; resolves by Sept 30. For UR's gain to exceed LDPR's projected ~42-seat gain, UR needs ~366+ total seats — priced at well under 7% in the sibling market (355+ is only 7%; 366+ is a fraction of that). This is the central tension.
+
+4. **Thesis direction:** **Weakened** from Run 15's stated "high conviction." The sibling distribution shift since Aug 31 creates a new inconsistency: the modal outcome (325-339) gives UR only a +1-15 seat gain, easily beaten by LDPR/NP's projected gains. Under the literal criterion interpretation, p_hat YES is now estimated at **25-35%** (revised from Run 15's 0.10-0.12, which was based on an incorrect PolitPro projection that ignored SMD dominance, but also revised from Run 15's claimed 0.11 edge which the Aug 31 review found non-existent). The Kremlin-engineering factor could suppress LDPR/NP gains if UR is forced above 360+, but the sibling market now assigns only 7% to 355+. Position cannot be closed; hold for election Sept 20.
+
+What would CONFIRM the NO thesis: UR wins 325-354 seats (37+22 = 59% of the sibling distribution) while LDPR wins 60-68 seats (gain +39-47 > UR's +1-30). What would FALSIFY NO: UR wins 366+ seats AND simultaneously suppresses LDPR below 366-324=42 net-gain level.
+
+**New bet placed:**
+
+**Bet 16 — US announces end of Iranian blockade Sept 30 NO @ YES=0.175, p_hat_yes=0.06, edge ~10%. Medium conviction. Family (i).**
+
+Resolution criterion (9 paragraphs read in full): YES requires the US government or authorized representative to publicly and officially announce the END/TERMINATION/LIFTING/SUSPENSION of the naval blockade on Iranian ships. Qualifying: declarative statement of present termination; resumption of prior obligations; through official channels. NOT qualifying: partial exemptions for specific vessels; prospective/contingent language; anonymous/unattributed statements; informal context.
+
+All payout conditions:
+- Condition A: Qualifying announcement via official channels, authorized representative.
+- Condition B: Declarative, unambiguous — clearly communicates end/suspension, not allusion.
+- Condition C: Present termination, not future or conditional.
+- Condition D (exclusions): Partial exemptions, prospective language, anonymous leaks, informal statements — none qualify.
+- One-shot trigger: Resolves YES once qualified, even if later reversed.
+
+Evidence against YES (all cited):
+1. Trump explicit Aug 18: "There are no talks or conversations going on... the Naval Blockade remains in full force and effect" — declarative continuation, not a qualifying end.
+2. Active tanker war as of Sept 5-6: Iran launched ballistic missiles at US carrier and destroyer; US struck three Iranian oil tankers in retaliation (Al Jazeera, Sept 6, 2026).
+3. Iran announced new maritime exclusion zone (PBS/Al Jazeera, Sept 6) — aggressive posture, not de-escalation.
+4. No diplomatic talks per all available reporting as of Sept 7.
+5. Price path: YES=0.845 (Aug 7 open) → declined steadily → 0.175 (Sept 7). A spike to 0.49 on Sept 5-6 was quickly reversed to 0.165 within 24 hours, confirming the strict criterion excludes informal gestures; whatever moved the market momentarily was not a qualifying announcement.
+
+Counter-argument addressed: June precedent (Trump lifted blockade quickly under the MOU). But June had a formal diplomatic framework; current conditions are the opposite — active tanker war, no framework, explicit Aug 18 continuation statement. The criterion's bar for a qualifying announcement is high (declarative, official, unambiguous).
+
+Sibling term-structure check: end-by-Sept-14 market at 4.2% implies only 4.2% probability in the next 7 days. Sept 30 at 17.5% implies ~14% probability in the Sept 14-30 window. At p_hat 0.06 for the full window, NO edge ≈ 10%.
+
+Concentration: no Iran bets open (Bet 14 resolved Aug 31, Bet 7 resolved Aug 20). This is the first Iran-correlated bet since then, within the 2-bet limit.
+
+**Candidates analyzed and declined:**
+
+- **Sweden PM Kristersson YES @ 0.215 (5d):** Latest Novus poll (Sept 1-5, n=2,888): left bloc 50.3%, right+SD 47.9% (gap 2.4pp). Liberals crossed 4% threshold at 4.3% — the key mechanism that gives right any shot at forming government. Quantitative decomposition: P(Liberals clear 4% on election day | polling 4.3%) ≈ 60-65%; P(right wins | Liberals clear, 2.4pp left lead) ≈ 18-22%; P(right wins | Liberals fail) ≈ 5%. Weighted p_hat Kristersson ≈ 0.60×0.20 + 0.40×0.05 = 14-16%. Market at 21.5% is roughly fairly priced or slightly overpriced. No compelling edge. Family (ii). **Decline.**
+
+- **Brazil Bolsonaro YES @ 0.392 (26d):** Three independent polls (Quaest, Datafolha, PoderData, Sept 2-3) show runoff as statistical tie. p_hat Bolsonaro ≈ 48-50%. Net edge 6-8%. Family (ii), YES bet requiring higher bar per side-asymmetry rule. **Decline.**
+
+- **Alcaraz US Open YES @ 0.565 (5d):** In quarterfinals, vs Shelton Sept 8. Sportsbooks also ~55%. Well-calibrated. No edge. **Decline.**
+
+- **Israel closes airspace YES @ 0.745 (23d):** Airspace closed Feb and March 2026 (during direct Iranian bombardment of Israel). Currently open since April 9 ceasefire. Israel×Iran ceasefire prices at 86.5% continuing. Implied P(closure from non-Iran threats alone | ceasefire holds) unclear. Cannot form reliable p_hat. No differentiated view. **Decline.**
+
+- **Russian Duma siblings (NL YES=0.253, LDPR YES=0.037):** Same negRisk event as Bet 15. Concentration veto. **Decline.**
+
+- **All Fed September markets:** CME-arbitraged. **Decline.**
+
+**New selection rules (derived from this run's analysis):**
+
+1. **Sibling market repricing can invalidate a prior "consistent" reading.** At Bet 15's entry (Aug 31), the two Russia markets were consistent (sibling 355+ at 35% vs. gains-most 69.5%). One week later, the sibling has repriced dramatically (355+ to 7%, modal now 325-339). The gains-most market hasn't moved. This creates an inconsistency: the modal sibling outcome (UR gains only +1-15 seats) doesn't support UR winning the gains-most market, yet gains-most is still at 69.5%. When a sibling market reprices significantly post-entry, the gains-most market may be lagging. Monitor for convergence.
+
+2. **The sept5-6 Iran spike-and-crash pattern: sharp price reversals on strict-criterion markets are noise.** The blockade-end market spiked from 0.24 to 0.49 on Sept 5-6 (when Iran attacked US ships and the US struck Iranian tankers) and then crashed to 0.165 within 24 hours. Active military escalation causing a brief blockade-end spike is irrational given the strict criterion. These spikes and crashes represent noise/informal-announcement confusion, not genuine criterion-qualifying events. A sharp reversal from a spike is evidence the strict-criterion reading was reasserted.
+
+**Running record: 8-6 resolved, 2 open ($50 at risk). P&L: -$43.25, bankroll $956.75.**
+
 ## Review correction — 2026-08-31 (human weekly review of Run 15; not a run)
 
 **Bet 15's thesis is false and its declared 58% edge does not exist. Do not carry the
