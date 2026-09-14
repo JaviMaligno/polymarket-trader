@@ -60,7 +60,11 @@ jobs:
         id: decision
         if: inputs.validation_only != true
         env:
-          AGENT_TRADER_RUN_STATE: ${{ runner.temp }}/agent-trader-run.json
+          # Inside the agent's working directory on purpose (2026-09-14 null run): its
+          # Read/Write tools are scoped to the working dir, so a state file under
+          # runner.temp is unreadable to it and the proposal it must write beside that
+          # file is unwritable. .run-state/ is gitignored, so it never reaches a commit.
+          AGENT_TRADER_RUN_STATE: ${{ github.workspace }}/scripts/agent-trader/.run-state/agent-trader-run.json
           # Provider: Claude via Microsoft Foundry (Azure) since 2026-07-20 — the first-party
           # Anthropic key was revoked. Deployment names must match the Foundry portal.
           CLAUDE_CODE_USE_FOUNDRY: "1"

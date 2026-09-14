@@ -11,10 +11,15 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
 
 ## Steps (do them in order)
 
-1. **Evaluate resolved bets + read state.** The runner has already initialized
-   `AGENT_TRADER_RUN_STATE` BEFORE evaluation. Read that file for the frozen
-   exposure; never recreate, reset, edit or delete it. If it is absent, stop the
-   research run and report the setup failure. Run:
+1. **Evaluate resolved bets + read state.** The runner has already initialized this
+   run's frozen-exposure state BEFORE evaluation. Its path is held in the
+   environment variable `AGENT_TRADER_RUN_STATE` — resolve the variable to find
+   the file; read it with `cat "$AGENT_TRADER_RUN_STATE"`. Never conclude it is
+   absent from a filename search: it is not named `AGENT_TRADER_RUN_STATE` on
+   disk, and only `cat "$AGENT_TRADER_RUN_STATE"` failing proves it missing.
+   Read that file for the frozen exposure; never recreate, reset, edit or delete
+   it. If it is genuinely absent, stop the research run and report the setup
+   failure. Run:
    `python agent_trader.py evaluate`, then `python agent_trader.py summary`, then
    `python agent_trader.py positions`.
    Read `lessons.md` fully — it is your accumulated learning; apply it.
@@ -107,7 +112,8 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    the run that resolves it. **Do not replace it during the same run**; wait until the
    next scheduled run so the remaining cluster can be reassessed without exposure churn.
    **Mandatory guarded entry.** Read `proposal.example.json` and create a complete
-   JSON proposal in the directory containing `AGENT_TRADER_RUN_STATE`. It must
+   JSON proposal in the directory containing the run state file, i.e.
+   `$(dirname "$AGENT_TRADER_RUN_STATE")`. It must
    contain the exact FULL Gamma description, paragraph count, every payout
    condition with source IDs, sources with exact URLs/findings/access timestamps,
    at least two justified exhaustive scenarios whose weights sum to 1 and whose
