@@ -270,6 +270,16 @@ def executable(market, side):
     return ask if side == 'YES' else 1 - bid
 
 
+def effective_entry(entry, rate):
+    """Executable quote plus the per-share taker fee the exchange charges on it.
+
+    The 5pp bar has to price entry the way the exchange does, or the agent ends
+    up patching a fee on top of it in prose — which is what Run 17 did, with a
+    hand-invented flat rate that matched no market.
+    """
+    return entry + rate * entry * (1 - entry)
+
+
 def check_review(review, p, market):
     try:
         if review['decision'] != 'approve':
@@ -282,10 +292,10 @@ def check_review(review, p, market):
         for source in review['source_urls']:
             url(source)
         reviewer_p = number(review['p_hat_yes'])
-        entry = executable(market, p['side'])
+        entry = effective_entry(executable(market, p['side']), trader.fee_rate(market))
         fair = min(p['p_hat_yes'], reviewer_p) if p['side'] == 'YES' else 1 - max(p['p_hat_yes'], reviewer_p)
         if fair - entry < .05 - 1e-9:
-            raise ValueError('conservative reviewed edge below 5% at executable quote')
+            raise ValueError('conservative reviewed edge below 5% at fee-adjusted quote')
         return fair - entry
     except (KeyError, TypeError, AttributeError) as exc:
         raise ValueError('critical review malformed') from exc
@@ -342,7 +352,9 @@ def _record_proposal(p, state_path):
     mkt = {'market_id': p['market_id'], 'slug': fresh['slug'], 'question': fresh['question'],
            'end_date': fresh['endDate'], 'yes_price': float(prices[0]),
            'best_bid': float(fresh['bestBid']), 'best_ask': float(fresh['bestAsk']),
-           'spread': float(fresh['bestAsk']) - float(fresh['bestBid'])}
+           'spread': float(fresh['bestAsk']) - float(fresh['bestBid']),
+           # Fee schedule comes from the SAME fresh payload as the quote it prices.
+           'feesEnabled': fresh.get('feesEnabled'), 'feeType': fresh.get('feeType')}
     bet = trader._build_bet(mkt, p['side'], p['p_hat_yes'], p['rationale'], p['stake'], p['confidence'])
     bet.update(risk_group=group, event_ids=event_ids(fresh), run_id=state['run_id'],
                evidence=p, review=review, reviewed_edge=round(edge, 6),
