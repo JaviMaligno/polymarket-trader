@@ -86,6 +86,7 @@ def begin_run(path):
     exposure = [dict(b, risk_group=group_for(b)) for b in bets if b['status'] == 'open']
     state = {'run_id': str(uuid.uuid4()), 'started_at': now().isoformat(),
              'initial_bets': bets, 'exposure': exposure, 'receipts': [], 'reviews': []}
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
     with Path(path).open('x', encoding='utf-8') as fh:
         json.dump(state, fh, ensure_ascii=False, allow_nan=False)
     return state

@@ -105,6 +105,14 @@ class EntryGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'risk group'):
             self.gate.begin_run(self.state)
 
+    def test_begin_run_creates_the_state_directory(self):
+        # The run state lives in a gitignored dir inside the agent's working
+        # directory (so its Read/Write tools can reach it); that dir does not
+        # exist on a fresh checkout.
+        nested = self.path / '.run-state' / 'run.json'
+        self.gate.begin_run(nested)
+        self.assertTrue(nested.is_file())
+
     def test_run_cannot_be_reset(self):
         with self.assertRaises(FileExistsError):
             self.gate.begin_run(self.state)
