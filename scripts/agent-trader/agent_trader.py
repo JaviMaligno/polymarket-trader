@@ -84,6 +84,7 @@ def fetch_candidates(horizon_days=45, min_liquidity=20000, max_spread=0.03,
                     "best_ask": float(m.get("bestAsk") or 0),
                     "spread": spread, "liquidity": round(liq),
                     "volume24hr": round(v24), "condition_id": m.get("conditionId"),
+                    "feesEnabled": m.get("feesEnabled"), "feeType": m.get("feeType"),
                     "description": (m.get("description") or "")[:300],
                 })
             except (ValueError, TypeError, KeyError):
@@ -121,6 +122,49 @@ def _entry_and_pnl_factors(side, best_bid, best_ask):
     return entry
 
 
+# Polymarket taker fees. The exchange charges fee = C x feeRate x p x (1-p) per
+# https://docs.polymarket.com/polymarket-learn/trading/fees — takers only, makers
+# never, and nothing on winnings. Every bet here crosses the spread, so every bet
+# is a taker; hold-to-resolution means the entry leg is the only one charged.
+# The rate is PER MARKET, not global: Gamma's `feesEnabled`/`feeType` say which
+# schedule applies, and whole categories (geopolitics) are fee-free. Six of the
+# first fourteen resolved bets paid nothing at all.
+FEE_RATES = {
+    "politics_fees": 0.04,
+    "finance_prices_fees": 0.04,
+    "sports_fees_v2": 0.05,
+}
+# An unrecognised schedule is charged at the dearest published rate (crypto, 0.07)
+# rather than waved through at zero: a fee model may only ever overstate cost.
+FEE_RATE_UNKNOWN = 0.07
+
+
+def fee_rate(market):
+    """Taker fee rate for a Gamma market payload. 0.0 when fees are off."""
+    if not market.get("feesEnabled"):
+        return 0.0
+    fee_type = market.get("feeType")
+    if not fee_type:
+        return 0.0
+    return FEE_RATES.get(fee_type, FEE_RATE_UNKNOWN)
+
+
+def fee_amount(stake, entry, rate):
+    """Entry taker fee in dollars.
+
+    shares = stake / entry and p = entry, so shares x rate x p x (1 - p)
+    collapses to stake x rate x (1 - entry). p(1-p) is symmetric, so the side
+    taken cannot change the per-share fee.
+    """
+    return round(stake * rate * (1 - entry), 4)
+
+
+def resolve_pnl(stake, entry, won, fee):
+    """Realised P&L at resolution, net of the entry fee."""
+    gross = (stake / entry - stake) if won else -stake
+    return round(gross - fee, 2)
+
+
 def record_bet(market, side, my_prob, rationale, stake=DEFAULT_STAKE, confidence=None):
     """Legacy prose-only entry is intentionally disabled."""
     raise ValueError('structured proposal required: use record <proposal.json>')
@@ -146,6 +190,9 @@ def _build_bet(market, side, my_prob, rationale, stake=DEFAULT_STAKE, confidence
         "rationale": rationale, "status": "open",
         "resolved_outcome": None, "pnl_net": None,
     }
+    rate = fee_rate(market)
+    bet["fee_rate"] = rate
+    bet["fee_paid"] = fee_amount(stake, entry, rate)
     return bet
 
 
@@ -223,7 +270,9 @@ def evaluate():
         yes_won = float(prices[0]) > 0.5
         won = (yes_won and b["side"] == "YES") or ((not yes_won) and b["side"] == "NO")
         entry = b["entry_price"]
-        b["pnl_net"] = round((b["stake"] / entry - b["stake"]) if won else -b["stake"], 2)
+        # Rows predating the fee model carry no fee_paid; treat it as zero rather
+        # than re-deriving it here, so evaluate stays deterministic and offline.
+        b["pnl_net"] = resolve_pnl(b["stake"], entry, won, b.get("fee_paid") or 0.0)
         b["resolved_outcome"] = "YES" if yes_won else "NO"
         b["status"] = "won" if won else "lost"
         changed = True
@@ -619,6 +668,21 @@ if __name__ == "__main__":
             raise SystemExit(f"entry rejected: {exc}")
         print(f"recorded {bet['bet_id']}: {bet['side']} @ {bet['entry_price']:.3f} "
               f"(reviewed edge={bet['reviewed_edge']:+.3f})")
+    elif cmd == "fee":
+        # `fee <market_id> [stake] [entry]` — the authoritative cost of an entry.
+        # Never guess the rate: it is per-market and whole categories are free.
+        mid = sys.argv[2]
+        stake = float(sys.argv[3]) if len(sys.argv) > 3 else DEFAULT_STAKE
+        m = requests.get(f"{GAMMA}/{mid}", timeout=30).json()
+        rate = fee_rate(m)
+        print(f"market {mid} feesEnabled={m.get('feesEnabled')} "
+              f"feeType={m.get('feeType')} rate={rate}")
+        if len(sys.argv) > 4:
+            entry = float(sys.argv[4])
+            amount = fee_amount(stake, entry, rate)
+            print(f"entry {entry} stake ${stake}: fee ${amount:.4f} "
+                  f"({amount / stake:.2%} of stake), effective entry "
+                  f"{entry + rate * entry * (1 - entry):.4f}")
     elif cmd == "evaluate":
         evaluate(); summary()
     elif cmd == "summary":

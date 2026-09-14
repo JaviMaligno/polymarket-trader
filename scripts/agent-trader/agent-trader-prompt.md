@@ -159,7 +159,17 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    yourself breaks the run-integrity check downstream.)
 
 ## Guardrails
-- Paper only. Never claim real trading. Realistic costs always (entry net of spread).
+- Paper only. Never claim real trading. Realistic costs always (entry net of spread
+  AND net of the taker fee).
+- **Never assume a flat fee rate.** Polymarket charges the taker
+  `fee = shares x rate x p x (1 - p)` at entry, but the rate is PER MARKET and whole
+  categories are fee-free: of the first fourteen resolved bets, six paid nothing at
+  all. Ask the harness rather than reciting a number — `python agent_trader.py fee
+  <market_id> <stake> <entry>` prints that market's own `feesEnabled`/`feeType`, the
+  rate, the dollar fee and the effective entry. Run 17 invented a flat 0.04, applied
+  it to every market regardless of category, and vetoed a bet for missing a 5pp bar
+  by 0.54pp on that invented number. The `fee_paid` recorded on each bet is the
+  number that counts.
 - Don't fabricate facts — every p_hat rests on a cited current finding or an explicit
   base-rate argument. If you can't research it, decline.
 - Be honest in lessons about misses; the experiment's value is calibration over time.
