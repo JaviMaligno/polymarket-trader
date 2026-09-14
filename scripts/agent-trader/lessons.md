@@ -1150,3 +1150,125 @@ Two further observations from the same review, for the record:
   occurring. Treat a YES bet as needing a higher bar than a NO bet of the same nominal edge.
 - **Calibration was flattered by open losers**: Brier goes 0.108 → 0.164 mark-to-market and
   the 0.6-0.8 bucket falls from actual 1.00 (n=2) to 0.50 (n=4). Report the marked figure.
+
+## Run 17 — 2026-09-14
+
+**Zero new bets placed.** One bet attempted (Germany MV SPD NO) and vetoed by the independent
+critical reviewer. No resubmission warranted.
+
+**Running record: 8-6 resolved, 2 open ($50 at risk). P&L: -$43.25, bankroll $956.75. Brier: 0.1635.**
+
+---
+
+### Open position updates
+
+**Bet 15 — UR NO (resolves Sept 30)**
+Entered at YES=0.695. Current mark: YES=0.775. Delta on NO token: -0.085 (mark-to-market
+loss; NO token entry 0.310, now 0.225). Thesis from Run 16 re-derivation: "weakened but
+alive — UR is weak in polls (~47%), but winning gains-most is still plausible." The rising
+YES price (0.695→0.775) means the market is increasingly confident UR wins the most seats.
+The run 15 audit established the sibling market (UR seat counts) shows P(UR>324)≈0.73,
+which is consistent with the gains-most price. No new polling data warranted a change in
+thesis. Hold.
+
+**Bet 16 — Iran blockade NO (resolves Oct 1)**
+Entered at YES=0.175. Current mark: YES=0.165. Delta on NO token: +0.005 (essentially
+flat). Sept 6 spike-and-crash (0.24→0.49→0.165) previously documented. Still no qualifying
+announcement from any US official. Active Iran-US military engagement (ballistic missiles,
+tanker strikes) argues against termination. Hold.
+
+---
+
+### Candidates researched and declined
+
+- **Germany MV SPD NO:** Analyzed. Vetoed (see below). Did not resubmit.
+- **Russia Duma siblings (NL YES=0.253, LDPR YES=0.037):** Same negRisk event as Bet 15.
+  Concentration veto applies. Decline.
+- **Brazil presidential (Bolsonaro YES ~0.39):** Three September polls show runoff as
+  statistical tie. PoderData first-round gap only +2pp. Not a clear Family (ii) edge — both
+  outcomes are roughly 50/50 in a runoff. Family (ii) bet requiring YES-bar. Decline.
+- **Apple market cap (YES ~0.38):** Prior Apple losses (Bet 8, Bet 11). High-profile-company
+  filter applied. Decline.
+- **Iran blockade end (all tenors):** Bet 16 already open. Concentration limit. Decline.
+- **Fed September markets:** CME-arbitraged. Decline.
+- **Bitcoin / WTI price thresholds:** Standard price-threshold filter. Decline.
+
+---
+
+### Vetoed bet post-mortem: Germany MV SPD NO
+
+**Proposal:** Bet NO on SPD winning the most seats in the Mecklenburg-Vorpommern Landtag
+election (Sept 20, 2026). YES price ~0.165 at analysis time. p_hat_yes = 0.10. Family (ii):
+all credible German forecasting models show AfD winning (PolitPro: AfD 95%, SPD 5%), while
+the market prices SPD at 16.5% — approximately 3× the model estimate.
+
+**Reviewer verdict: REJECT.** Two failing checks:
+
+**Check 1 — price_history FAIL.** I described the price path as "stable at exactly 0.165 for
+the last 20+ hourly data points since Sept 6. No major repricing events visible. 0.165 is
+the market's recent high." Every clause was false. The actual full price path (744 hourly
+points, Aug 14 through Sept 14):
+
+- Aug 14: 0.14 (opened)
+- Aug 22-29: Declined from 0.135 to 0.08-0.095 range (pessimism about SPD)
+- Sept 2, 10:00: Trough at **0.055** (extreme pessimism)
+- Sept 3-10: Strong rally from 0.055 to 0.21-0.22 (improving polling narrative)
+- Sept 10, 15:00: Spike to **0.295** (FGW/ZDF poll released showing only 3-point gap)
+- Sept 10, 17:00: Crash to **0.16** within 2 hours (rapid rejection of the spike)
+- Sept 11-13: Ranged 0.175-0.200 then declining
+- Sept 14 (current): **0.145** — at a post-rally low and still falling
+
+The "last 20 hourly data points" I examined happened to fall in the post-crash settling
+range (0.165). By only looking at the first 5 and last 20 points, I missed the full history:
+a 0.055 trough, a rally to 0.21-0.22, and a spike to 0.295 that was rejected within 2 hours.
+The "stable 0.165" was a post-crash floor, not the recent high.
+
+The corrected narrative actually strengthens the NO thesis (the market briefly considered
+SPD at 30% and immediately rejected it), but my original description was materially false
+and the reviewer correctly vetoed it.
+
+**Check 2 — probability FAIL.** Reviewer's independent p_hat_yes = 0.11. With Polymarket's
+fee formula (fee = 0.04 × p_NO × (1 − p_NO) per share), at YES bid ≈ 0.160:
+- p_NO_bid = 0.840; fee = 0.04 × 0.840 × 0.160 = 0.005376/share
+- Effective NO entry = 0.845376
+- Reviewer edge = 0.89 − 0.845376 = **4.46%** — below the 5pp dual-estimate threshold.
+- My own p_hat edge = 0.90 − 0.845376 = 5.46% — passes my side only.
+
+The dual-estimate requires BOTH researcher and reviewer to show ≥5pp edge. They did not.
+
+**Why no resubmission.** The price has since fallen to YES=0.145:
+- Effective NO entry at 0.145 ≈ 0.860 (p_NO_bid = 0.855; fee = 0.04 × 0.855 × 0.145 ≈ 0.005)
+- For both estimates to clear 5pp: p_hat_yes ≤ 0.090 required
+- Honest central estimate from polling aggregate (4-5pt gap → ~90-92% AfD): p_hat_yes = 0.09-0.10
+- A lower YES price makes the NO entry HARDER (higher effective cost), not easier
+
+The bet is more constrained at the current price than it was at 0.165. Resubmission is
+not warranted without a material shift in polling or new evidence.
+
+---
+
+### New selection rules derived from Run 17
+
+**Rule: Always examine the FULL price history, not just the terminal window.**
+The critical error: I looked at the first 5 and last 20 hourly CLOB data points and described
+the series as "stable at 0.165 with no major repricing events." The actual series had a
+0.295 spike and 0.055 trough that were invisible in the terminal window. When a series has
+744 points, the last 20 are not representative. Required practice: fetch the full series,
+find max/min, enumerate all price transitions (i.e., every point where the price changes),
+and narrate the actual trajectory before writing the price_history_analysis field.
+
+**Rule: Fee formula affects which price levels are tradeable.**
+Polymarket charges fee = 0.04 × p × (1−p) per share, where p is the price of the token
+being sold (the side you're going against). At moderate prices (0.16-0.20), this fee is
+0.005-0.006/share. The 5pp dual-estimate edge requirement means the effective entry
+(bid + fee) must be ≤ (p_hat − 0.05). At lower YES prices, the NO effective entry is
+higher, requiring p_hat_yes further from 0. Check the fee-adjusted edge explicitly before
+proposing, using the fee formula, not a rough approximation.
+
+**Rule: A sharp spike-and-crash confirms informed-trader rejection.**
+The Sept 10 spike from 0.215 to 0.295 and crash back to 0.16 within 2 hours is the market
+processing the FGW "3-point gap" poll and immediately concluding it was insufficient for
+SPD to win. This pattern (spike on ambiguous news, rapid reversion) is evidence that the
+sophisticated market participants have already stress-tested the "SPD wins" scenario and
+found it wanting. A rapid spike-and-crash is NOT a price discovery failure — it is price
+discovery at high speed.
