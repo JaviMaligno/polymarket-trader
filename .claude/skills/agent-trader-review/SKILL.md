@@ -61,7 +61,10 @@ Useful commands (run locally; they hit the free Gamma API):
 cd scripts/agent-trader
 python agent_trader.py summary      # record / open / resolved / bankroll / Brier
 python agent_trader.py evaluate     # re-fetch open bets, resolve + compute pnl_net, then summary
-python metrics.py                   # full metrics: calibration, cost-aware verdict, by-confidence
+python metrics.py --operator        # full metrics + the YES/NO split. ALWAYS use --operator
+                                    # here; bare `metrics.py` is the agent-facing view and
+                                    # deliberately omits the split (HYPOTHESIS-side-bias.md)
+python agent_trader.py history --open   # price path of each open position's OWN market
 ```
 
 `bets.jsonl` row: `side`, `my_prob_yes`, `entry_price` (what you pay crossing the spread),
@@ -137,7 +140,7 @@ Confirm the source of truth is sane before drawing any conclusion from it:
 
 ### Step 3 — Calibration & cost-aware verdict
 
-Run `python metrics.py` and read, in order:
+Run `python metrics.py --operator` and read, in order:
 - **verdict**: while `too_few` (n<20) the headline question ("does the agent beat the spread?")
   is genuinely unanswerable — do not let a good or bad few-bet streak be spun either way. State
   the n explicitly.
@@ -147,6 +150,17 @@ Run `python metrics.py` and read, in order:
 - **by_confidence**: do `high`-confidence bets actually outperform `medium`? If not, the agent's
   confidence signal is noise and conviction-sizing would destroy value.
 - **bootstrap CI**: this is the cost-aware significance bar. `edge_shown` needs `pnl_boot_lo > 0`.
+- **by side** (operator-only): the live test of the pre-registered hypothesis. Read it against
+  `scripts/agent-trader/HYPOTHESIS-side-bias.md`, which fixes the decision rule in advance —
+  20 further resolved bets, n>=8 per side, counted only from bets resolved after 2026-09-21.
+  **Do not restate the split as a finding** while the rule is unmet, and do not let a good or
+  bad week on one side become a recommendation. Add one row to that file's *Observations*
+  table each review (run date, new resolutions, per-side P&L on new bets only, blind intact).
+
+  **Blind check, every review:** the agent must not have been told. Grep this run's
+  `lessons.md` section for a side breakdown of its own record. If the agent has derived it,
+  the blind is broken — record the date and treat later bets as contaminated. Also confirm the
+  prompt still passes `tests/test_blindness_surfaces.py`.
 
 ### Step 4 — Bet-quality / narrative review (question every substantive claim)
 
@@ -166,6 +180,22 @@ and check it — a claim with no verifying step is a narrative, not a finding. S
 - **Discipline vs drought**: zero new bets is a valid, healthy outcome when nothing clears the bar
   — but ONLY if Step 0 confirmed the LLM actually ran and chose zero. Distinguish "researched and
   declined" from "never started".
+
+### Step 4b — The guards that now run for you
+
+Three checks are automated; confirm they fired rather than redoing them by hand.
+
+- **Append-only on `lessons.md`** (`lessons_guard.py`, run in the workflow before the entry
+  audit). A `::warning::` in the run log means the agent edited past history: the pre-run file
+  was restored and the new sections kept. Read the commit diff and say what it tried to change
+  — a typo is noise, a rewritten `p_hat` or a deleted post-mortem is a finding.
+- **Quoted numbers.** `positions` now prints `if won` / `if lost` / `bankroll if won` /
+  `bankroll if lost`, and `history` prints each market's own path under its id, question and
+  creation date. Any projected P&L, bankroll or price path in `lessons.md` that does NOT match
+  those outputs is the agent computing in prose again — check it, and flag it if it diverges.
+- **TRUNCATED series.** If `history` warns, the first point is the left edge of the fidelity
+  window, not an opening price. Any claim of the form "the market opened at X" built on a
+  truncated window is wrong; re-fetch coarser (`history <id> <entry_date> 1440`).
 
 ### Step 5 — Act
 

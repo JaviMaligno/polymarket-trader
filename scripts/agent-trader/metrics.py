@@ -333,4 +333,4 @@ if __name__ == "__main__":
     print(render_text(m))
     if len(sys.argv) > 1:  # any arg => also append a dated snapshot to metrics.jsonl
         append_snapshot(m, sys.argv[1])
-        print(f"\nappended snapshot to {METRICS_LOG}")
+        print(f"\nwrote snapshot to {METRICS_LOG}")

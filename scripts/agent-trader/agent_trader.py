@@ -854,9 +854,11 @@ if __name__ == "__main__":
         import metrics as _metrics
         m = _metrics.compute_metrics()
         date = sys.argv[2] if len(sys.argv) > 2 else _now().date().isoformat()
-        _metrics.append_snapshot(m, date)   # persist first (robust to console issues)
+        # Persist first (robust to console issues). One row per date: a re-run of the
+        # same date replaces that row rather than appending beside it.
+        _metrics.append_snapshot(m, date)
         try:
             print(_metrics.render_text(m))
         except UnicodeEncodeError:
             print(_metrics.render_text(m).encode("ascii", "replace").decode())
-        print(f"\nappended snapshot ({date}) to metrics.jsonl")
+        print(f"\nwrote snapshot ({date}) to metrics.jsonl")
