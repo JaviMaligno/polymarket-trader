@@ -112,6 +112,30 @@ def compute_metrics(bets=None) -> dict:
                 "actual": round(sum(1 for x in grp if x["resolved_outcome"] == "YES") / len(grp), 3),
             })
 
+    # by_side: the prospective test of the 2026-09-21 side-bias hypothesis (NO 5-1 vs
+    # YES 3-6 at n=15, the first subset whose CI excluded zero). Computed here so the
+    # operator's trajectory carries it from now on; deliberately absent from render_text,
+    # because render_text is what the AGENT reads and an agent told its YES bets lose
+    # stops taking YES bets — which would destroy the very sample being collected.
+    # See HYPOTHESIS-side-bias.md.
+    by_side = {}
+    for b in closed:
+        # Case-normalised for the same reason mark_outcome() is: a hand-edited lowercase
+        # "no" must not open a second bucket and halve both samples.
+        k = str(b.get("side") or "n/a").upper()
+        d = by_side.setdefault(k, {"n": 0, "wins": 0, "pnl": 0.0, "_pnls": []})
+        d["n"] += 1
+        d["wins"] += 1 if b["status"] == "won" else 0
+        d["pnl"] += b["pnl_net"] or 0
+        d["_pnls"].append(b["pnl_net"] or 0)
+    for d in by_side.values():
+        xs = d.pop("_pnls")
+        d["pnl"] = round(d["pnl"], 2)
+        d["mean"] = round(sum(xs) / len(xs), 3) if xs else None
+        slo, shi = _bootstrap_ci(xs)
+        d["boot_lo"] = round(slo, 3) if slo is not None else None
+        d["boot_hi"] = round(shi, 3) if shi is not None else None
+
     by_conf = {}
     for b in closed:
         c = b.get("confidence") or "n/a"
@@ -151,7 +175,8 @@ def compute_metrics(bets=None) -> dict:
         "pnl_boot_lo": round(lo, 3) if lo is not None else None,
         "pnl_boot_hi": round(hi, 3) if hi is not None else None,
         "open_at_risk": round(sum(b["stake"] for b in openb), 2),
-        "calibration": calib, "by_confidence": by_conf, "verdict": verdict,
+        "calibration": calib, "by_confidence": by_conf, "by_side": by_side,
+        "verdict": verdict,
     }
 
 
@@ -163,15 +188,49 @@ _VERDICT_LABEL = {
 }
 
 
-def append_snapshot(m: dict, date: str) -> None:
-    """One row per run = the trajectory of cumulative metrics over time."""
+def snapshot_row(m: dict, date: str) -> dict:
+    """The trajectory row for one run: headline metrics plus the side split."""
     row = {"date": date, **{k: m[k] for k in (
         "n_resolved", "n_open", "wins", "losses", "hit_rate", "pnl_net", "roi",
         "bankroll", "brier", "mean_pnl_per_bet", "pnl_boot_lo", "pnl_boot_hi",
         "verdict", "n_pending", "wins_mtm", "losses_mtm", "pnl_net_mtm",
         "bankroll_mtm")}}
-    with METRICS_LOG.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+    # Flat side columns so the trajectory stays one JSON object per line and a plain
+    # grep/jq over it can plot the hypothesis without unnesting.
+    for side in ("YES", "NO"):
+        d = m.get("by_side", {}).get(side) or {}
+        pre = side.lower()
+        row[f"{pre}_n"] = d.get("n", 0)
+        row[f"{pre}_wins"] = d.get("wins", 0)
+        row[f"{pre}_pnl"] = d.get("pnl", 0.0)
+        row[f"{pre}_mean"] = d.get("mean")
+        row[f"{pre}_boot_lo"] = d.get("boot_lo")
+        row[f"{pre}_boot_hi"] = d.get("boot_hi")
+    return row
+
+
+def append_snapshot(m: dict, date: str) -> None:
+    """One row per DATE = the trajectory of cumulative metrics over time.
+
+    Rewrites that date's row when it already has one, instead of appending beside it.
+    Manual re-runs of a week (the 2026-09-14 recovery, the 2026-07-20 provider switch)
+    left duplicates — 17 rows for 18 runs across 13 distinct dates — which makes the
+    trajectory unusable as a series without deduplicating it first. A re-run supersedes
+    its earlier attempt at that date; it is not a second observation.
+    """
+    row = snapshot_row(m, date)
+    rows = [json.loads(l) for l in METRICS_LOG.open(encoding="utf-8")
+            if l.strip()] if METRICS_LOG.exists() else []
+    replaced = False
+    for i, r in enumerate(rows):
+        if r.get("date") == date:
+            rows[i] = row          # in place: a re-run keeps its slot in the series
+            replaced = True
+    if not replaced:
+        rows.append(row)
+    with METRICS_LOG.open("w", encoding="utf-8") as fh:
+        for r in rows:
+            fh.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
 def render_text(m: dict) -> str:
@@ -199,6 +258,31 @@ def render_text(m: dict) -> str:
     return "\n".join(L)
 
 
+def _side_lines(m: dict) -> list:
+    """The YES/NO split. OPERATOR-ONLY — see the blindness note in compute_metrics."""
+    if not m.get("by_side"):
+        return []
+    L = ["by side (operator view — not shown to the agent):"]
+    for k in ("NO", "YES"):
+        d = m["by_side"].get(k)
+        if not d:
+            continue
+        ci = (f"[{d['boot_lo']:+.2f}, {d['boot_hi']:+.2f}]"
+              if d["boot_lo"] is not None else "[n/a]")
+        L.append(f"  {k:3}: n={d['n']} {d['wins']}-{d['n'] - d['wins']} "
+                 f"pnl=${d['pnl']:+.2f} mean={d['mean']} 95% CI {ci}")
+    return L
+
+
+def render_operator_text(m: dict) -> str:
+    """render_text plus the side split: the view for the weekly review and the email.
+
+    A superset of the agent-facing text on purpose — same numbers from the same
+    computation, one extra block — so the two views can never disagree.
+    """
+    return "\n".join([render_text(m)] + _side_lines(m))
+
+
 def render_html(m: dict) -> str:
     def calib_rows():
         if not m["calibration"]:
@@ -206,6 +290,20 @@ def render_html(m: dict) -> str:
         return "".join(
             f"<tr><td>{c['range']}</td><td>{c['n']}</td><td>{c['pred']}</td>"
             f"<td>{c['actual']}</td></tr>" for c in m["calibration"])
+    def side_rows_html():
+        rows = []
+        for k in ("NO", "YES"):
+            d = (m.get("by_side") or {}).get(k)
+            if not d:
+                continue
+            ci = (f"[{d['boot_lo']:+.2f}, {d['boot_hi']:+.2f}]"
+                  if d["boot_lo"] is not None else "&mdash;")
+            rows.append(
+                f"<tr><td>{k}</td><td>{d['n']}</td>"
+                f"<td>{d['wins']}-{d['n'] - d['wins']}</td>"
+                f"<td>${d['pnl']:+.2f}</td><td>{d['mean']}</td><td>{ci}</td></tr>")
+        return "".join(rows) or "<tr><td colspan=6>&mdash;</td></tr>"
+    side_rows = side_rows_html()
     conf_rows = "".join(
         f"<tr><td>{k}</td><td>{d['n']}</td><td>${d['pnl']:+.2f}</td><td>{d['wins']}</td></tr>"
         for k, d in m["by_confidence"].items()) or "<tr><td colspan=4>—</td></tr>"
@@ -221,7 +319,12 @@ def render_html(m: dict) -> str:
 <tr><th>pred-prob bucket</th><th>n</th><th>pred YES</th><th>actual YES</th></tr>{calib_rows()}</table>
 <p style="margin:6px 0"><b>By confidence:</b></p>
 <table border="1" cellpadding="4" cellspacing="0">
-<tr><th>confidence</th><th>n</th><th>P&amp;L</th><th>wins</th></tr>{conf_rows}</table>"""
+<tr><th>confidence</th><th>n</th><th>P&amp;L</th><th>wins</th></tr>{conf_rows}</table>
+<p style="margin:6px 0"><b>By side</b> &nbsp;<i>(operator view &mdash; deliberately not shown
+to the agent; see HYPOTHESIS-side-bias.md)</i></p>
+<table border="1" cellpadding="4" cellspacing="0">
+<tr><th>side</th><th>n</th><th>record</th><th>P&amp;L</th><th>mean/bet</th>
+<th>95% CI</th></tr>{side_rows}</table>"""
 
 
 if __name__ == "__main__":

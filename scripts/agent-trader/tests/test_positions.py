@@ -190,12 +190,46 @@ class TestEmailOpenBetsTable(unittest.TestCase):
                     edge_per_contract=0.12)
         return email_html([bet7])
 
+    @staticmethod
+    def _open_bets_section(html):
+        """Just the open-bets block: the email also embeds this week's lessons prose.
+
+        Asserting a price is absent from the WHOLE email couples the suite to text the
+        agent writes every Monday. It bit on 2026-09-21: Run 18 declined a Ballon d'Or
+        market quoting "effective 0.595 with 5% fee", the unqualified assertion below
+        went red, and because the workflow runs the suite as a hard gate BEFORE the
+        decision loop, that prose would have failed the whole 2026-09-28 run. The frame
+        claim is about the rendered table, so scope it to the table.
+        """
+        start = html.index("<h3>Open bets</h3>")
+        rest = html.index("<h3>", start + 1)
+        return html[start:rest]
+
     def test_held_frame_numbers_are_the_ones_rendered(self):
-        html = self._html()
-        self.assertIn("0.620", html)          # entry, held frame
-        self.assertIn("0.675", html)          # mark, held frame (1 - 0.325)
-        self.assertIn("+0.055", html)         # the position's move
-        self.assertNotIn("0.595", html)
+        section = self._open_bets_section(self._html())
+        self.assertIn("0.620", section)          # entry, held frame
+        self.assertIn("0.675", section)          # mark, held frame (1 - 0.325)
+        self.assertIn("+0.055", section)         # the position's move
+        self.assertNotIn("0.595", section)
+
+    def test_lessons_prose_cannot_turn_the_frame_assertions_red(self):
+        """The regression that broke the suite on 2026-09-21, pinned as a rule.
+
+        The agent writes lessons.md; the email embeds it. Any price it happens to quote
+        in prose — a declined market's fee-adjusted ask, a sibling market's mark — must
+        not be able to fail a claim about the positions table, because that failure
+        blocks the next weekly run for a reason unrelated to the position.
+        """
+        import agent_trader
+        saved = agent_trader._latest_lessons_section
+        agent_trader._latest_lessons_section = lambda: (
+            "## Run 99 — declined a market at an effective 0.595 with the 5% fee.")
+        try:
+            html = self._html()
+        finally:
+            agent_trader._latest_lessons_section = saved
+        self.assertIn("0.595", html)                                   # prose kept
+        self.assertNotIn("0.595", self._open_bets_section(html))       # table clean
 
     def test_held_columns_precede_the_yes_reference_and_spread_is_disclosed(self):
         html = self._html()
