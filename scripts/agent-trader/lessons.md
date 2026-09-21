@@ -1270,5 +1270,60 @@ The Sept 10 spike from 0.215 to 0.295 and crash back to 0.16 within 2 hours is t
 processing the FGW "3-point gap" poll and immediately concluding it was insufficient for
 SPD to win. This pattern (spike on ambiguous news, rapid reversion) is evidence that the
 sophisticated market participants have already stress-tested the "SPD wins" scenario and
-found it wanting. A rapid spike-and-crash is NOT a price discovery failure — it is price
+found it wanted. A rapid spike-and-crash is NOT a price discovery failure — it is price
 discovery at high speed.
+
+## Run 18 — 2026-09-21 (zero new bets; Bet 15 post-mortem; Bet 16 update)
+
+**Official record at run start:** 8-7 resolved, P&L -$72.83, bankroll $927.17, Brier 0.2054. Capital at risk (open): $25 (Bet 16).
+
+**Resolved post-mortem — Bet 15 (UR NO, entry YES=0.695) — LOSS (-$25)**
+
+United Russia DID gain the most seats in the 2026 Russian Duma election (held September 19-20, 2026). The market resolved YES. The bet lost.
+
+Root cause analysis:
+1. **Factual premise failure**: The thesis rested on a PolitPro projection that UR would lose ~90 seats (324→231-234). This projection incorrectly applied proportional-representation math to a mixed electoral system: 225 list seats + 225 single-member constituencies (SMDs). UR's 2021 total of 324 = 126 list + 198 SMDs. Administrative control of SMDs is the key mechanism — UR wins SMDs at rates far above their list vote share. A 47% list vote did not imply 231 total seats.
+2. **Sibling market warning ignored**: The Run 15 human audit (filed Aug 31, before the election) explicitly identified this error and noted the sibling bracket market implied P(UR>324) ≈ 73%, which was CONSISTENT with the gains-most market at 69.5%. Both markets were reading the criterion correctly. There was no criterion anomaly to harvest.
+3. **Family (i) label was wrong**: Bet 15 was explicitly labeled Family (i) ("market misreads the resolution criterion"). The audit showed the market did NOT misread the criterion; it correctly priced UR gaining seats at ~70-73%. Mislabeling a Family (ii) bet (bad projection, not criterion misread) as Family (i) inflated confidence.
+4. **The run 15 audit was right on every count**. The loss confirms: when the sibling market implies roughly the same price as the market you're calling wrong, there is no anomaly. The crowd read the criterion correctly, and knew things about SMD dynamics you did not.
+
+Key rule reinforced: **A declared edge above ~0.25 in a liquid, weeks-old market is presumptive evidence of your own misreading. The sibling check is not optional — it is the primary defense against this error pattern.**
+
+**Bet 16 (Iran blockade NO, resolves Oct 1) — mandatory open-position checklist:**
+
+Numbers from this run's `positions` output: entry(held)=0.830, mark(held)=0.905, delta(held)=+0.075, entry(YES)=0.175, mark(YES)=0.095. Resolves 2026-10-01.
+
+1. **Marginal buyer at YES=0.095?** They are pricing ~9.5% probability the US makes a formal, declarative, official announcement terminating/suspending the naval blockade in the next 9 days. Context: a new US-Iran ceasefire was apparently announced ~September 17 (evidenced by the ceasefire-through-October market opening on that date). The marginal buyer may be pricing a scenario where this ceasefire leads rapidly to a comprehensive deal including blockade removal. But the resolution criterion requires a specific official announcement — not a ceasefire, not an informal pause, not a draft deal. Family (i) holds: the ceasefire ≠ the blockade-end declaration.
+
+2. **Was motivating news reflected before entry?** Yes. The market opened Aug 21 at 0.415, peaked Aug 25 at 0.675, then declined to the trough of 0.270 on Sept 14, and recovered to 0.400 (entry was Sept 7 at YES=0.175). The Sept 1 US strikes on Iranian territory and Sept 2 Iranian retaliation were processed before entry; they drove the Aug 25 spike and subsequent correction. The new ceasefire (~Sept 17) has been incorporated (mark dropped from 0.175 → 0.095), confirming the market correctly sees ceasefire ≠ blockade termination.
+
+3. **Probability remaining?** 9.5% per market, 9 days. p_hat YES ≈ 0.03-0.05. Trump's Aug 18 statement ("Naval Blockade remains in full force and effect") is the most recent official US position. No active diplomacy. Active IRGC toll regime ($2M/vessel transit), 103 vessels redirected. The strict declarative-official-unambiguous criterion has not been triggered.
+
+4. **Thesis direction: STRENGTHENED.** YES dropped from 0.175 → 0.095. The new ceasefire announcement did NOT trigger the blockade-end criterion; the market itself confirmed this by not moving the blockade-end price up materially. Falsifier: a formal White House or DoD announcement explicitly declaring the naval blockade "ended," "terminated," or "suspended."
+
+**Candidates analyzed and declined (zero new bets):**
+
+- **US x Iran ceasefire through October 31 (YES=0.550, 40d):** The market is only 4 days old (opened Sept 17), extremely volatile (0.45 → 0.705 → 0.365 → 0.55 in 4 days), and still in active price discovery. Research shows the US struck Iranian territory on September 1 (Bandar Abbas, Kenarak, Qeshm Island, Sirik, Jask, Asaluyeh, Ahvaz) and Iranian retaliation on Sept 2 — the most significant exchange since the ceasefire started. After 20 days of pause, a new ceasefire was apparently announced ~Sept 17. The October 31 market prices 45% probability of another qualifying US strike on Iranian territory. My best estimate: p_hat YES ~60-65% (motivated by 20-day pause, economic pressure logic, strict territorial-only criterion). But this is Family (ii) — predicting conflict escalation — and the market is too young/volatile to identify stable mispricing. **Decline.**
+
+- **US announces end of Iranian blockade by October 31 (YES=0.400, 40d):** Same underlying as Bet 16 (blockade-end announcement, same strict criterion, same risk group). Per the concentration rules: "two markets settled by the same variable at a later date are ONE bet for this purpose." The October 31 tenor is the same real-world outcome as Bet 16's September 30 tenor. Concentration veto while Bet 16 is open. **Decline.**
+
+- **Harry Kane wins Ballon d'Or (YES=0.583, effective 0.595 with 5% fee, 39d):** Research: Spain won the 2026 World Cup; Kane's England finished 3rd (Kane scored 6 goals, England 3-0 France in 3rd-place match). Kane had an extraordinary club season: 61 goals in 51 games for Bayern Munich (Bundesliga + DFB-Pokal). Rodri won FIFA Golden Ball (World Cup winner, tournament MVP). Polymarket at 58.3% matches bookmaker consensus (4/7 favourite ≈ 58% true probability after vig). No differentiated view. **Decline — at market consensus.**
+
+- **Brazil presidential (Lula YES=0.375, Bolsonaro YES=0.615, resolves after Oct 25 runoff):** Polling: 3 of 5 first-round polls show Lula slightly ahead; 3 of 4 runoff simulations favor Bolsonaro (all within MoE). Market at 61.5% Bolsonaro might overstate his edge by 6-11 points vs raw polling, but this is Family (ii), efficiently priced by professional bettors, and Brazilian pollsters are notoriously variable. Thin uncertain edge. **Decline.**
+
+- **NATO x Russia military clash by October 31 (YES=0.185, 40d):** No differentiated view on current NATO-Russia engagement patterns. The ongoing Ukraine war creates some risk, but the definition excludes most scenarios (Shahed interceptions, drone incidents without weaponry). Without specific knowledge of recent near-misses, I cannot form a confident p_hat. **Decline.**
+
+- **2026 US Midterms (D House YES=0.925, R Senate YES=0.375, 42d):** These are heavily traded by professional political speculators. Without district-level polling or a specific criterion asymmetry, no differentiated view. **Decline.**
+
+- **All near-0/near-1, crypto thresholds, tweet counts, exact scores, Fed markets:** Standard filters apply.
+
+**New selection rules derived from this run:**
+
+1. **A 4-day-old market in active price discovery is not ready to bet.** The Iran ceasefire Oct 31 market opened Sept 17, spiked to 0.705, crashed to 0.365, and is now at 0.55 — three distinct regimes in 4 days. The price is actively discovering new information; betting against a 4-day market is betting that you understand the equilibrium better than a market that hasn't found it yet. Minimum age for a confident bet: 10-14 days with a clear settled range.
+
+2. **The mixed-SMD lesson extends to any country with a dual electoral system.** Parliamentary elections in Germany (5% threshold + constituencies), Russia (225+225), Japan (PR lists + constituencies), Mexico, etc. all have SMD components that can diverge sharply from vote-share proportional calculations. Before using any seat projection, ask: "Does this projection explicitly model both the list and the constituency components?" If not, it is an approximation that may be systematically wrong for parties with regional administrative advantages.
+
+3. **Ceasefire ≠ blockade termination.** These are distinct legal acts requiring distinct official announcements. A military ceasefire (halt in kinetic operations) and an economic/naval blockade are different instruments of state power. A ceasefire announcement does not resolve a market requiring an official blockade-end declaration, even in the same conflict. The Family (i) pattern holds at a more granular level: look for what SPECIFIC announcement the resolution criterion requires, not just whether the situation is "improving."
+
+**Running record: 8-7 resolved, 1 open ($25 at risk). P&L: -$72.83, bankroll $927.17, Brier 0.2054.**
+**Expected trajectory: Bet 16 high-confidence win (YES=0.095, resolves Oct 1); p_hat YES ~0.04, NO edge ~85pp. Expected P&L after resolution: ~-$58, bankroll ~$942.**
