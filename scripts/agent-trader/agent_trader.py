@@ -372,6 +372,14 @@ def open_positions(bets):
     is a position-tracking number, not a realisable P&L; the realisable figure only exists
     at resolution (`pnl_net`) or in metrics' mark-to-market for already-decided positions.
     """
+    # Bankroll from FORMALLY RESOLVED bets only — the same base metrics reports. The
+    # projections below are what that bankroll becomes if one position resolves; every
+    # other open position stays open in both branches, so they are per-position figures,
+    # not a portfolio scenario.
+    resolved_pnl = sum(b.get("pnl_net") or 0.0
+                       for b in bets if b.get("status") in ("won", "lost"))
+    bankroll_now = BANKROLL0 + resolved_pnl
+
     rows = []
     for b in bets:
         if b.get("status") != "open":
@@ -401,8 +409,26 @@ def open_positions(bets):
             # as the em-dash in both the ASCII table and the email.
             "edge_at_entry": b.get("edge_per_contract"),
             "marked_at": b.get("marked_at"), "decided": _mark_outcome(b),
+            # Both branches of the resolution, computed by the same resolve_pnl() the
+            # evaluator will use, so the agent quotes them instead of doing the
+            # arithmetic in prose. Run 18 projected "+$15 / bankroll ~$942" for a
+            # position whose payout is stake/entry - stake = +$5.12 (bankroll $932.29).
+            **_projection(b, entry_held, bankroll_now),
         })
     return rows
+
+
+def _projection(b, entry_held, bankroll_now):
+    """What this position books on each outcome, and the bankroll it leaves behind."""
+    if not entry_held:
+        return {"payout_if_won": None, "loss_if_lost": None,
+                "bankroll_if_won": None, "bankroll_if_lost": None}
+    stake, fee = b.get("stake"), b.get("fee_paid") or 0.0
+    won = resolve_pnl(stake, entry_held, True, fee)
+    lost = resolve_pnl(stake, entry_held, False, fee)
+    return {"payout_if_won": won, "loss_if_lost": lost,
+            "bankroll_if_won": round(bankroll_now + won, 2),
+            "bankroll_if_lost": round(bankroll_now + lost, 2)}
 
 
 def format_positions(rows) -> str:
@@ -415,15 +441,22 @@ def format_positions(rows) -> str:
             return _MISSING
         return f"{v:+.3f}" if sign else f"{v:.3f}"
 
+    def money(v, sign=False):
+        if v is None:
+            return _MISSING
+        return f"{v:+.2f}" if sign else f"{v:.2f}"
+
     hdr = ["side", "entry(held)", "mark(held)", "delta(held)", "edge@entry",
-           "entry(YES)", "mark(YES)", "decided", "stake", "marked", "resolves",
-           "question"]
+           "entry(YES)", "mark(YES)", "decided", "stake", "if won", "if lost",
+           "bankroll if won", "bankroll if lost", "marked", "resolves", "question"]
     body = [[
         str(r["side"]), num(r["entry_held"]), num(r["mark_held"]),
         num(r["delta_held"], sign=True), num(r["edge_at_entry"], sign=True),
         num(r["entry_yes"]), num(r["mark_yes"]),
         {"pending_win": "WIN", "pending_loss": "LOSS"}.get(r["decided"], ""),
         f"${r['stake']:.0f}" if r["stake"] is not None else _MISSING,
+        money(r["payout_if_won"], sign=True), money(r["loss_if_lost"], sign=True),
+        money(r["bankroll_if_won"]), money(r["bankroll_if_lost"]),
         str(r["marked_at"] or _MISSING), str(r["end_date"] or "")[:10],
         (r["question"] or "")[:60],
     ] for r in rows]
@@ -444,8 +477,101 @@ def format_positions(rows) -> str:
         "than delta(held) by the half-spread paid on entry. delta(held) is the position's "
         "number; the YES pair is the market's quote.",
         "Never subtract across frames — entry(held) minus mark(YES) is meaningless.",
+        "if won / if lost = the P&L this position books on each outcome, from the same "
+        "resolve_pnl() the evaluator uses (payout = stake/entry - stake, net of the "
+        "entry fee already paid). Quote these; do not recompute them in prose.",
+        "bankroll if won / if lost = today's resolved-only bankroll plus that outcome. "
+        "One position at a time: every OTHER open position is still open in both "
+        "columns, so these are not a portfolio scenario.",
+        "edge@entry is the edge as of ENTRY. Never re-derive an edge by comparing p_hat "
+        "to today's mark — that number grows as the position wins and is not an edge.",
     ]
     return "\n".join(out)
+
+
+CLOB_HISTORY = "https://clob.polymarket.com/prices-history"
+
+
+def price_history(market_id, interval="max", fidelity=1440):
+    """(meta, series) for a market id. YES-token series, oldest first.
+
+    Daily fidelity by default because the CLOB window shrinks as fidelity gets finer:
+    market 3128887 (created 2026-07-27) returns from 2026-08-21 at fidelity=60 and from
+    2026-07-28 at fidelity=1440. The default has to be the one that can see the market's
+    whole life; pass a finer fidelity when the question is about intraday movement.
+
+    Resolving the CLOB token from the market id is the whole point: the prompt used to
+    have the agent assemble that URL by hand from `clobTokenIds`, and a hand-assembled
+    identifier is where a sibling market substitutes itself — Run 18 answered Bet 16's
+    before-vs-after-entry question with the October-31 sibling's series.
+    """
+    m = _fetch_market(market_id) or {}
+    tokens = m.get("clobTokenIds")
+    if isinstance(tokens, str):
+        tokens = json.loads(tokens)
+    meta = {"market_id": str(market_id), "question": m.get("question"),
+            "created_at": m.get("createdAt")}
+    if not tokens:
+        return meta, []
+    r = requests.get(CLOB_HISTORY, timeout=30,
+                     params={"market": tokens[0], "interval": interval,
+                             "fidelity": fidelity})
+    pts = r.json().get("history", []) if r.status_code == 200 else []
+    return meta, sorted(((p["t"], float(p["p"])) for p in pts), key=lambda x: x[0])
+
+
+def _day(ts) -> str:
+    return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
+
+
+def format_price_history(meta, series, entry_date=None) -> str:
+    """The series under a header naming the market that produced it.
+
+    The header is load-bearing, not decoration: a series quoted from the wrong market is
+    only detectable if the quote carries the market's own id, question and creation date.
+    """
+    head = [f"price history — market {meta.get('market_id')} — "
+            f"{meta.get('question') or '(question unavailable)'}",
+            f"market created: {str(meta.get('created_at') or 'unknown')[:10]}"]
+    if not series:
+        return "\n".join(head + ["no price history returned for this market."])
+
+    series = sorted(series, key=lambda x: x[0])
+    lo = min(series, key=lambda x: x[1])
+    hi = max(series, key=lambda x: x[1])
+    head.append(f"{len(series)} point{'s' if len(series) != 1 else ''}, "
+                f"{_day(series[0][0])} to {_day(series[-1][0])} (YES frame)")
+    head.append(f"first observed: {series[0][1]:.3f} on {_day(series[0][0])}")
+    # The CLOB returns a window whose span depends on `fidelity`, not the market's life:
+    # market 3128887 starts 2026-08-21 at fidelity=60 and 2026-07-28 at fidelity=1440,
+    # having been created 2026-07-27. Run 18 read the hourly window's left edge and
+    # reported "the market opened Aug 21". Say so when the series cannot see that far
+    # back, because a before-vs-after-entry claim needs the part that is missing.
+    created = str(meta.get("created_at") or "")[:10]
+    # One day of slack: a daily series legitimately starts the day after creation, and a
+    # warning that fires on every healthy fetch is one nobody reads.
+    created_dt = _parse_dt(meta.get("created_at"))
+    first_dt = datetime.fromtimestamp(series[0][0], tz=timezone.utc)
+    if created_dt and (first_dt - created_dt).days >= 1:
+        head.append(
+            f"WARNING: series is TRUNCATED — it starts {_day(series[0][0])} but the "
+            f"market was created {created}. The first point above is the left edge of "
+            f"the window this fidelity returns, not the market's opening price. Re-fetch "
+            f"with a coarser fidelity before making any claim about the earlier period.")
+    if len(series) > 1:
+        head.append(f"max {hi[1]:.3f} on {_day(hi[0])}   "
+                    f"min {lo[1]:.3f} on {_day(lo[0])}")
+    head.append(f"latest: {series[-1][1]:.3f} on {_day(series[-1][0])}")
+    if entry_date:
+        at = [p for p in series if _day(p[0]) <= entry_date]
+        head.append(
+            f"at entry ({entry_date}): "
+            + (f"{at[-1][1]:.3f}" if at else "no observation on or before that date")
+            + "  — everything before this line is what the market already knew.")
+    # The path itself, one line per observation, so a claim about the path can be
+    # checked against it rather than remembered.
+    body = [f"  {_day(t)}  {p:.3f}" for t, p in series]
+    return "\n".join(head + ["path (oldest first):"] + body)
 
 
 def _latest_lessons_section() -> str:
@@ -696,6 +822,27 @@ if __name__ == "__main__":
             print(text)
         except UnicodeEncodeError:
             print(text.encode("ascii", "replace").decode())
+    elif cmd == "history":
+        # The ONLY sanctioned source for a claim about a market's price PATH. The agent
+        # used to assemble the CLOB URL from clobTokenIds by hand, and Run 18 answered
+        # Bet 16's before-vs-after-entry question with the sibling October-31 market's
+        # series. Resolving the token from the market id — and printing the id, question
+        # and creation date above the path — makes that substitution visible in the quote.
+        arg = sys.argv[2] if len(sys.argv) > 2 else "--open"
+        if arg == "--open":
+            targets = [(b["market_id"], (b.get("placed_at") or "")[:10])
+                       for b in load_bets() if b.get("status") == "open"]
+            if not targets:
+                print("no open positions.")
+        else:
+            targets = [(arg, sys.argv[3] if len(sys.argv) > 3 else None)]
+        for market_id, entry_date in targets:
+            meta, series = price_history(market_id)
+            text = format_price_history(meta, series, entry_date=entry_date)
+            try:
+                print(text + "\n")
+            except UnicodeEncodeError:
+                print(text.encode("ascii", "replace").decode() + "\n")
     elif cmd == "email_html":
         out = sys.argv[2] if len(sys.argv) > 2 else "email.html"
         Path(out).write_text(email_html(), encoding="utf-8")
