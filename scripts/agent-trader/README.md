@@ -49,6 +49,10 @@ Individual commands, if you prefer them raw:
 | `python agent_trader.py evaluate` | Re-fetch open bets: book the formally resolved ones, snapshot the rest as `mark_yes_price` | yes | `bets.jsonl` |
 | `python agent_trader.py summary` | Record, P&L, bankroll, Brier, mark-to-market | no | — |
 | `python metrics.py` | Calibration, by-confidence, cost-aware bootstrap verdict | no | — |
+| `python metrics.py --operator` | The same **plus the YES/NO split**. Operator-only — see `HYPOTHESIS-side-bias.md` | no | — |
+| `python agent_trader.py history --open` | Price path of each open position's own market, headed by its id, question and creation date | yes | — |
+| `python agent_trader.py history <market_id> [entry_date] [fidelity]` | The same for one market. A **coarser** fidelity returns a **longer** window | yes | — |
+| `python lessons_guard.py <before> lessons.md` | Enforce append-only on the learning history; restores the prefix and keeps new sections | no | `lessons.md` |
 | `python agent_trader.py metrics <YYYY-MM-DD>` | Same, and appends the dated row to `metrics.jsonl` | no | `metrics.jsonl` |
 | `python agent_trader.py candidates --research` | Liquid, ≤45d, spread ≤3%, non-sports candidate markets | yes | — |
 | `python agent_trader.py email_html out.html` | Render the weekly email | no | `out.html` |
@@ -134,10 +138,12 @@ are documented in `lessons.md`.
 |---|---|
 | `bets.jsonl` | The track record — the source of truth. `record` only ever appends; `evaluate` updates a row in place (status/P&L on resolution, `mark_yes_price` weekly). Rows are never deleted |
 | `lessons.md` | The learning loop: one `## Run N — <date>` per run, fed into every decision prompt |
-| `metrics.jsonl` | Trajectory: one cumulative-metrics snapshot per run |
+| `metrics.jsonl` | Trajectory: one row per **date** (a re-run replaces that date's row), carrying the headline metrics and the `yes_*`/`no_*` split |
 | `agent-trader-prompt.md` | The decision prompt handed to headless Claude |
 | `agent_trader.py` | Candidates, `record`, `evaluate`, `summary`, `email_html` |
-| `metrics.py` | Calibration, mark-to-market, bootstrap CI, snapshots |
+| `metrics.py` | Calibration, mark-to-market, bootstrap CI, snapshots. `render_text` is the **agent-facing** view; `render_operator_text` adds the side split |
+| `lessons_guard.py` | Append-only guard for `lessons.md` — the file is state, not a log: all of it goes into every future decision prompt |
+| `HYPOTHESIS-side-bias.md` | Pre-registration of the YES/NO hypothesis: the prediction, the bar, the stopping rule and why the agent is kept blind |
 
 ## Reading the output honestly
 

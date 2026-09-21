@@ -115,9 +115,14 @@ jobs:
           if [ -f lessons.md ]; then
             LESSONS_HAD=1
             LESSONS_SUM_BEFORE=$(md5sum lessons.md | cut -d' ' -f1)
+            # Full copy, not just the checksum: the checksum detects that lessons.md
+            # changed, which a healthy run always does. Only the copy can tell an APPEND
+            # from an edit to the history, and only it can put the history back.
+            cp lessons.md /tmp/lessons-before.md
           else
             LESSONS_HAD=0
             LESSONS_SUM_BEFORE=absent
+            rm -f /tmp/lessons-before.md
           fi
           BETS_BEFORE=$(wc -l < bets.jsonl 2>/dev/null || echo 0)
           # Hand the decision loop to Claude with web + bash access. The prompt file
@@ -134,6 +139,16 @@ jobs:
             --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
             > /tmp/agent-run.log 2>&1 || AGENT_OK=0
           cat /tmp/agent-run.log
+          # lessons.md is state: the whole file goes into every future decision prompt.
+          # The agent appends to it with Write/Edit, and on 2026-09-21 that write also
+          # altered a line inside Run 17's section while appending Run 18. Restore the
+          # pre-run file as a prefix and keep the new sections. Runs BEFORE the audit so
+          # a repaired file is what gets audited and committed.
+          python lessons_guard.py /tmp/lessons-before.md lessons.md
+          case $? in
+            1) echo "::warning::lessons.md history was edited by the run; the pre-run file was restored and the new section(s) kept. Check the commit diff." ;;
+            2) echo "::warning::lessons.md history was edited and the new content could not be separated from the edit — left exactly as the agent wrote it. Needs a human." ;;
+          esac
           # Never report or persist entries written outside the guarded record path.
           if ! python entry_gate.py audit; then
             echo "::error::Entry audit failed; refusing to publish this run."
@@ -176,6 +191,12 @@ jobs:
           echo "$AGENT_OK" > /tmp/agent-ok
           echo "=== final summary ==="
           python agent_trader.py summary || true
+          # Operator view: adds the YES/NO split, which is deliberately absent from every
+          # surface the agent reads (see HYPOTHESIS-side-bias.md). Printed here, after the
+          # agent's turn has ended, so the run log and the email carry it and the agent's
+          # own `summary`/`metrics` calls do not.
+          echo "=== operator view (side split — not shown to the agent) ==="
+          python metrics.py --operator || true
           # Append the per-run metrics snapshot (calibration + cost-aware P&L CI trajectory).
           python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 

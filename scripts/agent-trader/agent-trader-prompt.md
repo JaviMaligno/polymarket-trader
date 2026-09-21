@@ -21,7 +21,7 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    it. If it is genuinely absent, stop the research run and report the setup
    failure. Run:
    `python agent_trader.py evaluate`, then `python agent_trader.py summary`, then
-   `python agent_trader.py positions`.
+   `python agent_trader.py positions`, then `python agent_trader.py history --open`.
    Read `lessons.md` fully — it is your accumulated learning; apply it.
    **Every statement you make about an open position — entry, mark, direction and size
    of the move — must come from THIS run's `positions` output, verbatim.** Never from
@@ -34,11 +34,34 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    and you report a 0.27 move; the position's actual move is +0.055 (entry(held) 0.620 →
    mark(held) 0.675). Quote `positions`, not prose from an earlier run.
 
+   **That rule covers what the position PAYS, too.** `positions` prints `if won`,
+   `if lost`, `bankroll if won` and `bankroll if lost`, computed by the same
+   `resolve_pnl` the evaluator will use. Quote those columns; **never compute a payout
+   or a projected bankroll in prose.** Run 18 wrote "expected P&L ~-$58, bankroll ~$942"
+   for a position that pays `25/0.83 - 25 = +$5.12`, i.e. bankroll $932.29 — off by 3x,
+   with the right numbers sitting in the table it was already quoting from.
+
+   **`edge@entry` is the edge as of ENTRY, and it is the only edge.** Never re-derive an
+   edge against the current mark: `p_hat - mark` grows as a position wins, so it reads
+   as a huge edge exactly when there is none left to take. Run 18 reported "NO edge
+   ~85pp" from `0.96 - 0.11` on a position entered at 0.83 (a 13pp edge). That is the
+   same inflated-edge shape that made Bet 15 a "high conviction" loss.
+
    **For every open position, answer this checklist explicitly before updating its
    `p_hat` or describing the thesis:**
    1. What does the marginal buyer know that I may be missing?
-   2. Was the motivating news already reflected in the price before entry? Use the
-      market's pre-entry price history, not only the latest mark.
+   2. Was the motivating news already reflected in the price before entry? **Answer this
+      from `python agent_trader.py history --open`, quoted verbatim — never from a URL
+      you assembled yourself.** That output names the market id, question and creation
+      date above the path, so a series taken from the wrong market is visible in your
+      own quote. Run 18 answered this item for Bet 16 with "the market opened Aug 21 at
+      0.415 ... recovered to 0.400": that market was created 2026-07-27, its first daily
+      observation is 0.655, and 0.400 was the *sibling* October-31 market this same run
+      declined two paragraphs later.
+      If the output says **TRUNCATED**, the first point is **not the market's opening**
+      price — it is the left edge of the window that fidelity returns. Re-fetch coarser
+      (`history <market_id> <entry_date> 1440`) before saying anything about the earlier
+      period, and never call the first point of a window an opening price.
    3. What probability remains that the criterion is met before the deadline? An unmet
       criterion today is not a zero probability while time remains.
    4. Do not call a thesis confirmed or vindicated before resolution. Describe an open

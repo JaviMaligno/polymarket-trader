@@ -836,8 +836,11 @@ if __name__ == "__main__":
                 print("no open positions.")
         else:
             targets = [(arg, sys.argv[3] if len(sys.argv) > 3 else None)]
+        # history <market_id> [entry_date] [fidelity] — a coarser fidelity returns a
+        # LONGER window, which is what a TRUNCATED warning asks for.
+        fidelity = int(sys.argv[4]) if len(sys.argv) > 4 else 1440
         for market_id, entry_date in targets:
-            meta, series = price_history(market_id)
+            meta, series = price_history(market_id, fidelity=fidelity)
             text = format_price_history(meta, series, entry_date=entry_date)
             try:
                 print(text + "\n")
