@@ -1270,7 +1270,7 @@ The Sept 10 spike from 0.215 to 0.295 and crash back to 0.16 within 2 hours is t
 processing the FGW "3-point gap" poll and immediately concluding it was insufficient for
 SPD to win. This pattern (spike on ambiguous news, rapid reversion) is evidence that the
 sophisticated market participants have already stress-tested the "SPD wins" scenario and
-found it wanted. A rapid spike-and-crash is NOT a price discovery failure — it is price
+found it wanting. A rapid spike-and-crash is NOT a price discovery failure — it is price
 discovery at high speed.
 
 ## Run 18 — 2026-09-21 (zero new bets; Bet 15 post-mortem; Bet 16 update)
