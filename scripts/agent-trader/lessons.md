@@ -1327,3 +1327,34 @@ Numbers from this run's `positions` output: entry(held)=0.830, mark(held)=0.905,
 
 **Running record: 8-7 resolved, 1 open ($25 at risk). P&L: -$72.83, bankroll $927.17, Brier 0.2054.**
 **Expected trajectory: Bet 16 high-confidence win (YES=0.095, resolves Oct 1); p_hat YES ~0.04, NO edge ~85pp. Expected P&L after resolution: ~-$58, bankroll ~$942.**
+
+## Run 19 — 2026-10-02 (zero new bets; Bet 16 post-mortem; concentration veto learning)
+
+**Official record at run start:** 9-7 resolved, P&L -$67.71, bankroll $932.29, Brier 0.1928. Open: 0.
+
+**Correction to Run 18 final line:** Run 18 wrote "Expected P&L after resolution: ~-$58, bankroll ~$942." Actual result: Bet 16 WON, pnl_net = +$5.12, bankroll $932.29. The Run 18 line computed a loss instead of a win — the same prose-calculation error the prompt repeatedly flags. The `if won` and `bankroll if won` columns of `positions` output are the authoritative source; never compute payout in prose.
+
+**Resolved post-mortem — Bet 16 (Iran blockade end Sept 30 NO, entry YES=0.175) — WON (+$5.12)**
+
+No formal US government announcement ending/terminating/suspending the naval blockade was made by September 30. The thesis held exactly: (1) ceasefire ≠ blockade termination (distinct legal instruments); (2) the strict 8-paragraph resolution criterion requires a declarative, present, official announcement via official channels; (3) informal gestures, prospective statements, and back-channel diplomacy don't qualify. The formal-vs-informal template wins 5 of 5 (Bolojan, Israel-Hezbollah, Sulyok, MOU, blockade). Family (i) edge confirmed again.
+
+**Candidates researched and declined:**
+
+**US blockade end Oct 31 NO (market 3128888, YES=0.225):** Identical Family (i) analysis. Blockade fully active (Iran zero crude exports September 2026, Bloomberg Oct 1). Talks "stuck" per Axios. Iran UNGA roadmap rejected by Trump ("outsmarted themselves"). Every CLOB spike (Sept 12 peak 0.455, Sept 22 peak 0.455) rapidly rejected by informed traders within 1 hour. Price declined from 0.370 opening to 0.225 current — consistent downtrend, not stale or anchored. p_hat YES ~0.08. Net edge on NO ~14.5%. **CONCENTRATION VETO BLOCKED ENTRY.** The run state was initialized before `evaluate` ran, so Bet 16 appeared as `status=open` in the frozen exposure. The harness correctly prevented replacing it during this run. Will be the primary candidate for Run 20.
+
+**Netanyahu next PM of Israel (market 682705, YES=0.335):** Israeli election Oct 27. Netanyahu's bloc averages ~53 seats in polls, 8 short of the 61 needed to govern. Eisenkot leads at ~47%. Market at 33.5% is roughly consistent with polls and coalition arithmetic. No criterion asymmetry — criterion simply requires being sworn in as PM. Family (ii) bet, no differentiated edge. Decline.
+
+**Vučić next PM Serbia (market 2757891, YES=0.691):** Vučić resigned presidency Sept 27 to run as PM candidate. Snap election Oct 25. SNS polling 48.6%, Student List 37.1% (surging). Prediction markets give SNS ~65% win. Market at 69.1% consistent with SNS winning and Vučić becoming PM. Family (ii), no criterion asymmetry. Decline.
+
+**US-Iran ceasefire through Oct 31 (market 4641065, YES=0.605):** Qualifying actions = air/missile strikes hitting Iranian territory. Last qualifying strike Sept 21 (11+ days ago). De facto pause. Political incentive to avoid escalation before Nov 4 midterms. p_hat YES ~0.70-0.75, edge ~9.5-14.5%. Family (ii) YES bet. Borderline but below threshold for a Family (ii) YES in a military domain with genuine uncertainty. Plus this would have hit the Iran-concentration limit had the blockade-end bet not been vetoed first.
+
+**Brazil presidential (resolves Oct 5):** Lula YES=0.425, Bolsonaro YES=0.573. All four first-round/overall prices internally consistent with each other and with broader market consensus. 2-day horizon already fully priced. No edge.
+
+**NEW SELECTION RULES from this run:**
+
+1. **Concentration veto is enforced by the FROZEN run state, not by the post-evaluation bets.jsonl.** The run state is initialized before `evaluate` runs. A bet that resolves between runs but is captured as "open" in the frozen exposure occupies its slot for the ENTIRE run in which it resolves. Do not attempt to work around this; the harness implements it correctly. The slot opens at the NEXT run's initialization (after the bet's resolved status is in the database).
+
+2. **Prose P&L calculations are systematically wrong.** Run 18's "expected P&L ~-$58" for a winning +$5.12 NO bet is the latest instance. The `positions` output prints `if won`, `if lost`, `bankroll if won`, `bankroll if lost` precisely to avoid this. Quote those columns exclusively; never compute payout in prose.
+
+**Running record: 9-7 resolved, 0 open. P&L: -$67.71, bankroll $932.29, Brier 0.1928.**
+**Primary candidate for Run 20: US blockade end Oct 31 NO (market 3128888, YES=0.225, p_hat ~0.08, edge ~14.5%). Concentration slot will be clear since frozen exposure will no longer include Bet 16.**
