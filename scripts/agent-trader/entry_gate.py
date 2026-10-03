@@ -17,6 +17,17 @@ import agent_trader as trader
 HERE = Path(__file__).resolve().parent
 CHECKS = ('sources', 'conditions', 'probability', 'counterargument',
           'price_history', 'risk_group', 'siblings', 'seat_math')
+# The agent's Bash timeout (BASH_DEFAULT/MAX_TIMEOUT_MS in the workflow) must outlast
+# this, or `record` gets backgrounded and the agent ends its turn waiting (2026-09-28).
+REVIEW_TIMEOUT_S = 600
+DEFAULT_MODEL = 'claude-sonnet-5-5'
+
+
+def run_models():
+    """Researcher and reviewer models, stamped on every bet: a model change is a regime
+    change for the track record (Sonnet 4.6 -> 5.5 on 2026-10-05)."""
+    return {'model': os.environ.get('AGENT_MODEL'),
+            'review_model': os.environ.get('AGENT_REVIEW_MODEL', DEFAULT_MODEL)}
 
 
 def now():
@@ -236,7 +247,7 @@ def fetch_history(market, news_at):
 
 def critical_review(packet):
     instructions = (HERE / 'critical-review-prompt.md').read_text(encoding='utf-8')
-    command = ['claude', '--print', '--model', os.environ.get('AGENT_REVIEW_MODEL', 'claude-sonnet-4-6'),
+    command = ['claude', '--print', '--model', run_models()['review_model'],
                '--output-format', 'json', '--tools', 'WebSearch,WebFetch',
                '--allowedTools', 'WebSearch,WebFetch', '--strict-mcp-config',
                '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
@@ -247,7 +258,7 @@ def critical_review(packet):
     try:
         result = subprocess.run(command, input=json.dumps(packet, ensure_ascii=False),
                                 text=True, encoding='utf-8', capture_output=True,
-                                timeout=600, env=env, cwd=HERE)
+                                timeout=REVIEW_TIMEOUT_S, env=env, cwd=HERE)
         if result.returncode:
             raise ValueError('critical review process failed')
         envelope = json.loads(result.stdout)
@@ -359,7 +370,7 @@ def _record_proposal(p, state_path):
     bet.update(risk_group=group, event_ids=event_ids(fresh), run_id=state['run_id'],
                evidence=p, review=review, reviewed_edge=round(edge, 6),
                review_packet_hash=digest(packet), reviewed_at=now().isoformat(),
-               reviewed_market=market, price_history=history)
+               reviewed_market=market, price_history=history, **run_models())
     # Receipt before append: an interrupted append cannot become an unaudited trade.
     state['receipts'].append({'bet': bet, 'hash': digest(bet)})
     save_run(state_path, state)

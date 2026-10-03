@@ -76,8 +76,11 @@ a reviewed data migration. Historical entry probabilities are never rewritten.
 The investigator writes a proposal; `record` launches a separate CLI session with
 only WebSearch/WebFetch, no Bash/Write/Edit, no MCP servers and no conversation
 reuse. It can veto without offering another trade. The default review model is
-`claude-sonnet-4-6`; `AGENT_REVIEW_MODEL` may override it. It inherits the existing
-local login or Foundry authentication. Allow up to 10 minutes per review.
+`claude-sonnet-5-5` (`entry_gate.DEFAULT_MODEL`); the workflow sets `AGENT_MODEL` once and
+passes it to both the researcher and `AGENT_REVIEW_MODEL`. Both are stamped on every bet
+(`model`, `review_model`); bets without them are Sonnet 4.6. It inherits the existing
+local login or Foundry authentication. Allow up to 10 minutes per review — the workflow
+raises the agent's Bash timeout to 15 minutes so `record` is never backgrounded.
 
 Python requires the full current description and paragraph count, sourced payout
 conditions, recently checked URLs, justified probability scenarios, counterargument,

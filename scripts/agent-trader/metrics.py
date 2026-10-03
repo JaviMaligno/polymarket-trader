@@ -218,6 +218,8 @@ def append_snapshot(m: dict, date: str) -> None:
     trajectory unusable as a series without deduplicating it first. A re-run supersedes
     its earlier attempt at that date; it is not a second observation.
     """
+    import datetime
+    datetime.date.fromisoformat(date)  # ValueError: a flag is never a trajectory key
     row = snapshot_row(m, date)
     rows = [json.loads(l) for l in METRICS_LOG.open(encoding="utf-8")
             if l.strip()] if METRICS_LOG.exists() else []
@@ -327,10 +329,26 @@ to the agent; see HYPOTHESIS-side-bias.md)</i></p>
 <th>95% CI</th></tr>{side_rows}</table>"""
 
 
+def main(argv: list[str], bets: list[dict] | None = None) -> str:
+    """`metrics.py [--operator] [YYYY-MM-DD]`.
+
+    Bare: the agent view. `--operator`: adds the side split (never a snapshot). A date:
+    also writes that date's snapshot row. Anything else is an error — `--operator` used to
+    be taken as a snapshot date, which printed the agent view and wrote a "--operator" row.
+    """
+    import argparse
+    parser = argparse.ArgumentParser(prog="metrics.py")
+    parser.add_argument("--operator", action="store_true")
+    parser.add_argument("date", nargs="?")
+    args = parser.parse_args(argv)
+    m = compute_metrics(bets)
+    out = render_operator_text(m) if args.operator else render_text(m)
+    if args.date:
+        append_snapshot(m, args.date)
+        out += f"\n\nwrote snapshot to {METRICS_LOG}"
+    return out
+
+
 if __name__ == "__main__":
     import sys
-    m = compute_metrics()
-    print(render_text(m))
-    if len(sys.argv) > 1:  # any arg => also append a dated snapshot to metrics.jsonl
-        append_snapshot(m, sys.argv[1])
-        print(f"\nwrote snapshot to {METRICS_LOG}")
+    print(main(sys.argv[1:]))

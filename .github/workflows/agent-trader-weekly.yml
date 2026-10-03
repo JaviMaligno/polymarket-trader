@@ -28,6 +28,11 @@ jobs:
   agent-trader:
     runs-on: ubuntu-latest
     timeout-minutes: 90  # research plus up to four independent reviews (10 min each)
+    env:
+      # One model for researcher and reviewer; it must exist as a deployment on the Foundry
+      # resource. Stamped on every bet (entry_gate.run_models): changing it opens a new
+      # regime in the track record. Sonnet 4.6 until 2026-10-02, Sonnet 5.5 from 2026-10-05.
+      AGENT_MODEL: claude-sonnet-5-5
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -70,8 +75,15 @@ jobs:
           CLAUDE_CODE_USE_FOUNDRY: "1"
           ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.AZURE_FOUNDRY_RESOURCE }}
           ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
-          ANTHROPIC_DEFAULT_SONNET_MODEL: "claude-sonnet-4-6"
+          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL }}
           ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5"
+          # The independent reviewer that `record` launches (entry_gate.py) runs the same model.
+          AGENT_REVIEW_MODEL: ${{ env.AGENT_MODEL }}
+          # `record` blocks on that reviewer for up to REVIEW_TIMEOUT_S (600 s). At the Bash
+          # tool's 120 s default it was moved to the background and the agent ended its turn
+          # "waiting for the notification" — in --print that is exiting (2026-09-28 null run).
+          BASH_DEFAULT_TIMEOUT_MS: "900000"
+          BASH_MAX_TIMEOUT_MS: "900000"
         working-directory: scripts/agent-trader
         run: |
           set -uo pipefail
@@ -133,7 +145,7 @@ jobs:
           # agent actually appended to lessons.md — a real run always does.
           AGENT_OK=1
           cat agent-trader-prompt.md | claude \
-            --model claude-sonnet-4-6 \
+            --model "$AGENT_MODEL" \
             --print \
             --permission-mode acceptEdits \
             --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
