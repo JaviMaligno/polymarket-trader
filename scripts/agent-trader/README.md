@@ -80,8 +80,11 @@ reuse. It can veto without offering another trade. The default review model is
 passes it to both the researcher and `AGENT_REVIEW_MODEL`. Both are stamped on every bet
 (`model`, `review_model`); bets without them are Sonnet 4.6. Before changing the model, run
 the workflow with `validation_only` (answer + WebSearch smoke) and then `rehearsal` (a full
-run, nothing published). Sonnet 5.5 fails the smoke: Claude Code's WebSearch forces
-`tool_choice`, which 5.5 rejects with a 400. It inherits the existing
+run, nothing published). Claude Code's WebSearch forces `tool_choice`, which Sonnet 5.5
+rejects with a 400, so 5.5 runs with `AGENT_WEB_SEARCH=mcp`: `search_mcp.py` (keyless
+DuckDuckGo/Bing web search + Google News RSS, stdlib MCP stdio server) replaces WebSearch
+for both the researcher (`search-flags.sh`) and the reviewer
+(`entry_gate.reviewer_tool_args`). It inherits the existing
 local login or Foundry authentication. Allow up to 10 minutes per review — the workflow
 raises the agent's Bash timeout to 15 minutes so `record` is never backgrounded.
 

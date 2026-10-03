@@ -162,6 +162,14 @@ Run `python metrics.py --operator` and read, in order:
   the blind is broken — record the date and treat later bets as contaminated. Also confirm the
   prompt still passes `tests/test_blindness_surfaces.py`.
 
+  **The blind broke through a human, not the agent** (found 2026-10-03): the 2026-08-31
+  review correction appended "NO 5-0, YES 3-6 … treat a YES bet as needing a higher bar" to
+  `lessons.md`, and every run read it for a month. Rules for any correction YOU append to
+  `lessons.md`: families, criteria, calibration and process are fine; the record split by
+  side, or any side-specific rule, never. Grep the whole file, not just the new section:
+  `grep -n -iE "side.?asymmetry|losses are YES|YES bets? (lose|lost)|higher bar than a NO" lessons.md`.
+  The test cohort restarted with bets placed on or after 2026-10-05 (see the hypothesis file).
+
 ### Step 4 — Bet-quality / narrative review (question every substantive claim)
 
 The agent tells stories in `lessons.md` ("market mispriced the SPEED", "near-certain win",

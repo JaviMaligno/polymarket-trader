@@ -1097,7 +1097,7 @@ Concentration: no Iran bets open (Bet 14 resolved Aug 31, Bet 7 resolved Aug 20)
 
 - **Sweden PM Kristersson YES @ 0.215 (5d):** Latest Novus poll (Sept 1-5, n=2,888): left bloc 50.3%, right+SD 47.9% (gap 2.4pp). Liberals crossed 4% threshold at 4.3% — the key mechanism that gives right any shot at forming government. Quantitative decomposition: P(Liberals clear 4% on election day | polling 4.3%) ≈ 60-65%; P(right wins | Liberals clear, 2.4pp left lead) ≈ 18-22%; P(right wins | Liberals fail) ≈ 5%. Weighted p_hat Kristersson ≈ 0.60×0.20 + 0.40×0.05 = 14-16%. Market at 21.5% is roughly fairly priced or slightly overpriced. No compelling edge. Family (ii). **Decline.**
 
-- **Brazil Bolsonaro YES @ 0.392 (26d):** Three independent polls (Quaest, Datafolha, PoderData, Sept 2-3) show runoff as statistical tie. p_hat Bolsonaro ≈ 48-50%. Net edge 6-8%. Family (ii), YES bet requiring higher bar per side-asymmetry rule. **Decline.**
+- **Brazil Bolsonaro YES @ 0.392 (26d):** Three independent polls (Quaest, Datafolha, PoderData, Sept 2-3) show runoff as statistical tie. p_hat Bolsonaro ≈ 48-50%. Net edge 6-8%. Family (ii). **Decline.**
 
 - **Alcaraz US Open YES @ 0.565 (5d):** In quarterfinals, vs Shelton Sept 8. Sportsbooks also ~55%. Well-calibrated. No edge. **Decline.**
 
@@ -1143,11 +1143,7 @@ Two rules follow, and both are now in `agent-trader-prompt.md` step 3:
 2. Under a mixed electoral system, never accept an aggregator's seat projection without
    decomposing list vs constituency seats.
 
-Two further observations from the same review, for the record:
-- **Side asymmetry**: marking Bets 10 and 14 as the losses they are, the record is
-  **NO 5-0, YES 3-6** — all six losses are YES bets. Consistent with the winning family
-  ("the formal thing does not happen in time") plus a systematic optimism about events
-  occurring. Treat a YES bet as needing a higher bar than a NO bet of the same nominal edge.
+One further observation from the same review, for the record:
 - **Calibration was flattered by open losers**: Brier goes 0.108 → 0.164 mark-to-market and
   the 0.6-0.8 bucket falls from actual 1.00 (n=2) to 0.50 (n=4). Report the marked figure.
 

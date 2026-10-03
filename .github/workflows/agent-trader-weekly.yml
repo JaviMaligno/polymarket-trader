@@ -36,9 +36,12 @@ jobs:
       # One model for researcher and reviewer; it must exist as a deployment on the Foundry
       # resource and pass the smoke test below (answer + WebSearch). Stamped on every bet
       # (entry_gate.run_models): changing it opens a new regime in the track record.
-      # Sonnet 5.5 is deployed but blocked: Claude Code's WebSearch forces tool_choice,
-      # which 5.5 rejects (2026-10-03). Switch here once search works for it.
-      AGENT_MODEL: claude-sonnet-4-6
+      # Sonnet 5.5 cannot use Claude Code's WebSearch (it forces tool_choice, which 5.5
+      # rejects with a 400 on Foundry, 2026-10-03), so it runs with AGENT_WEB_SEARCH=mcp.
+      AGENT_MODEL: claude-sonnet-5-5
+      # Search for researcher AND reviewer. builtin: Claude Code's WebSearch. mcp:
+      # search_mcp.py (keyless DuckDuckGo/Bing + Google News RSS) with WebSearch disabled.
+      AGENT_WEB_SEARCH: mcp
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -79,12 +82,14 @@ jobs:
           ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
         run: |
           set -o pipefail
+          source scripts/agent-trader/search-flags.sh || exit 1
           claude --version
           echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL" --print \
             | tee /tmp/smoke.log
           grep -q MODEL_OK /tmp/smoke.log
-          echo "Use the WebSearch tool once to find today's Brent crude price. Reply SEARCH_OK, the number and one source URL; reply SEARCH_FAILED if the tool errors." \
-            | claude --model "$AGENT_MODEL" --print --allowedTools "WebSearch" | tee /tmp/search.log
+          echo "Use your web search tool once to find today's Brent crude price. Reply SEARCH_OK, the number and one source URL; reply SEARCH_FAILED if the tool errors." \
+            | claude --model "$AGENT_MODEL" --print "${SEARCH_FLAGS[@]}" \
+                --allowedTools "$SEARCH_TOOLS" | tee /tmp/search.log
           grep -q SEARCH_OK /tmp/search.log && grep -q "https\?://" /tmp/search.log
 
       - name: Configure git
@@ -174,12 +179,14 @@ jobs:
           # bare `|| true` would hide a total no-op behind a green check. Detect both the
           # non-zero exit AND the in-band error signature, and corroborate with whether the
           # agent actually appended to lessons.md — a real run always does.
+          source search-flags.sh || exit 1   # SEARCH_FLAGS / SEARCH_TOOLS per AGENT_WEB_SEARCH
           AGENT_OK=1
           cat agent-trader-prompt.md | claude \
             --model "$AGENT_MODEL" \
             --print \
             --permission-mode acceptEdits \
-            --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
+            "${SEARCH_FLAGS[@]}" \
+            --allowedTools "Bash WebFetch Read Write Edit $SEARCH_TOOLS" \
             > /tmp/agent-run.log 2>&1 || AGENT_OK=0
           cat /tmp/agent-run.log
           # lessons.md is state: the whole file goes into every future decision prompt.

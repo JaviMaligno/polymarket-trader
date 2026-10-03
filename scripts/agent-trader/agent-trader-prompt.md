@@ -77,7 +77,10 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
 
 3. **Research per market (not in aggregate).** For each promising candidate: fetch its
    exact resolution criterion (`requests.get` the Gamma market by id → `description`) —
-   read it BEFORE sizing conviction. Then WebSearch/WebFetch current facts. Form
+   read it BEFORE sizing conviction. Then search and WebFetch current facts. Your search
+   tool is either WebSearch or `mcp__search__web_search` / `mcp__search__news_search`
+   (use whichever you have; `news_search` gives dated headlines, its links are redirects —
+   cite the publisher URL found with `web_search`, opened with WebFetch). Form
    `p_hat` (your probability of YES) + a written rationale. Decline (efficient/marginal/
    ambiguous) freely; the strongest historical edges were where the market mispriced the
    SPEED or STATUS of a known-direction process, not blue-chip consensus.
@@ -137,8 +140,11 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    **Mandatory guarded entry.** Read `proposal.example.json` and create a complete
    JSON proposal in the directory containing the run state file, i.e.
    `$(dirname "$AGENT_TRADER_RUN_STATE")`. It must
-   contain the exact FULL Gamma description, paragraph count, every payout
-   condition with source IDs, sources with exact URLs/findings/access timestamps,
+   contain the exact FULL Gamma description, paragraph count (blocks separated by a
+   blank line, not lines), every payout
+   condition with source IDs, sources with exact URLs/findings/access timestamps (take
+   `accessed_at` from `date -u +%Y-%m-%dT%H:%M:%SZ` when you open the source — never a
+   remembered or estimated time; a future timestamp is rejected),
    at least two justified exhaustive scenarios whose weights sum to 1 and whose
    weighted YES probabilities reproduce `p_hat_yes`, the strongest counterargument,
    a falsifier, motivating news timestamp and analysis of the actual price path.
