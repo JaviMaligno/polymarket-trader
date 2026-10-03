@@ -220,6 +220,28 @@ class EntryGateTests(unittest.TestCase):
         self.assertNotIn('--resume', args)
         self.assertEqual(result, verdict())
 
+    def test_reviewer_verdict_survives_a_prose_preamble(self):
+        """2026-10-03 rehearsal: the reviewer twice wrote "I now have sufficient
+        evidence..." before its JSON and the gate rejected a substantive review as
+        malformed, costing the researcher two resubmissions."""
+        for result in ('I now have sufficient evidence.\n\n' + json.dumps(verdict()),
+                       'Verdict:\n```json\n' + json.dumps(verdict()) + '\n```',
+                       json.dumps(verdict()) + '\nDone.'):
+            response = type('Response', (), {'returncode': 0,
+                'stdout': json.dumps({'result': result})})()
+            with patch.object(self.gate.subprocess, 'run', return_value=response):
+                self.assertEqual(self.gate.critical_review({}), verdict())
+
+    def test_reviewer_prose_without_a_verdict_still_rejects(self):
+        for result in ('I could not finish the review.',
+                       'Partial notes: {"sources": "pass"}',
+                       json.dumps(verdict()) + json.dumps(dict(verdict(), decision='veto'))):
+            response = type('Response', (), {'returncode': 0,
+                'stdout': json.dumps({'result': result})})()
+            with patch.object(self.gate.subprocess, 'run', return_value=response):
+                with self.assertRaises(ValueError):
+                    self.gate.critical_review({})
+
     def test_reviewer_error_or_invalid_json_rejects(self):
         for output in ('usage limit exceeded', '{"is_error":true}', '{"result":"not json"}', '[]'):
             response = type('Response', (), {'returncode': 0, 'stdout': output})()

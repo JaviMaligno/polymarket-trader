@@ -110,9 +110,18 @@ resolved after 2026-09-21 count toward the decision rule.
 
 | run date | new resolved | YES n / P&L (new only) | NO n / P&L (new only) | blind intact? | note |
 |----------|--------------|------------------------|-----------------------|---------------|------|
-| 2026-09-21 | — | baseline 9 / −$116.81 | baseline 6 / +$43.98 | yes | pre-registration; counters start at zero |
-| 2026-10-02 | 1 | 0 / $0.00 | 1 / +$5.12 | yes | Bet 16 (Iran blockade Sep-30 NO), Sonnet 4.6. The 09-28 run was null (reviewer backgrounded); Run 19 came from the day-2 catch-up |
+| 2026-09-21 | — | baseline 9 / −$116.81 | baseline 6 / +$43.98 | **no** (see below) | pre-registration; counters start at zero |
+| 2026-10-02 | 1 | 0 / $0.00 | 1 / +$5.12 | **no** | Bet 16 (Iran blockade Sep-30 NO), Sonnet 4.6. The 09-28 run was null (reviewer backgrounded); Run 19 came from the day-2 catch-up |
+
+**The blind was broken before this file was written.** Found 2026-10-03. The human review
+of Run 15 (commit `b30ef29`, 2026-08-31) appended to `lessons.md` — which the agent reads in
+full every run — "NO 5-0, YES 3-6 — all six losses are YES bets … Treat a YES bet as needing
+a higher bar than a NO bet of the same nominal edge." Every run from Run 16 (2026-09-07) on
+has seen it. The 2026-10-03 rehearsal shows it is used: the agent declined a YES candidate
+because "all 6 track-record losses are YES bets". So every bet placed from 2026-09-07 is
+contaminated under the rule above, and the 20-bet test cannot run as designed until the
+agent's memory is blind again. What to do about it is an open operator decision.
 
 ## Verdict
 
-Not reached. Requires 20 further resolved bets with at least 8 per side.
+Not reached, and not reachable as pre-registered while the agent's memory carries the split.

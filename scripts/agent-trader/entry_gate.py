@@ -245,6 +245,37 @@ def fetch_history(market, news_at):
     return history
 
 
+def parse_verdict(text):
+    """The reviewer's JSON verdict, tolerating prose around it.
+
+    Asked for bare JSON, the reviewer still sometimes writes "I now have sufficient
+    evidence..." first or wraps it in a code fence (twice in the 2026-10-03 rehearsal,
+    each rejecting a substantive review as malformed). Accept exactly one top-level
+    object that carries a `decision`; none, or two (ambiguous), is still a rejection.
+    """
+    try:
+        whole = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        whole = None
+    if whole is not None:
+        if not isinstance(whole, dict):
+            raise ValueError('critical review must return an object')
+        return whole
+    decoder, found, i = json.JSONDecoder(), [], 0
+    while (i := text.find('{', i)) != -1:
+        try:
+            obj, end = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and 'decision' in obj:
+            found.append(obj)
+        i = end
+    if len(found) != 1:
+        raise ValueError('critical review must contain exactly one verdict object')
+    return found[0]
+
+
 def critical_review(packet):
     instructions = (HERE / 'critical-review-prompt.md').read_text(encoding='utf-8')
     command = ['claude', '--print', '--model', run_models()['review_model'],
@@ -266,10 +297,7 @@ def critical_review(packet):
             raise ValueError('critical review envelope must be an object')
         if envelope.get('is_error'):
             raise ValueError('critical review provider error')
-        decision = json.loads(envelope['result'])
-        if not isinstance(decision, dict):
-            raise ValueError('critical review must return an object')
-        return decision
+        return parse_verdict(envelope['result'])
     except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError('critical review unavailable or malformed; entry rejected') from exc
 
