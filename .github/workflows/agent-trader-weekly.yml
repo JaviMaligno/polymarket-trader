@@ -79,7 +79,7 @@ jobs:
           grep -q MODEL_OK /tmp/smoke.log
           # TEMP DIAG 2026-10-03: WebSearch errored ("tool_choice 400") in the Sonnet 5.5 rehearsal.
           Q="Use the WebSearch tool once to find today's Brent crude price, then reply with SEARCH_OK and the number."
-          B=claude-sonnet; B=$B-4-6; for v in "$B|" "claude-sonnet-5-5|" "claude-sonnet-5-5|MAX_THINKING_TOKENS=0"; do
+          B=claude-sonnet; B=$B-4-6; claude --version; for v in "claude-sonnet-5-5|ANTHROPIC_DEFAULT_HAIKU_MODEL=$B" "claude-sonnet-5-5|ANTHROPIC_SMALL_FAST_MODEL=$B"; do
             m="${v%%|*}"; e="${v#*|}"
             echo "=== $m ${e:-default} ==="
             echo "$Q" | env $e claude --model "$m" --print --allowedTools "WebSearch" 2>&1 | tail -5 || true
