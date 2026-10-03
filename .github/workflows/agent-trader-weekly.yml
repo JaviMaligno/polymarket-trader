@@ -77,6 +77,16 @@ jobs:
           echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL" --print \
             | tee /tmp/smoke.log
           grep -q MODEL_OK /tmp/smoke.log
+          # TEMP DIAG 2026-10-03: WebSearch errored ("tool_choice 400") in the Sonnet 5.5 rehearsal.
+          Q="Use the WebSearch tool once to find today's Brent crude price, then reply with SEARCH_OK and the number."
+          for v in "claude-sonnet-4-6|" "claude-sonnet-5-5|" "claude-sonnet-5-5|MAX_THINKING_TOKENS=0"; do
+            m="${v%%|*}"; e="${v#*|}"
+            echo "=== $m ${e:-default} ==="
+            env $e claude --model "$m" --print --allowedTools "WebSearch" "$Q" 2>&1 | tail -5 || true
+          done
+          echo "=== claude-sonnet-5-5 --debug ==="
+          claude --model claude-sonnet-5-5 --print --debug --allowedTools "WebSearch" "$Q" 2>&1 \
+            | grep -iE "tool_choice|400|error|web_search|thinking" | head -30 || true
 
       - name: Configure git
         run: |
