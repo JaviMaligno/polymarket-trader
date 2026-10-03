@@ -16,6 +16,10 @@ on:
         description: 'Run tests only; no research, bets, email or track-record writes'
         type: boolean
         default: false
+      rehearsal:
+        description: 'Full research run with nothing published: no commit, no push, no email; the log and the files the agent wrote come back as an artifact. For trying a new model or prompt before the Monday cron.'
+        type: boolean
+        default: false
 
 concurrency:
   group: agent-trader
@@ -36,6 +40,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # A rehearsal must not be able to push anything, the agent's own Bash included.
+          persist-credentials: ${{ inputs.rehearsal != true }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -228,7 +235,7 @@ jobs:
           python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 
       - name: Email weekly summary
-        if: always() && steps.decision.outputs.audit_ok == '1'
+        if: always() && steps.decision.outputs.audit_ok == '1' && inputs.rehearsal != true
         env:
           GMAIL_USERNAME: ${{ secrets.GMAIL_USERNAME }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
@@ -256,7 +263,7 @@ jobs:
           fi
 
       - name: Commit track record
-        if: success() && steps.decision.outputs.audit_ok == '1'
+        if: success() && steps.decision.outputs.audit_ok == '1' && inputs.rehearsal != true
         run: |
           set -euo pipefail
           git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl
@@ -285,3 +292,22 @@ jobs:
           else
             echo "Nothing to push."
           fi
+
+      - name: Keep the rehearsal for review
+        if: always() && inputs.rehearsal == true
+        run: |
+          mkdir -p /tmp/rehearsal
+          cp /tmp/agent-run.log /tmp/rehearsal/ 2>/dev/null || true
+          cd scripts/agent-trader
+          git diff > /tmp/rehearsal/track-record.diff || true
+          cp lessons.md bets.jsonl /tmp/rehearsal/ 2>/dev/null || true
+          cp -r .run-state /tmp/rehearsal/run-state 2>/dev/null || true
+          find . -maxdepth 2 -name '*.json' -newer agent-trader-prompt.md             -not -path './.run-state/*' -exec cp {} /tmp/rehearsal/ \; 2>/dev/null || true
+
+      - name: Upload rehearsal
+        if: always() && inputs.rehearsal == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: rehearsal-${{ github.run_id }}
+          path: /tmp/rehearsal
+          retention-days: 14
