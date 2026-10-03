@@ -34,9 +34,11 @@ jobs:
     timeout-minutes: 90  # research plus up to four independent reviews (10 min each)
     env:
       # One model for researcher and reviewer; it must exist as a deployment on the Foundry
-      # resource. Stamped on every bet (entry_gate.run_models): changing it opens a new
-      # regime in the track record. Sonnet 4.6 until 2026-10-02, Sonnet 5.5 from 2026-10-05.
-      AGENT_MODEL: claude-sonnet-5-5
+      # resource and pass the smoke test below (answer + WebSearch). Stamped on every bet
+      # (entry_gate.run_models): changing it opens a new regime in the track record.
+      # Sonnet 5.5 is deployed but blocked: Claude Code's WebSearch forces tool_choice,
+      # which 5.5 rejects (2026-10-03). Switch here once search works for it.
+      AGENT_MODEL: claude-sonnet-4-6
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -63,9 +65,12 @@ jobs:
       - name: Test Agent-Trader entry gates
         run: python -m unittest discover -s scripts/agent-trader/tests -v
 
-      # One tiny call that proves the Foundry deployment for AGENT_MODEL answers, without
-      # researching or writing anything. Run it (validation_only) after changing the model:
-      # a deployment-name mismatch otherwise surfaces as a null run on the next Monday.
+      # Proves AGENT_MODEL answers AND can use WebSearch, without researching or writing
+      # anything. Run it (validation_only) after changing the model. Both checks earned
+      # their place: a deployment-name mismatch is a Monday null run, and on 2026-10-03
+      # Sonnet 5.5 answered fine but every WebSearch failed with `400 tool_choice: type
+      # "tool" and "any" are not supported for this model` — the researcher and reviewer
+      # silently fell back to RSS headlines.
       - name: Smoke-test the model deployment
         if: inputs.validation_only == true
         env:
@@ -74,19 +79,13 @@ jobs:
           ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
         run: |
           set -o pipefail
+          claude --version
           echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL" --print \
             | tee /tmp/smoke.log
           grep -q MODEL_OK /tmp/smoke.log
-          # TEMP DIAG 2026-10-03: WebSearch errored ("tool_choice 400") in the Sonnet 5.5 rehearsal.
-          Q="Use the WebSearch tool once to find today's Brent crude price, then reply with SEARCH_OK and the number."
-          B=claude-sonnet; B=$B-4-6; claude --version; for v in "claude-sonnet-5-5|ANTHROPIC_DEFAULT_HAIKU_MODEL=$B" "claude-sonnet-5-5|ANTHROPIC_SMALL_FAST_MODEL=$B"; do
-            m="${v%%|*}"; e="${v#*|}"
-            echo "=== $m ${e:-default} ==="
-            echo "$Q" | env $e claude --model "$m" --print --allowedTools "WebSearch" 2>&1 | tail -5 || true
-          done
-          echo "=== claude-sonnet-5-5 --debug ==="
-          echo "$Q" | claude --model claude-sonnet-5-5 --print --debug --allowedTools "WebSearch" 2>&1 \
-            | grep -iE "tool_choice|400|error|web_search|thinking" | head -30 || true
+          echo "Use the WebSearch tool once to find today's Brent crude price. Reply SEARCH_OK, the number and one source URL; reply SEARCH_FAILED if the tool errors." \
+            | claude --model "$AGENT_MODEL" --print --allowedTools "WebSearch" | tee /tmp/search.log
+          grep -q SEARCH_OK /tmp/search.log && grep -q "https\?://" /tmp/search.log
 
       - name: Configure git
         run: |

@@ -58,12 +58,11 @@ and wrong about the cause**. Each is checked at the decision point.
    single largest winner and re-run the CI on each side.
 4. **Fee asymmetry.** 7 of the first 16 markets charge no fee. Check: whether fee-paying
    markets cluster on one side.
-5. **Model, not side** (added 2026-10-03, before any Sonnet 5.5 bet existed). The 15
-   motivating bets and the first new resolution are Sonnet 4.6; from 2026-10-05 the agent
-   and its reviewer run Sonnet 5.5, so nearly all of the 20-bet test sample will be 5.5.
-   A different YES/NO record on the new sample may be the model changing, not the side
-   effect being real or false. Check: every bet carries `model` (absent = 4.6); report the
-   split within the 5.5 bets alone and do not pool across models to reach the threshold.
+5. **Model, not side** (added 2026-10-03, before any bet from another model existed). All
+   bets so far are Sonnet 4.6. A move to Sonnet 5.5 is planned (blocked on WebSearch, see
+   README); if it lands mid-sample, a different YES/NO record may be the model changing, not
+   the side effect being real or false. Check: every bet carries `model` (absent = 4.6);
+   report the split within one model and do not pool across models to reach the threshold.
 
 ## Decision rule (fixed in advance)
 
@@ -112,7 +111,7 @@ resolved after 2026-09-21 count toward the decision rule.
 | run date | new resolved | YES n / P&L (new only) | NO n / P&L (new only) | blind intact? | note |
 |----------|--------------|------------------------|-----------------------|---------------|------|
 | 2026-09-21 | — | baseline 9 / −$116.81 | baseline 6 / +$43.98 | yes | pre-registration; counters start at zero |
-| 2026-10-02 | 1 | 0 / $0.00 | 1 / +$5.12 | yes | Bet 16 (Iran blockade Sep-30 NO), Sonnet 4.6. The 09-28 run was null (reviewer backgrounded); Run 19 came from the day-2 catch-up. Model switches to 5.5 from 2026-10-05 — see rival 5 |
+| 2026-10-02 | 1 | 0 / $0.00 | 1 / +$5.12 | yes | Bet 16 (Iran blockade Sep-30 NO), Sonnet 4.6. The 09-28 run was null (reviewer backgrounded); Run 19 came from the day-2 catch-up |
 
 ## Verdict
 

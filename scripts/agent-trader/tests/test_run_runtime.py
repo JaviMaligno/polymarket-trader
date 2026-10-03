@@ -9,8 +9,8 @@ the turn is exiting, so no lessons were written and the week was lost. Since the
 landed on 2026-09-07 no `record` had completed in CI at all.
 
 These tests pin the three pieces that keep `record` in the foreground long enough, and
-the single source of truth for the model, which changed on 2026-10-05 and is therefore
-recorded on every bet (a model change is a regime change for the track record).
+the single source of truth for the model, which is recorded on every bet (a model change
+is a regime change for the track record).
 """
 from __future__ import annotations
 import re
@@ -57,14 +57,26 @@ class ModelTests(unittest.TestCase):
 
     def test_one_model_name_in_the_workflow(self):
         """Researcher, reviewer and Sonnet alias all come from AGENT_MODEL."""
-        names = set(re.findall(r"claude-(?:sonnet|opus|fable)-[\w.-]+", self.wf))
-        self.assertEqual(names, {"claude-sonnet-5-5"})
+        m = re.search(r"^\s+AGENT_MODEL:\s*(\S+)\s*$", self.wf, re.M)
+        self.assertIsNotNone(m)
+        # Model names in comments (the 5.5 note) are history, not configuration.
+        code = "\n".join(l for l in self.wf.splitlines() if not l.lstrip().startswith("#"))
+        names = set(re.findall(r"claude-(?:sonnet|opus|fable)-[\w.-]+", code))
+        self.assertEqual(names, {m.group(1)})
         self.assertIn('--model "$AGENT_MODEL"', self.wf)
         self.assertIn("AGENT_REVIEW_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
         self.assertIn("ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
 
     def test_gate_default_matches_the_workflow(self):
-        self.assertEqual(entry_gate.DEFAULT_MODEL, "claude-sonnet-5-5")
+        m = re.search(r"^\s+AGENT_MODEL:\s*(\S+)\s*$", self.wf, re.M)
+        self.assertEqual(entry_gate.DEFAULT_MODEL, m.group(1))
+
+    def test_smoke_test_checks_web_search(self):
+        """Sonnet 5.5 answered fine yet every WebSearch 400'd (2026-10-03)."""
+        smoke = self.wf[self.wf.index("Smoke-test the model deployment"):]
+        smoke = smoke[:smoke.index("- name:", 10)]
+        self.assertIn('--allowedTools "WebSearch"', smoke)
+        self.assertIn("grep -q SEARCH_OK", smoke)
 
     def test_models_are_recorded_on_the_bet(self):
         import os

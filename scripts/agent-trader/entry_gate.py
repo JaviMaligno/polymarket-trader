@@ -20,12 +20,12 @@ CHECKS = ('sources', 'conditions', 'probability', 'counterargument',
 # The agent's Bash timeout (BASH_DEFAULT/MAX_TIMEOUT_MS in the workflow) must outlast
 # this, or `record` gets backgrounded and the agent ends its turn waiting (2026-09-28).
 REVIEW_TIMEOUT_S = 600
-DEFAULT_MODEL = 'claude-sonnet-5-5'
+DEFAULT_MODEL = 'claude-sonnet-4-6'  # keep equal to AGENT_MODEL in the workflow
 
 
 def run_models():
     """Researcher and reviewer models, stamped on every bet: a model change is a regime
-    change for the track record (Sonnet 4.6 -> 5.5 on 2026-10-05)."""
+    change for the track record."""
     return {'model': os.environ.get('AGENT_MODEL'),
             'review_model': os.environ.get('AGENT_REVIEW_MODEL', DEFAULT_MODEL)}
 
