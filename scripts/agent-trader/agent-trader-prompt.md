@@ -165,6 +165,11 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    # Write JSON to a file with the Write tool first, preserving dollar figures:
    python agent_trader.py record /path/to/proposal.json
    ```
+   **`record` takes up to 10 minutes** (the reviewer researches independently). Run it in
+   the foreground with a Bash `timeout` of 900000 ms and wait for its output; never set
+   `run_in_background`. This is a single non-interactive turn: no notification ever arrives,
+   so ending your turn to "wait for the reviewer" ends the run with no lessons written
+   (2026-09-28). If it returns an error or a veto, record that in lessons and continue.
    **Never pass the rationale as a shell argument** and never inline it in a `python -c`
    string: bash expands `$4`, `$1`, `$7` inside double quotes, which silently ate the
    leading digit of every dollar figure in four bets' rationales ("$4.7M" → ".7M").

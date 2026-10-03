@@ -158,6 +158,47 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual([r["date"] for r in self._rows()],
                          ["2026-09-07", "2026-09-14", "2026-09-21"])
 
+    def test_a_non_date_is_never_a_snapshot_key(self):
+        with self.assertRaises(ValueError):
+            metrics.append_snapshot(metrics.compute_metrics(FIXTURE), "--operator")
+        self.assertFalse(metrics.METRICS_LOG.exists())
+
+
+class CliTests(unittest.TestCase):
+    """`metrics.py --operator` (run by the workflow) printed the AGENT view and appended a
+    row dated "--operator" to metrics.jsonl: any argv was taken as a snapshot date, and
+    the flag itself was never parsed. Seen in the 2026-09-28 and 2026-10-02 commits."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self._saved = metrics.METRICS_LOG
+        metrics.METRICS_LOG = Path(self._tmp.name) / "metrics.jsonl"
+
+    def tearDown(self):
+        metrics.METRICS_LOG = self._saved
+        self._tmp.cleanup()
+
+    def test_operator_flag_prints_the_split_and_writes_nothing(self):
+        out = metrics.main(["--operator"], FIXTURE)
+        self.assertIn("by side", out.lower())
+        self.assertFalse(metrics.METRICS_LOG.exists())
+
+    def test_bare_call_is_the_agent_view(self):
+        out = metrics.main([], FIXTURE)
+        self.assertNotIn("by side", out.lower())
+        self.assertFalse(metrics.METRICS_LOG.exists())
+
+    def test_a_date_argument_snapshots(self):
+        metrics.main(["2026-10-05"], FIXTURE)
+        rows = [json.loads(l) for l in metrics.METRICS_LOG.read_text(
+            encoding="utf-8").splitlines() if l.strip()]
+        self.assertEqual([r["date"] for r in rows], ["2026-10-05"])
+
+    def test_an_unknown_argument_is_rejected(self):
+        with self.assertRaises(SystemExit):
+            metrics.main(["--oprator"], FIXTURE)
+        self.assertFalse(metrics.METRICS_LOG.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

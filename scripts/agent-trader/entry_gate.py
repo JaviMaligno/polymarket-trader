@@ -17,6 +17,17 @@ import agent_trader as trader
 HERE = Path(__file__).resolve().parent
 CHECKS = ('sources', 'conditions', 'probability', 'counterargument',
           'price_history', 'risk_group', 'siblings', 'seat_math')
+# The agent's Bash timeout (BASH_DEFAULT/MAX_TIMEOUT_MS in the workflow) must outlast
+# this, or `record` gets backgrounded and the agent ends its turn waiting (2026-09-28).
+REVIEW_TIMEOUT_S = 600
+DEFAULT_MODEL = 'claude-sonnet-4-6'  # keep equal to AGENT_MODEL in the workflow
+
+
+def run_models():
+    """Researcher and reviewer models, stamped on every bet: a model change is a regime
+    change for the track record."""
+    return {'model': os.environ.get('AGENT_MODEL'),
+            'review_model': os.environ.get('AGENT_REVIEW_MODEL', DEFAULT_MODEL)}
 
 
 def now():
@@ -234,9 +245,40 @@ def fetch_history(market, news_at):
     return history
 
 
+def parse_verdict(text):
+    """The reviewer's JSON verdict, tolerating prose around it.
+
+    Asked for bare JSON, the reviewer still sometimes writes "I now have sufficient
+    evidence..." first or wraps it in a code fence (twice in the 2026-10-03 rehearsal,
+    each rejecting a substantive review as malformed). Accept exactly one top-level
+    object that carries a `decision`; none, or two (ambiguous), is still a rejection.
+    """
+    try:
+        whole = json.loads(text)
+    except (TypeError, json.JSONDecodeError):
+        whole = None
+    if whole is not None:
+        if not isinstance(whole, dict):
+            raise ValueError('critical review must return an object')
+        return whole
+    decoder, found, i = json.JSONDecoder(), [], 0
+    while (i := text.find('{', i)) != -1:
+        try:
+            obj, end = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i += 1
+            continue
+        if isinstance(obj, dict) and 'decision' in obj:
+            found.append(obj)
+        i = end
+    if len(found) != 1:
+        raise ValueError('critical review must contain exactly one verdict object')
+    return found[0]
+
+
 def critical_review(packet):
     instructions = (HERE / 'critical-review-prompt.md').read_text(encoding='utf-8')
-    command = ['claude', '--print', '--model', os.environ.get('AGENT_REVIEW_MODEL', 'claude-sonnet-4-6'),
+    command = ['claude', '--print', '--model', run_models()['review_model'],
                '--output-format', 'json', '--tools', 'WebSearch,WebFetch',
                '--allowedTools', 'WebSearch,WebFetch', '--strict-mcp-config',
                '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
@@ -247,7 +289,7 @@ def critical_review(packet):
     try:
         result = subprocess.run(command, input=json.dumps(packet, ensure_ascii=False),
                                 text=True, encoding='utf-8', capture_output=True,
-                                timeout=600, env=env, cwd=HERE)
+                                timeout=REVIEW_TIMEOUT_S, env=env, cwd=HERE)
         if result.returncode:
             raise ValueError('critical review process failed')
         envelope = json.loads(result.stdout)
@@ -255,10 +297,7 @@ def critical_review(packet):
             raise ValueError('critical review envelope must be an object')
         if envelope.get('is_error'):
             raise ValueError('critical review provider error')
-        decision = json.loads(envelope['result'])
-        if not isinstance(decision, dict):
-            raise ValueError('critical review must return an object')
-        return decision
+        return parse_verdict(envelope['result'])
     except (OSError, subprocess.TimeoutExpired, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ValueError('critical review unavailable or malformed; entry rejected') from exc
 
@@ -359,7 +398,7 @@ def _record_proposal(p, state_path):
     bet.update(risk_group=group, event_ids=event_ids(fresh), run_id=state['run_id'],
                evidence=p, review=review, reviewed_edge=round(edge, 6),
                review_packet_hash=digest(packet), reviewed_at=now().isoformat(),
-               reviewed_market=market, price_history=history)
+               reviewed_market=market, price_history=history, **run_models())
     # Receipt before append: an interrupted append cannot become an unaudited trade.
     state['receipts'].append({'bet': bet, 'hash': digest(bet)})
     save_run(state_path, state)
