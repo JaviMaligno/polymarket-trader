@@ -67,14 +67,17 @@ and wrong about the cause**. Each is checked at the decision point.
 
 ## Decision rule (fixed in advance)
 
-Evaluated **only on bets resolved after 2026-09-21** — the 15 above are the motivating
-sample and cannot also be the test.
+Evaluated **only on bets placed on or after 2026-10-05** (restart, see *Observations*):
+the first run after the agent's memory was made blind again. The 15 above are the
+motivating sample, and bets placed 2026-09-07 → 2026-10-04 saw the split, so neither can
+be the test. "Placed", not "resolved": what contaminates a bet is what the agent knew
+when it chose the side.
 
-- **Minimum sample:** 20 further resolved bets, with **n ≥ 8 on each side**. Below that,
+- **Minimum sample:** 20 resolved bets from that cohort, with **n ≥ 8 on each side**. Below that,
   no verdict, regardless of how the numbers look. If a side has fewer than 8 because the
   agent stopped taking it, see *Contamination* below.
 - **H1 supported** if, on the new sample alone, the YES mean P&L/bet is negative with a
-  bootstrap upper bound **below zero**, AND the NO mean is positive, AND none of the four
+  bootstrap upper bound **below zero**, AND the NO mean is positive, AND none of the five
   rival explanations accounts for the gap.
 - **H1 rejected** if the two sides' CIs overlap materially, or if the YES mean is not
   negative.
@@ -97,6 +100,9 @@ operator and kept out of every surface the agent reads:
   **do**. The workflow prints the operator view only after the agent's turn has ended.
 - `tests/test_side_bias.py` pins that separation, so it cannot drift into the agent's
   view on a later edit to the renderer.
+- **Human corrections appended to `lessons.md` are a surface too** — that is how the blind
+  broke (2026-08-31). A review may record anything about families, criteria or process
+  there, but never the record split by side or a side-specific rule.
 
 This is blind by construction, not by secrecy: the agent has `bets.jsonl` and could
 compute the split itself. Nothing in the prompt asks it to, and no output hands it over.
@@ -106,8 +112,9 @@ contaminated.
 
 ## Observations
 
-One row per weekly run, from the `yes_*` / `no_*` columns of `metrics.jsonl`. Only bets
-resolved after 2026-09-21 count toward the decision rule.
+One row per weekly run. Only resolved bets **placed on or after 2026-10-05** count toward
+the decision rule (filter `bets.jsonl` by `placed_at`; the cumulative `yes_*`/`no_*`
+columns of `metrics.jsonl` include the contaminated history).
 
 | run date | new resolved | YES n / P&L (new only) | NO n / P&L (new only) | blind intact? | note |
 |----------|--------------|------------------------|-----------------------|---------------|------|
@@ -121,8 +128,18 @@ a higher bar than a NO bet of the same nominal edge." Every run from Run 16 (202
 has seen it. The 2026-10-03 rehearsal shows it is used: the agent declined a YES candidate
 because "all 6 track-record losses are YES bets". So every bet placed from 2026-09-07 is
 contaminated under the rule above, and the 20-bet test cannot run as designed until the
-agent's memory is blind again. What to do about it is an open operator decision.
+agent's memory is blind again.
+
+**Restart (operator decision, 2026-10-03).** The side paragraph and the one Run 16 decline
+that cited it ("YES bet requiring higher bar per side-asymmetry rule") were removed from
+`lessons.md`, with no marker in the file — the record of the edit is this note and the
+commit. Remaining residue: run sections still name each bet's side and outcome, and
+`bets.jsonl` has everything, so the agent *can* re-derive the split; the blind is by
+construction again, not by secrecy. The same PR moves the agent to Sonnet 5.5 with
+`search_mcp.py`, so the restart cohort is also a single model/search regime (rival 5).
+The count starts at zero with bets placed on or after **2026-10-05**.
 
 ## Verdict
 
-Not reached, and not reachable as pre-registered while the agent's memory carries the split.
+Not reached. Requires 20 resolved bets placed on or after 2026-10-05, with at least 8 per
+side.
