@@ -56,6 +56,21 @@ jobs:
       - name: Test Agent-Trader entry gates
         run: python -m unittest discover -s scripts/agent-trader/tests -v
 
+      # One tiny call that proves the Foundry deployment for AGENT_MODEL answers, without
+      # researching or writing anything. Run it (validation_only) after changing the model:
+      # a deployment-name mismatch otherwise surfaces as a null run on the next Monday.
+      - name: Smoke-test the model deployment
+        if: inputs.validation_only == true
+        env:
+          CLAUDE_CODE_USE_FOUNDRY: "1"
+          ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.AZURE_FOUNDRY_RESOURCE }}
+          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+        run: |
+          set -o pipefail
+          echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL" --print \
+            | tee /tmp/smoke.log
+          grep -q MODEL_OK /tmp/smoke.log
+
       - name: Configure git
         run: |
           git config user.name "Claude (Agent-Trader)"
