@@ -59,8 +59,9 @@ and wrong about the cause**. Each is checked at the decision point.
 4. **Fee asymmetry.** 7 of the first 16 markets charge no fee. Check: whether fee-paying
    markets cluster on one side.
 5. **Model, not side** (added 2026-10-03, before any bet from another model existed). All
-   bets so far are Sonnet 4.6. A move to Sonnet 5.5 is planned (blocked on WebSearch, see
-   README); if it lands mid-sample, a different YES/NO record may be the model changing, not
+   bets so far are Sonnet 4.6. The move to Sonnet 5.5 (with a different search backend,
+   `search_mcp.py`) changes two things at once; if it lands mid-sample, a different YES/NO
+   record may be the model or the search changing, not
    the side effect being real or false. Check: every bet carries `model` (absent = 4.6);
    report the split within one model and do not pool across models to reach the threshold.
 
