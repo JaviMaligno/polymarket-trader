@@ -13,6 +13,8 @@ the single source of truth for the model, which is recorded on every bet (a mode
 is a regime change for the track record).
 """
 from __future__ import annotations
+import json
+import os
 import re
 import sys
 import unittest
@@ -75,7 +77,9 @@ class ModelTests(unittest.TestCase):
         """Sonnet 5.5 answered fine yet every WebSearch 400'd (2026-10-03)."""
         smoke = self.wf[self.wf.index("Smoke-test the model deployment"):]
         smoke = smoke[:smoke.index("- name:", 10)]
-        self.assertIn('--allowedTools "WebSearch"', smoke)
+        self.assertIn("source scripts/agent-trader/search-flags.sh || exit 1", smoke)
+        self.assertIn('"${SEARCH_FLAGS[@]}"', smoke)
+        self.assertIn('--allowedTools "$SEARCH_TOOLS"', smoke)
         self.assertIn("grep -q SEARCH_OK", smoke)
 
     def test_models_are_recorded_on_the_bet(self):
@@ -92,6 +96,86 @@ class ModelTests(unittest.TestCase):
                     os.environ.pop(k, None)
                 else:
                     os.environ[k] = v
+
+
+class SearchModeTests(unittest.TestCase):
+    """AGENT_WEB_SEARCH=mcp swaps the built-in WebSearch (unusable on Foundry with Sonnet
+    5.5, 2026-10-03) for search_mcp.py, in the researcher AND the reviewer."""
+
+    def setUp(self):
+        self.wf = WORKFLOW.read_text(encoding="utf-8")
+        self._old = os.environ.get("AGENT_WEB_SEARCH")
+
+    def tearDown(self):
+        if self._old is None:
+            os.environ.pop("AGENT_WEB_SEARCH", None)
+        else:
+            os.environ["AGENT_WEB_SEARCH"] = self._old
+
+    def _reviewer_args(self, mode):
+        if mode is None:
+            os.environ.pop("AGENT_WEB_SEARCH", None)
+        else:
+            os.environ["AGENT_WEB_SEARCH"] = mode
+        return entry_gate.reviewer_tool_args()
+
+    def test_builtin_reviewer_is_unchanged(self):
+        for mode in (None, "builtin"):
+            args = self._reviewer_args(mode)
+            self.assertEqual(args[args.index("--tools") + 1], "WebSearch,WebFetch")
+            self.assertEqual(json.loads(args[args.index("--mcp-config") + 1]),
+                             {"mcpServers": {}})
+
+    def test_mcp_reviewer_gets_the_search_server_and_no_builtin_websearch(self):
+        args = self._reviewer_args("mcp")
+        self.assertEqual(args[args.index("--tools") + 1], "WebFetch")
+        allowed = args[args.index("--allowedTools") + 1].split(",")
+        self.assertIn("mcp__search__web_search", allowed)
+        self.assertIn("mcp__search__news_search", allowed)
+        self.assertNotIn("WebSearch", allowed)
+        self.assertIn("--strict-mcp-config", args)
+        server = json.loads(args[args.index("--mcp-config") + 1])["mcpServers"]["search"]
+        self.assertTrue(server["args"][-1].endswith("search_mcp.py"))
+        self.assertTrue(Path(server["args"][-1]).is_file())
+
+    def test_unknown_mode_fails_closed(self):
+        with self.assertRaises(ValueError):
+            self._reviewer_args("bing")
+
+    def test_workflow_declares_the_mode_and_wires_the_researcher(self):
+        self.assertRegex(self.wf, r"(?m)^\s+AGENT_WEB_SEARCH:\s*(builtin|mcp)\s*$")
+        loop = self.wf[self.wf.index("agent-trader-prompt.md | claude"):]
+        loop = loop[:loop.index("/tmp/agent-run.log")]
+        self.assertIn('"${SEARCH_FLAGS[@]}"', loop)
+        self.assertIn("$SEARCH_TOOLS", loop)
+        self.assertNotIn("WebSearch", loop.split("--allowedTools", 1)[1].split("\n")[0])
+        self.assertLess(self.wf.index("source search-flags.sh"),
+                        self.wf.index("agent-trader-prompt.md | claude"))
+
+    def _flags(self, mode):
+        import subprocess
+        script = ('source search-flags.sh || exit 3; printf "%s\\n" "${SEARCH_FLAGS[@]}"; '
+                  'echo "TOOLS=$SEARCH_TOOLS"')
+        bash = "bash"
+        if os.name == "nt":  # bare `bash` is WSL's there, which drops the environment
+            bash = r"C:\Program Files\Git\bin\bash.exe"
+            if not Path(bash).is_file():
+                self.skipTest("Git Bash not found")
+        out = subprocess.run([bash, "-c", script], cwd=HERE, capture_output=True,
+                             text=True, env=dict(os.environ, AGENT_WEB_SEARCH=mode))
+        return out.returncode, out.stdout.splitlines()
+
+    def test_flags_script_mcp(self):
+        code, lines = self._flags("mcp")
+        self.assertEqual(code, 0)
+        cfg = json.loads(lines[lines.index("--mcp-config") + 1])
+        self.assertTrue(cfg["mcpServers"]["search"]["args"][0].endswith("search_mcp.py"))
+        self.assertEqual(lines[lines.index("--disallowedTools") + 1], "WebSearch")
+        self.assertEqual(lines[-1], "TOOLS=mcp__search__web_search mcp__search__news_search")
+
+    def test_flags_script_builtin_and_unknown(self):
+        self.assertEqual(self._flags("builtin"), (0, ["", "TOOLS=WebSearch"]))
+        self.assertNotEqual(self._flags("bing")[0], 0)
 
 
 if __name__ == "__main__":

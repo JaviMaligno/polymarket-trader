@@ -1,6 +1,7 @@
 import copy
 import importlib.util
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -66,6 +67,11 @@ class EntryGateTests(unittest.TestCase):
         self.bets.write_text('', encoding='utf-8')
         self.state = self.path / 'run.json'
         self.addCleanup(patch.stopall)
+        # The workflow job sets these for the real run (AGENT_WEB_SEARCH=mcp changes the
+        # reviewer's tools); the gate's tests must not inherit the runner's choice.
+        patch.dict(os.environ).start()
+        for key in ('AGENT_WEB_SEARCH', 'AGENT_MODEL', 'AGENT_REVIEW_MODEL'):
+            os.environ.pop(key, None)
         patch.object(trader, 'BETS', self.bets).start()
         patch.object(self.gate, 'now', return_value=NOW).start()
         self.gate.begin_run(self.state)

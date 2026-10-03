@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 from urllib.parse import urlparse
@@ -20,7 +21,7 @@ CHECKS = ('sources', 'conditions', 'probability', 'counterargument',
 # The agent's Bash timeout (BASH_DEFAULT/MAX_TIMEOUT_MS in the workflow) must outlast
 # this, or `record` gets backgrounded and the agent ends its turn waiting (2026-09-28).
 REVIEW_TIMEOUT_S = 600
-DEFAULT_MODEL = 'claude-sonnet-4-6'  # keep equal to AGENT_MODEL in the workflow
+DEFAULT_MODEL = 'claude-sonnet-5-5'  # keep equal to AGENT_MODEL in the workflow
 
 
 def run_models():
@@ -173,8 +174,11 @@ def validate_evidence(p, market):
             url(source['url'])
             text(source['finding'])
             age = (now() - timestamp(source['accessed_at'])).total_seconds()
-            if not 0 <= age <= 48 * 3600:
-                raise ValueError('sources must be checked within 48 hours')
+            if age < 0:
+                raise ValueError(f'sources must be checked within 48 hours: {sid} '
+                                 'accessed_at is in the future (use `date -u`)')
+            if age > 48 * 3600:
+                raise ValueError(f'sources must be checked within 48 hours: {sid} is older')
         def citations(row):
             refs = row['source_ids']
             if not isinstance(refs, list) or not refs or not set(refs) <= ids:
@@ -276,12 +280,32 @@ def parse_verdict(text):
     return found[0]
 
 
+def reviewer_tool_args():
+    """Read-only web tools for the reviewer, per AGENT_WEB_SEARCH (set by the workflow).
+
+    builtin: Claude Code's WebSearch + WebFetch, no MCP servers at all.
+    mcp:     WebFetch + search_mcp.py, for models whose WebSearch fails (Sonnet 5.5 on
+             Foundry rejects its forced tool_choice, 2026-10-03). Still strict: that one
+             server and nothing else.
+    """
+    mode = os.environ.get('AGENT_WEB_SEARCH', 'builtin')
+    if mode == 'builtin':
+        return ['--tools', 'WebSearch,WebFetch', '--allowedTools', 'WebSearch,WebFetch',
+                '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}']
+    if mode == 'mcp':
+        server = {'command': sys.executable, 'args': [str(HERE / 'search_mcp.py')]}
+        return ['--tools', 'WebFetch',
+                '--allowedTools', 'WebFetch,mcp__search__web_search,mcp__search__news_search',
+                '--strict-mcp-config',
+                '--mcp-config', json.dumps({'mcpServers': {'search': server}})]
+    raise ValueError(f'unknown AGENT_WEB_SEARCH {mode!r}')
+
+
 def critical_review(packet):
     instructions = (HERE / 'critical-review-prompt.md').read_text(encoding='utf-8')
     command = ['claude', '--print', '--model', run_models()['review_model'],
-               '--output-format', 'json', '--tools', 'WebSearch,WebFetch',
-               '--allowedTools', 'WebSearch,WebFetch', '--strict-mcp-config',
-               '--mcp-config', '{"mcpServers":{}}', '--no-session-persistence',
+               '--output-format', 'json', *reviewer_tool_args(),
+               '--no-session-persistence',
                '--disable-slash-commands', '--setting-sources', '',
                '--system-prompt', instructions]
     env = dict(os.environ)
