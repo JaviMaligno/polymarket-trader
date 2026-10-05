@@ -1354,3 +1354,33 @@ No formal US government announcement ending/terminating/suspending the naval blo
 
 **Running record: 9-7 resolved, 0 open. P&L: -$67.71, bankroll $932.29, Brier 0.1928.**
 **Primary candidate for Run 20: US blockade end Oct 31 NO (market 3128888, YES=0.225, p_hat ~0.08, edge ~14.5%). Concentration slot will be clear since frozen exposure will no longer include Bet 16.**
+
+## Run 20 — 2026-10-05 (one new bet; no open positions at start)
+
+**Official record at run start:** 9-7 resolved, P&L -$67.71, bankroll $932.29, Brier 0.1928. `positions` and `history --open` at run start: no open positions. Frozen exposure in the run state was empty, so no concentration slot was blocked. No open-position checklist was needed.
+
+**New bet placed — Bet 17: US announces end of Iranian blockade by Oct 31 (market 3128888), NO @ 0.780, p_hat_yes 0.12. Medium confidence. Family (i).** The reviewer-confirmed edge is +0.080 and the harness shows edge@entry +0.100. `positions` prints: if won +7.05 (bankroll if won 939.34), if lost -25.00 (bankroll if lost 907.29). The market charges no taker fee (`fee` command: feesEnabled=False).
+- Description: 10 paragraphs, all read. YES needs an official, declarative, present-tense US announcement of a general end or suspension of the blockade. Partial exemptions, contingent or prospective language, and anonymous statements do not qualify. A phased deal still under negotiation counts against YES.
+- Evidence against YES (all dated and sourced in the proposal): Hegseth on Oct 3 called the blockade "ironclad" (CBS live blog). Trump on Oct 4: "easy way or the hard way", and he points to action after the midterms. Iran International on Oct 4-5: Pezeshkian rules out direct talks and Iran is only reviewing the US response. Trump rejected Iran's seven-day Hormuz proposal on Sep 25-26.
+- Main YES pathway, priced at 9 points: the Reuters Sep 24 phased deal pairing Hormuz reopening with lifting the blockade. I saw only the headline and snippet because the body did not open, so the proposal says so. Plus 3 points for a unilateral Trump declaration. Midterm fuel-price pressure and the Jun 17-18 precedent are the reasons the estimate is 0.12, not 0.05.
+- Price path (720 hourly points): 0.365 on Sep 5, down to 0.225 now. Spikes on Sep 11-12, Sep 22 and Sep 25 (the Reuters report, max 0.40) all reverted within a day. It fell from 0.355 to 0.265 after Trump's rejection and slid further after the Oct 1 Politico "blow up" story. The market has been repricing toward my view for 10 days; it is not lagging it.
+- Sibling check: the Oct 15 tenor is at 0.115, so the curve is internally consistent and I am calling the whole curve about 10 points rich. The declared edge is below 0.25, so the sibling check is a consistency check, not a gate.
+- **Concentration note:** the same underlying real-world outcome as Bet 16 (blockade-end announcement, a later expiry), which resolved Sep 30. It was placed in the first run after Bet 16 left the frozen exposure, as the Run 19 note anticipated. No other Iran position is open.
+- What would falsify it: any official WH, DoD, State or CENTCOM statement clearly suspending the blockade, or a signed phased deal text with immediate suspension.
+- Reviewer outcome: passed on first submission, no veto.
+
+**Candidates considered and declined:**
+- **US blockade end Oct 15 (4906127, YES 0.115):** same underlying as Bet 17, so one bet only. The Oct 31 tenor was chosen because it carries the larger NO edge.
+- **US x Iran ceasefire through Oct 31 (4641065, YES 0.715):** Iran-correlated with Bet 17 and Family (ii). Trump's post-midterm bombing talk is the only edge and is fully contested. No bet.
+- **Hormuz traffic normal by Oct 31 (3501950, YES 0.0245):** near zero and same Iran cluster.
+- **Netanyahu next PM (YES 0.355), Vucic next PM (YES 0.663), Brazil, US midterm and Senate markets, Fed October markets:** no criterion asymmetry and no differentiated view (Run 19 reasoning unchanged). Fed markets are priced off the rates curve.
+- **Bitcoin threshold, tweet-count, longshot and near-1 markets:** standard filters.
+
+**Process notes:**
+- Four of the proposal's source timestamps were first written from memory. I caught that before submitting and replaced them with `date -u` values taken at access time. The harness rejects future timestamps; the stricter rule is that no timestamp is estimated at all.
+- Sources that could not be opened (Reuters, AP, Axios returned 403, a fetch block or a timeout) are labelled as headline or snippet only in the proposal, not quoted as read.
+- The CBS live blog gave Hegseth and Trump quotes with dates. Iran International's front page gave only headlines. I tagged them accordingly.
+
+**Selection rule (from resolved Bet 16, a win, plus this run's price-path check):** when a strict-criterion market has a sibling that already resolved NO in the same series and the price has been falling for days while the news flow is hostile, an unchanged NO view at a lower price still needs a net edge of 0.05 or more after the actual (not assumed) fee. Here the market charges no fee, and the edge survived at 0.080-0.100. Check the live ask before sizing, not last run's price.
+
+**Running record: 9-7 resolved, 1 open ($25 at risk). P&L: -$67.71, bankroll $932.29.** Bet 17 resolves 2026-11-01.
