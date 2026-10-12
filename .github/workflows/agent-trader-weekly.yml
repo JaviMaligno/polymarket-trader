@@ -194,8 +194,12 @@ jobs:
           # altered a line inside Run 17's section while appending Run 18. Restore the
           # pre-run file as a prefix and keep the new sections. Runs BEFORE the audit so
           # a repaired file is what gets audited and committed.
-          python lessons_guard.py /tmp/lessons-before.md lessons.md
-          case $? in
+          # The step runs under `bash -e`: a bare non-zero exit here would kill it before the
+          # warning, the entry audit and the commit (rehearsal 2026-10-12, exit 2). Exits 1 and
+          # 2 are reports, so capture the code instead of letting -e act on it.
+          GUARD_RC=0
+          python lessons_guard.py /tmp/lessons-before.md lessons.md || GUARD_RC=$?
+          case $GUARD_RC in
             1) echo "::warning::lessons.md history was edited by the run; the pre-run file was restored and the new section(s) kept. Check the commit diff." ;;
             2) echo "::warning::lessons.md history was edited and the new content could not be separated from the edit — left exactly as the agent wrote it. Needs a human." ;;
           esac
