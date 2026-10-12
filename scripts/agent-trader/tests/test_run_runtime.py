@@ -30,6 +30,20 @@ PROMPT = HERE / "agent-trader-prompt.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "agent-trader-weekly.yml"
 
 
+def _default_model(wf: str) -> str:
+    """The model a scheduled run uses: the literal on the job's AGENT_MODEL line.
+
+    That line may carry a rehearsal-only override expression in front of the default.
+    """
+    m = re.search(r"^\s+AGENT_MODEL:\s*(.+?)\s*$", wf, re.M)
+    if not m:
+        raise AssertionError("AGENT_MODEL not set in the workflow")
+    names = re.findall(r"claude-(?:sonnet|opus|fable|haiku)-[\w.-]+", m.group(1))
+    if len(names) != 1:
+        raise AssertionError(f"expected one default model on the AGENT_MODEL line, got {names}")
+    return names[0]
+
+
 def _env_ms(wf: str, name: str) -> int:
     m = re.search(rf'{name}:\s*"?(\d+)"?', wf)
     if not m:
@@ -59,19 +73,29 @@ class ModelTests(unittest.TestCase):
 
     def test_one_model_name_in_the_workflow(self):
         """Researcher, reviewer and Sonnet alias all come from AGENT_MODEL."""
-        m = re.search(r"^\s+AGENT_MODEL:\s*(\S+)\s*$", self.wf, re.M)
-        self.assertIsNotNone(m)
+        default = _default_model(self.wf)
         # Model names in comments (the 5.5 note) are history, not configuration.
         code = "\n".join(l for l in self.wf.splitlines() if not l.lstrip().startswith("#"))
         names = set(re.findall(r"claude-(?:sonnet|opus|fable)-[\w.-]+", code))
-        self.assertEqual(names, {m.group(1)})
+        self.assertEqual(names, {default})
         self.assertIn('--model "$AGENT_MODEL"', self.wf)
         self.assertIn("AGENT_REVIEW_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
         self.assertIn("ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
 
     def test_gate_default_matches_the_workflow(self):
-        m = re.search(r"^\s+AGENT_MODEL:\s*(\S+)\s*$", self.wf, re.M)
-        self.assertEqual(entry_gate.DEFAULT_MODEL, m.group(1))
+        self.assertEqual(entry_gate.DEFAULT_MODEL, _default_model(self.wf))
+
+    def test_model_override_only_applies_to_rehearsals(self):
+        """A rehearsal may try another model (4.6 vs 5.5 under the same harness,
+        2026-10-12). A published run may not: the model is stamped on every bet and a
+        change is a regime change, so it goes through a PR, never through a dispatch."""
+        line = re.search(r"^\s+AGENT_MODEL:\s*(.+?)\s*$", self.wf, re.M).group(1)
+        self.assertRegex(line, r"inputs\.rehearsal\s*&&\s*inputs\.model\s*\|\|")
+        dispatch = self.wf[self.wf.index("workflow_dispatch:"):self.wf.index("concurrency:")]
+        self.assertRegex(dispatch, r"\n      model:\n")
+        model_input = dispatch[dispatch.index("\n      model:"):]
+        self.assertIn("type: string", model_input)
+        self.assertIn("default: ''", model_input)
 
     def test_smoke_test_checks_web_search(self):
         """Sonnet 5.5 answered fine yet every WebSearch 400'd (2026-10-03)."""

@@ -20,6 +20,10 @@ on:
         description: 'Full research run with nothing published: no commit, no push, no email; the log and the files the agent wrote come back as an artifact. For trying a new model or prompt before the Monday cron.'
         type: boolean
         default: false
+      model:
+        description: 'Rehearsal only: Foundry deployment to run instead of the default (a deployment name on the Foundry resource), for comparing models under the same harness. Ignored unless rehearsal is ticked.'
+        type: string
+        default: ''
 
 concurrency:
   group: agent-trader
@@ -38,7 +42,9 @@ jobs:
       # (entry_gate.run_models): changing it opens a new regime in the track record.
       # Sonnet 5.5 cannot use Claude Code's WebSearch (it forces tool_choice, which 5.5
       # rejects with a 400 on Foundry, 2026-10-03), so it runs with AGENT_WEB_SEARCH=mcp.
-      AGENT_MODEL: claude-sonnet-5-5
+      # A rehearsal may override it (`model` input) to compare models under the same harness;
+      # a published run never can, since the model is stamped on every bet.
+      AGENT_MODEL: ${{ inputs.rehearsal && inputs.model || 'claude-sonnet-5-5' }}
       # Search for researcher AND reviewer. builtin: Claude Code's WebSearch. mcp:
       # search_mcp.py (keyless DuckDuckGo/Bing + Google News RSS) with WebSearch disabled.
       AGENT_WEB_SEARCH: mcp
