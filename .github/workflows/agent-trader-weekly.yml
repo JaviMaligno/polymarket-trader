@@ -24,6 +24,14 @@ on:
         description: 'Rehearsal only: Foundry deployment to run instead of the default (a deployment name on the Foundry resource), for comparing models under the same harness. Ignored unless rehearsal is ticked.'
         type: string
         default: ''
+      web_search:
+        description: 'Rehearsal only: search backend to run instead of the default. builtin = Claude Code WebSearch (fails on Sonnet 5.5), mcp = search_mcp.py. Ignored unless rehearsal is ticked.'
+        type: choice
+        options:
+          - ''
+          - builtin
+          - mcp
+        default: ''
 
 concurrency:
   group: agent-trader
@@ -47,7 +55,9 @@ jobs:
       AGENT_MODEL: ${{ inputs.rehearsal && inputs.model || 'claude-sonnet-5-5' }}
       # Search for researcher AND reviewer. builtin: Claude Code's WebSearch. mcp:
       # search_mcp.py (keyless DuckDuckGo/Bing + Google News RSS) with WebSearch disabled.
-      AGENT_WEB_SEARCH: mcp
+      # A rehearsal may override it (`web_search` input): 2026-10-05 changed model and search
+      # at once, and only a 4.6 run on the built-in search separates the two.
+      AGENT_WEB_SEARCH: ${{ inputs.rehearsal && inputs.web_search || 'mcp' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5

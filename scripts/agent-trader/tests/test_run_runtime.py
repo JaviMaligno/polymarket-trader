@@ -97,6 +97,18 @@ class ModelTests(unittest.TestCase):
         self.assertIn("type: string", model_input)
         self.assertIn("default: ''", model_input)
 
+    def test_web_search_override_only_applies_to_rehearsals(self):
+        """2026-10-05 changed model AND search at once; separating them needs a 4.6 run on
+        the built-in search, which only a rehearsal may do."""
+        line = re.search(r"^\s+AGENT_WEB_SEARCH:\s*(.+?)\s*$", self.wf, re.M).group(1)
+        self.assertRegex(line, r"inputs\.rehearsal\s*&&\s*inputs\.web_search\s*\|\|\s*'mcp'")
+        dispatch = self.wf[self.wf.index("workflow_dispatch:"):self.wf.index("concurrency:")]
+        web = dispatch[dispatch.index("\n      web_search:"):]
+        self.assertIn("type: choice", web)
+        for option in ("- ''", "- builtin", "- mcp"):
+            with self.subTest(option=option):
+                self.assertIn(option, web)
+
     def test_smoke_test_checks_web_search(self):
         """Sonnet 5.5 answered fine yet every WebSearch 400'd (2026-10-03)."""
         smoke = self.wf[self.wf.index("Smoke-test the model deployment"):]
@@ -167,7 +179,8 @@ class SearchModeTests(unittest.TestCase):
             self._reviewer_args("bing")
 
     def test_workflow_declares_the_mode_and_wires_the_researcher(self):
-        self.assertRegex(self.wf, r"(?m)^\s+AGENT_WEB_SEARCH:\s*(builtin|mcp)\s*$")
+        # The default sits at the end of the rehearsal-override expression.
+        self.assertRegex(self.wf, r"(?m)^\s+AGENT_WEB_SEARCH:.*'(builtin|mcp)'\s*\}\}\s*$")
         loop = self.wf[self.wf.index("agent-trader-prompt.md | claude"):]
         loop = loop[:loop.index("/tmp/agent-run.log")]
         self.assertIn('"${SEARCH_FLAGS[@]}"', loop)
