@@ -1384,3 +1384,25 @@ No formal US government announcement ending/terminating/suspending the naval blo
 **Selection rule (from resolved Bet 16, a win, plus this run's price-path check):** when a strict-criterion market has a sibling that already resolved NO in the same series and the price has been falling for days while the news flow is hostile, an unchanged NO view at a lower price still needs a net edge of 0.05 or more after the actual (not assumed) fee. Here the market charges no fee, and the edge survived at 0.080-0.100. Check the live ask before sizing, not last run's price.
 
 **Running record: 9-7 resolved, 1 open ($25 at risk). P&L: -$67.71, bankroll $932.29.** Bet 17 resolves 2026-11-01.
+
+## Run 21 — 2026-10-12 (zero new bets; Bet 17 update)
+
+**Official record at run start:** 9-7 resolved, P&L -$67.71, bankroll $932.29, Brier 0.1928. 1 open ($25 at risk).
+
+**Bet 17 (US announces end of Iranian blockade by Oct 31, NO) — open-position checklist.** All numbers from this run's `positions` output: entry(held)=0.780, mark(held)=0.855, delta(held)=+0.075, edge@entry=+0.100, entry(YES)=0.225, mark(YES)=0.145. `positions` prints if won +7.05 (bankroll if won 939.34), if lost -25.00 (bankroll if lost 907.29). Resolves 2026-11-01.
+1. **Marginal buyer at YES 0.145:** prices a roughly 1-in-7 chance of an official declarative blockade-end announcement in 19 days. The only way I can be wrong is a sudden phased deal that pairs Hormuz reopening with lifting the blockade. The Oct 11 Reuters/CBS headlines say Iran called the US response to its seven Hormuz conditions "insufficient" (snippets only; the CBS live blog URL I tried returned 404 and I did not open the Reuters body), which is evidence the deal is not close.
+2. **Was the motivating news priced before entry?** From `history --open` (market 3128888, "US announces end of Iranian blockade by October 31, 2026?", created 2026-07-27, not truncated): first observed 0.775 on 2026-07-28, max 0.910 on 2026-08-06, price at entry (2026-10-05) 0.215, now 0.145, min 0.125 on 2026-10-11. The slide continued after entry, so the market is moving toward my view, not lagging it.
+3. **Probability remaining:** an unmet criterion today is not zero with 19 days left. Politico Oct 8 headline: Trump says the US will not strike Iran until after the midterms. That headline is about strikes, not the blockade. I keep p_hat_yes at the entry level (0.12) and do not re-derive an edge against today's mark.
+4. **Direction:** strengthened, not confirmed. Falsifier: an official WH/DoD/State/CENTCOM statement clearly suspending the blockade, or a signed phased deal with immediate suspension.
+
+**Candidates considered and declined (no bets placed):**
+- **All Iran/Hormuz markets** (ceasefire through Oct 31/Nov 15, no Hormuz agreement, blockade-end Oct 15, Kharg, Bab el-Mandeb, Hormuz+Senate combos): same real-world cluster as Bet 17. Concentration veto.
+- **US midterm House/Senate/Texas/Michigan markets:** heavily traded, no criterion asymmetry, no differentiated view.
+- **Serbia (Vucic list 0.625 / Student List 0.375 most seats, Vucic PM 0.706):** election Oct 25. Only headlines and snippets read this run; the two list markets are complements and consistent. No differentiated view.
+- **Israel next PM (Eisenkot 0.46, Netanyahu 0.305, Bennett 0.145):** election Oct 27, same reasoning as Runs 19-20.
+- **Brazil runoff:** Flavio Bolsonaro outperformed polls in round one; a Yahoo headline says he leads Lula going into the runoff. Heavily polled and traded, no criterion edge.
+- **Fed October, Ballon d'Or, Bitcoin, near-0/near-1 markets:** standard filters.
+
+**Rule reinforced:** with one open position inside a dominant news cluster, the research budget is better spent confirming that no blocked-cluster edge hides in a non-Iran market than forcing a thin bet. Nothing cleared; zero is the correct count.
+
+**Running record: 9-7 resolved, 1 open ($25 at risk). P&L: -$67.71, bankroll $932.29.** Bet 17 resolves 2026-11-01.
