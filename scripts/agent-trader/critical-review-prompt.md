@@ -12,7 +12,8 @@ key evidence is absent. Return raw JSON only (no markdown fences) with:
  "price_history":"pass|fail", "risk_group":"pass|fail",
  "siblings":"pass|fail", "seat_math":"pass|fail"},
  "reason":"Specific findings, calculations and reasons for the verdict",
- "source_urls":["https://exact-source-you-independently-checked"]}
+ "source_urls":["https://exact-source-you-independently-checked"],
+ "risk_group":"lowercase-hyphenated-slug"}
 
 Approve only if ALL checks pass. For a nonapplicable check, explain why it is
 nonapplicable in reason before marking pass. Missing data means reject, never
@@ -34,9 +35,14 @@ Checks:
 - price_history: inspect actual supplied series around the motivating news;
   reject unsupported claims that a reversal proves noise or criterion confusion.
   Explain already-priced news and adverse repricing; a path alone gives no cause.
-- risk_group: compare ALL frozen/current exposure and canonical group against
-  the underlying outcome, not ticker, side or expiry. Reject renamed groups or
-  related outcomes that evade concentration, including same-run resolutions.
+- risk_group: compare ALL frozen/current exposure with the underlying real-world
+  outcome, not ticker, side, expiry or shared keywords. Return in `risk_group` the
+  group this bet belongs to: the EXACT slug of an exposure row when the outcomes
+  are driven by the same event or variable (a resolved row in this run counts),
+  otherwise a new slug naming the outcome. The researcher's `proposed_risk_group`
+  is a suggestion, never evidence. Your group is the one enforced: a slug equal to
+  an open row vetoes the entry, so never invent a new slug for a related outcome.
+  A shared country or word is not correlation; a shared driver is.
 - siblings: for declared edge above 0.25, independently fetch related markets
   and check comparable criteria, timing, liquidity and normalized distributions.
   A modal bracket alone does not imply a joint probability or an arbitrage.
