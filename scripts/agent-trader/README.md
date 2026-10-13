@@ -69,9 +69,11 @@ evidence, and a fresh independent Claude reviewer. Both runners create private
 run state **before** `evaluate`; a position resolved during the run continues to
 block its underlying risk group. A new scheduled/manual run releases resolved
 groups. Open groups and markets in the same Gamma event also block new entries.
-Known legacy themes (Iran/Hormuz, Russia Duma, etc.) are classified automatically;
-unknown legacy exposure stops the run until an explicit group is supplied through
-a reviewed data migration. Historical entry probabilities are never rewritten.
+The group is a semantic judgement: the independent reviewer assigns it (reusing an
+open row's slug when the outcomes share a driver), and that group, not the
+researcher's label, is enforced and stored. There is no keyword classification.
+Exposure without a stored group stops the run until one is supplied through a
+reviewed data migration. Historical entry probabilities are never rewritten.
 
 The investigator writes a proposal; `record` launches a separate CLI session with
 only WebSearch/WebFetch, no Bash/Write/Edit, no MCP servers and no conversation

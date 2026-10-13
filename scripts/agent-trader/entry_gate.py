@@ -71,22 +71,9 @@ def url(value):
 
 
 def group_for(row):
-    # Broad, conservative families override agent labels, including legacy rows.
-    question = row.get('question', '') + ' ' + row.get('slug', '')
-    patterns = (
-        (r'iran|hormuz|hezbollah|israel', 'iran-regional-conflict'),
-        (r'united russia|russian.*(?:election|duma)|\bldpr\b', 'russia-duma-2026'),
-        (r'apple.*largest|nvidia.*largest', 'largest-company-market-cap'),
-        (r'bolojan|romania', 'romania-government'),
-        (r'sulyok', 'hungary-presidency'),
-        (r'sinner|alcaraz|us.open', 'mens-us-open-2026'),
-        (r'haley.stevens|michigan.*primary', 'michigan-senate-primary-2026'),
-        (r'thanedar|mi-13', 'michigan-13-primary-2026'),
-        (r'nordone|darline|south.carolina.*senate', 'sc-senate-primary-2026'),
-    )
-    for pattern, group in patterns:
-        if re.search(pattern, question, re.I):
-            return group
+    # The group is a semantic judgement about the underlying real-world outcome, made
+    # by the independent reviewer and stored on the bet. A keyword list on the title
+    # cannot make it: `israel` put Israeli elections in the Iran-conflict group.
     group = row.get('risk_group')
     if not isinstance(group, str) or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', group):
         raise ValueError('unclassified exposure: explicit canonical risk group required')
@@ -354,6 +341,9 @@ def check_review(review, p, market):
             raise ValueError('review requires independently checked sources')
         for source in review['source_urls']:
             url(source)
+        group = review['risk_group']
+        if not isinstance(group, str) or not re.fullmatch(r'[a-z0-9]+(?:-[a-z0-9]+)*', group):
+            raise ValueError('review requires a canonical risk group')
         reviewer_p = number(review['p_hat_yes'])
         entry = effective_entry(executable(market, p['side']), trader.fee_rate(market))
         fair = min(p['p_hat_yes'], reviewer_p) if p['side'] == 'YES' else 1 - max(p['p_hat_yes'], reviewer_p)
@@ -393,7 +383,7 @@ def _record_proposal(p, state_path):
     brief = lambda rows: [{k: b[k] for k in exposure_keys if k in b} for b in rows]
     packet = {'proposal': p, 'market': market, 'history': history,
               'exposure': brief(state['exposure']), 'current_bets': brief(trader.load_bets()),
-              'canonical_risk_group': group}
+              'proposed_risk_group': group}
     try:
         review = critical_review(packet)
     except ValueError as exc:
@@ -409,7 +399,8 @@ def _record_proposal(p, state_path):
     if any(fresh.get(k) != market.get(k) for k in ('id', 'description', 'endDate', 'outcomes', 'clobTokenIds')) or event_ids(fresh) != event_ids(market):
         raise ValueError('market terms changed during review; new review required')
     state = read_run(state_path)
-    group = check_concentration(state, p, fresh)
+    # The reviewer's group, not the researcher's label, is the one enforced and stored.
+    group = check_concentration(state, {'risk_group': review['risk_group']}, fresh)
     edge = check_review(review, p, fresh)
     prices = json.loads(fresh['outcomePrices'])
     mkt = {'market_id': p['market_id'], 'slug': fresh['slug'], 'question': fresh['question'],

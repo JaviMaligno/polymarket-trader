@@ -47,7 +47,8 @@ def verdict():
             'checks': {k: 'pass' for k in ('sources', 'conditions', 'probability',
                        'counterargument', 'price_history', 'risk_group', 'siblings', 'seat_math')},
             'reason': 'Independent source checks support conservative probability.',
-            'source_urls': ['https://example.org/announcement']}
+            'source_urls': ['https://example.org/announcement'],
+            'risk_group': 'treaty-example'}
 
 
 class EntryGateTests(unittest.TestCase):
@@ -84,15 +85,29 @@ class EntryGateTests(unittest.TestCase):
         self.state.unlink()
         self.gate.begin_run(self.state)
 
-    def test_same_run_resolution_does_not_release_iran_group(self):
+    def test_same_run_resolution_does_not_release_the_group(self):
         b = {'bet_id': 'old', 'market_id': '3348048', 'status': 'open',
+             'risk_group': 'iran-regional-conflict',
              'question': 'Iran-Oman Hormuz Agreement by August 31?'}
         self.restart([b])
         b['status'] = 'lost'
         self.write_bets([b])
         with self.assertRaisesRegex(ValueError, 'concentration'):
             self.gate.check_concentration(self.gate.read_run(self.state),
-                {'risk_group': 'different-label'}, dict(MARKET, question='US ends Iranian blockade?'))
+                {'risk_group': 'iran-regional-conflict'},
+                dict(MARKET, question='US ends Iranian blockade?'))
+
+    def test_a_keyword_in_the_question_does_not_decide_the_group(self):
+        """Grouping is the reviewer's semantic call, not a regex on the title: with
+        the Iran blockade bet open, an Israeli election market matched `israel` and
+        was vetoed as `iran-regional-conflict` (rehearsal 2026-10-13)."""
+        self.restart([{'bet_id': 'old', 'market_id': '999', 'status': 'open',
+                       'risk_group': 'iran-regional-conflict', 'event_ids': ['e9'],
+                       'question': 'US announces end of Iranian blockade by October 31?'}])
+        market = dict(MARKET, question='Will Netanyahu be the next Prime Minister of Israel?')
+        self.assertEqual(self.gate.check_concentration(
+            self.gate.read_run(self.state), {'risk_group': 'israel-election-2026'}, market),
+            'israel-election-2026')
 
     def test_next_run_releases_resolved_group(self):
         self.restart([{'bet_id': 'old', 'status': 'lost', 'question': 'Iran deal?'}])
@@ -201,6 +216,34 @@ class EntryGateTests(unittest.TestCase):
         self.run_record()
         with self.assertRaisesRegex(ValueError, 'concentration'):
             self.run_record()
+
+    def test_the_reviewer_assigns_the_stored_group(self):
+        v = verdict()
+        v['risk_group'] = 'treaty-ratification'
+        bet = self.run_record(decision=v)
+        self.assertEqual(bet['risk_group'], 'treaty-ratification')
+
+    def test_reviewer_group_matching_open_exposure_vetoes_a_relabelled_proposal(self):
+        """The researcher picks its own label; a 4.6 rehearsal re-submitted a vetoed
+        market three times. The independent reviewer's group is the one enforced."""
+        self.restart([{'bet_id': 'old', 'market_id': '999', 'status': 'open',
+                       'risk_group': 'iran-regional-conflict', 'event_ids': ['e9'],
+                       'question': 'US announces end of Iranian blockade by October 31?'}])
+        p = proposal()
+        p['risk_group'] = 'us-iran-ceasefire'
+        v = verdict()
+        v['risk_group'] = 'iran-regional-conflict'
+        with self.assertRaisesRegex(ValueError, 'concentration'):
+            self.run_record(p=p, decision=v)
+        self.assertNotIn('ceasefire', self.bets.read_text())
+
+    def test_review_without_a_valid_group_rejects(self):
+        for value in (None, '', 'Iran Conflict', 7):
+            v = verdict()
+            v['risk_group'] = value
+            self.restart([])
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.run_record(decision=v)
 
     def test_legacy_record_bet_cannot_bypass_review(self):
         with self.assertRaisesRegex(ValueError, 'proposal'):
