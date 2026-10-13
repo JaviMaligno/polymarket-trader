@@ -85,6 +85,22 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    ambiguous) freely; the strongest historical edges were where the market mispriced the
    SPEED or STATUS of a known-direction process, not blue-chip consensus.
 
+   **Research depth is the whole job — a decline has to be earned too.** Every run is a
+   full research pass: a section for today already in `lessons.md` (a re-run, a catch-up)
+   does not make this run lighter or "add no new evidence". Shortlist at least six
+   candidates from the filtered set and research each one separately. For each, open
+   the primary sources with WebFetch — the official statement, the poll release, the
+   filing, the publisher's article; a search snippet or a headline is a lead, not a
+   source. A decline must name the finding that decided it ("Berkeley IGS polled 45%
+   support in late September, price inside that range"), not a feeling that the market
+   looks fair. **A
+   price move you cannot explain is a question to research, not a reason to decline:**
+   2026-10-12 declined a market "because it fell from 0.455 to 0.305 for a reason I
+   couldn't identify" after one search — find the news that moved it, then decide.
+   That same run researched three candidates with seven searches and three opened pages
+   in under two minutes; on the same day and tools, a full pass made 28 searches
+   and opened 37 pages.
+
    **Enumerate every payout condition in writing before fixing `p_hat`** — one line per
    condition, not a summary of the criterion. If payout depends on a multi-party deal or
    announcement, list the parties that must each pronounce, with **one cited source per

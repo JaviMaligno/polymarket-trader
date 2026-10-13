@@ -122,6 +122,7 @@ columns of `metrics.jsonl` include the contaminated history).
 | 2026-10-02 | 1 | 0 / $0.00 | 1 / +$5.12 | **no** | Bet 16 (Iran blockade Sep-30 NO), Sonnet 4.6. The 09-28 run was null (reviewer backgrounded); Run 19 came from the day-2 catch-up |
 | 2026-10-05 | 0 | 0 / $0.00 | 0 / $0.00 | yes | Run 20, first 5.5 + MCP run. Bet 17 placed (Iran blockade Oct-31 NO, entry 0.78): first bet of the restart cohort, open until 2026-11-01. No side split in the Run 20 section |
 | 2026-10-12 | 0 | 0 / $0.00 | 0 / $0.00 | yes | Run 21, 0 new bets. No side split in the Run 21 section; `test_blindness_surfaces.py` green |
+| 2026-10-13 | — (no run) | — | — | yes | **Regime change, operator decision.** The decision prompt gains a research-depth section, because 5.5 researched ~5-7× less than 4.6 under the same harness. Same reasoning as rival 5: the count restarts at zero with bets placed by the first scheduled run after that prompt reaches `main` (its date goes in that run's row). Bet 17 was placed under the old prompt and stays out of the count |
 
 **The blind was broken before this file was written.** Found 2026-10-03. The human review
 of Run 15 (commit `b30ef29`, 2026-08-31) appended to `lessons.md` — which the agent reads in
