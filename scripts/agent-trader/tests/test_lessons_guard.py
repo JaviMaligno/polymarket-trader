@@ -15,6 +15,8 @@ old prefix back and keeps the new section, rather than failing the run — the w
 research is worth keeping, the mutation is not.
 """
 from __future__ import annotations
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -136,6 +138,45 @@ Another one.
         # exercising the platform rather than the guard.
         self.after.write_bytes(APPENDED.replace("\n", "\r\n").encode("utf-8"))
         self.assertEqual(self._run().status, "ok")
+
+
+class WorkflowExitCodeTests(unittest.TestCase):
+    """The guard's non-zero exits are reports, not failures.
+
+    The decision step runs under `bash -e`. On 2026-10-12 a rehearsal's agent titled its
+    section `## Run 21 Summary`; the guard exited 2 and `-e` killed the step on the spot —
+    before the `case` that was meant to warn, before the entry audit and before the
+    commit. Exit 1 ("restored", the case the guard exists for) did the same. A week of
+    research would have died the first time the agent edited history.
+    """
+
+    def _guard_block(self) -> str:
+        root = Path(__file__).resolve().parents[3]
+        wf = (root / ".github" / "workflows" / "agent-trader-weekly.yml").read_text(encoding="utf-8")
+        lines = wf.replace("\r\n", "\n").split("\n")
+        start = next(i for i, l in enumerate(lines) if "python lessons_guard.py" in l)
+        end = next(i for i in range(start, len(lines)) if lines[i].strip() == "esac")
+        return "\n".join(l.strip() for l in lines[start:end + 1])
+
+    @unittest.skipUnless(shutil.which("bash"), "needs bash")
+    def test_step_survives_every_guard_exit_under_bash_e(self):
+        for code, expect in ((0, None), (1, "::warning::"), (2, "::warning::")):
+            with self.subTest(code=code):
+                # A shell function stands in for the guard: it exits with `code`.
+                script = (f"python() {{ return {code}; }}\n"
+                          + self._guard_block() + "\necho STEP_CONTINUED\n")
+                # Script on stdin, not argv: argv quoting differs between bash builds.
+                out = subprocess.run(["bash", "-e", "-s"], input=script.encode("utf-8"),
+                                     capture_output=True, timeout=30)
+                out = subprocess.CompletedProcess(out.args, out.returncode,
+                                                  out.stdout.decode("utf-8", "replace"),
+                                                  out.stderr.decode("utf-8", "replace"))
+                self.assertEqual(out.returncode, 0, out.stderr)
+                self.assertIn("STEP_CONTINUED", out.stdout)
+                if expect:
+                    self.assertIn(expect, out.stdout)
+                else:
+                    self.assertNotIn("::warning::", out.stdout)
 
 
 if __name__ == "__main__":
