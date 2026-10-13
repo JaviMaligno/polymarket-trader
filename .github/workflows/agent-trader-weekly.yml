@@ -107,6 +107,10 @@ jobs:
             | claude --model "$AGENT_MODEL" --print "${SEARCH_FLAGS[@]}" \
                 --allowedTools "$SEARCH_TOOLS" | tee /tmp/search.log
           grep -q SEARCH_OK /tmp/search.log && grep -q "https\?://" /tmp/search.log
+          # The reviewer assigns the risk group the concentration veto enforces: prove the
+          # live model returns one, and groups by shared driver rather than shared words.
+          cd scripts/agent-trader
+          AGENT_REVIEW_MODEL="$AGENT_MODEL" python review_smoke.py
 
       - name: Configure git
         run: |
