@@ -181,13 +181,23 @@ jobs:
           # agent actually appended to lessons.md — a real run always does.
           source search-flags.sh || exit 1   # SEARCH_FLAGS / SEARCH_TOOLS per AGENT_WEB_SEARCH
           AGENT_OK=1
+          # Stream the whole transcript, not just the final message: Run 21 (2026-10-12) took
+          # 44 s and nothing recorded whether it searched at all. transcript_stats.py writes the
+          # final message to /tmp/agent-run.log (what the null-run grep below reads), prints the
+          # research count, and leaves a redacted copy for the artifact.
           cat agent-trader-prompt.md | claude \
             --model "$AGENT_MODEL" \
             --print \
+            --output-format stream-json \
+            --verbose \
             --permission-mode acceptEdits \
             "${SEARCH_FLAGS[@]}" \
             --allowedTools "Bash WebFetch Read Write Edit $SEARCH_TOOLS" \
-            > /tmp/agent-run.log 2>&1 || AGENT_OK=0
+            > /tmp/agent-transcript.jsonl 2> /tmp/agent-run.err || AGENT_OK=0
+          python transcript_stats.py /tmp/agent-transcript.jsonl /tmp/agent-run.log \
+            /tmp/agent-transcript.redacted.jsonl || true
+          # stderr carries CLI-level failures (auth, bad flags) that never reach the stream.
+          cat /tmp/agent-run.err >> /tmp/agent-run.log 2>/dev/null || true
           cat /tmp/agent-run.log
           # lessons.md is state: the whole file goes into every future decision prompt.
           # The agent appends to it with Write/Edit, and on 2026-09-21 that write also
@@ -313,11 +323,20 @@ jobs:
             echo "Nothing to push."
           fi
 
+      - name: Upload agent transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-transcript-${{ github.run_id }}
+          path: /tmp/agent-transcript.redacted.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
+
       - name: Keep the rehearsal for review
         if: always() && inputs.rehearsal == true
         run: |
           mkdir -p /tmp/rehearsal
-          cp /tmp/agent-run.log /tmp/rehearsal/ 2>/dev/null || true
+          cp /tmp/agent-run.log /tmp/agent-transcript.redacted.jsonl /tmp/rehearsal/ 2>/dev/null || true
           cd scripts/agent-trader
           git diff > /tmp/rehearsal/track-record.diff || true
           cp lessons.md bets.jsonl /tmp/rehearsal/ 2>/dev/null || true
