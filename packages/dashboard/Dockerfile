@@ -1,13 +1,14 @@
 # Polymarket Dashboard API Service
-FROM node:20-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@10.34.5
 
 WORKDIR /app
 
 # Copy package files
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/data-collector/package.json ./packages/data-collector/
 COPY packages/signals/package.json ./packages/signals/
 COPY packages/backtest/package.json ./packages/backtest/
 COPY packages/trader/package.json ./packages/trader/
@@ -17,6 +18,7 @@ COPY packages/dashboard/package.json ./packages/dashboard/
 RUN pnpm install --frozen-lockfile --prod=false
 
 # Copy source code
+COPY packages/data-collector ./packages/data-collector
 COPY packages/signals ./packages/signals
 COPY packages/backtest ./packages/backtest
 COPY packages/trader ./packages/trader
@@ -24,20 +26,22 @@ COPY packages/dashboard ./packages/dashboard
 COPY tsconfig.json ./
 
 # Build all packages
-RUN pnpm --filter @polymarket-trader/signals build && \
+RUN pnpm --filter @polymarket-trader/data-collector build && \
+    pnpm --filter @polymarket-trader/signals build && \
     pnpm --filter @polymarket-trader/backtest build && \
     pnpm --filter @polymarket-trader/trader build && \
     pnpm --filter @polymarket-trader/dashboard build
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:24.22.1-alpine AS production
 
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN npm install --global pnpm@10.34.5
 
 WORKDIR /app
 
 # Copy package files for production install
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages/data-collector/package.json ./packages/data-collector/
 COPY packages/signals/package.json ./packages/signals/
 COPY packages/backtest/package.json ./packages/backtest/
 COPY packages/trader/package.json ./packages/trader/
@@ -47,6 +51,7 @@ COPY packages/dashboard/package.json ./packages/dashboard/
 RUN pnpm install --frozen-lockfile --prod
 
 # Copy built files
+COPY --from=builder /app/packages/data-collector/dist ./packages/data-collector/dist
 COPY --from=builder /app/packages/signals/dist ./packages/signals/dist
 COPY --from=builder /app/packages/backtest/dist ./packages/backtest/dist
 COPY --from=builder /app/packages/trader/dist ./packages/trader/dist

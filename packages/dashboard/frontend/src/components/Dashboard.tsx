@@ -417,7 +417,7 @@ export function Dashboard() {
                       border: '1px solid #374151',
                       borderRadius: '8px',
                     }}
-                    formatter={(value: number | undefined) => [formatCurrency(value ?? 0), 'Equity']}
+                    formatter={(value) => [formatCurrency((value as number | undefined) ?? 0), 'Equity']}
                     labelStyle={{ color: '#9ca3af' }}
                   />
                   <Area

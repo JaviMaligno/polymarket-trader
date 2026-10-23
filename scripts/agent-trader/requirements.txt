@@ -1,3 +1,5 @@
 # Agent-Trader — the whole experiment runs on stdlib + one HTTP client.
 # Deliberately minimal: it must install on a free GitHub runner in seconds.
-requests>=2.31
+requests>=2.33.0,<3
+urllib3>=2.8.0,<3
+certifi>=2026.10.19
