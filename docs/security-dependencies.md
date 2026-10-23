@@ -6,7 +6,9 @@ migration. Node runs on 24.22.1, the workspace uses pnpm 10.34.5, and the separa
 frontend uses npm 11.19.1. Existing workflow events, permissions, environment and
 secret boundaries are unchanged. The weekly LLM benchmark remains a business
 workflow; do not dispatch it, or any trade/review/deploy workflow, as CI evidence.
-There is no pull-request validation workflow in the reviewed baseline.
+There is no pull-request validation workflow in the reviewed baseline. The
+follow-up adds isolated PR validation as described below; business jobs remain
+unchanged.
 
 ## Compatible parent changes
 
@@ -96,23 +98,88 @@ database or API call. These checks do not establish live trading compatibility.
 
 ## Review limits
 
-- The latest four Node locks contain 723 public package/version pairs. The shared
-  expanded OSV pair cache has no known IDs for those pairs; the earlier 317-item
-  advisory corpus was insufficient. Independent review must refresh the exact
-  final lock hashes before treating this as current evidence, and must not call
-  the repository globally vulnerability-free.
+- Before the DOM follow-up, the four Node locks contained 723 public package/
+  version pairs with no findings in the root's fresh query; the earlier 317-item
+  advisory corpus was insufficient. The new development graph changes that
+  footprint. Root refreshed all four final locks after the DOM addition and found
+  no exact-package/version matches. This does not make the repository globally
+  vulnerability-free.
 - The service's 38 exact Python pairs have no exact-package OSV matches in the
   focused query. This does not cover a separately resolved ML or business script
   environment, system libraries, image layers or deployment configuration.
-- The frontend lint command reports two React hook diagnostics in unchanged
-  `AutomationPanel.tsx` and `useWebSocket.ts`; both files and the ESLint config
-  are identical to the baseline. They were not suppressed or repaired by changing
-  request/reconnect behavior. ESLint 8/9 tooling also remains unsupported; the
-  backend's existing lint scripts lack repository configuration. A lint migration
-  needs its own behavior and configuration review.
+- The original frontend lint command reported two baseline React Hook diagnostics.
+  The follow-up below addresses their lifecycle causes without rule suppressions.
+  ESLint 8/9 tooling remains unsupported; the backend's existing lint scripts lack
+  repository configuration. A lint migration needs its own configuration review.
 - No Docker build, container startup, browser, full suite, scheduled workflow,
   optimization, market-data collection, email, transaction or deployment ran.
   Image compatibility and full hosted verification remain separate pending gates.
-  The standalone service npm locks were resolved and their production consumers
-  corrected, but separate full npm installs of those service graphs were not run;
-  the workspace frozen install and compile cover their application sources.
+  Subsequent standalone frozen installs with lifecycle scripts disabled passed
+  for both data-collector (272 packages) and mm-recorder (89 packages), recorded
+  in the task result. They do not establish image or startup compatibility.
+
+## PR follow-up: frontend lifecycle and isolated image checks
+
+The original full frontend lint reproduces exactly two diagnostics:
+`set-state-in-effect` in AutomationPanel and a self-reference before declaration
+in useWebSocket. The status panel now applies state in the HTTP completion
+callback and ignores results from a cleaned-up polling subscription. Initial
+loading, the 10-second interval, independent failed status reads and the existing
+manual Refresh control retain their contracts. API URLs, mutating action
+callbacks, strategies and trading parameters are unchanged.
+
+The socket's reconnect callback has a local function name instead of referring
+to its own uninitialized Hook binding. A connection already in CONNECTING or
+OPEN state is reused. Intentional disconnect clears pending retries and detaches
+all socket handlers before closing, preventing a close callback from scheduling
+a new connection after cleanup. Explicit disconnect still notifies
+`onDisconnect` once for an active socket. Remote close retains the configured
+reconnect delay, messages and subscription payloads. Callback/option changes
+clean up the previous socket before a replacement is created.
+
+`tests/lifecycle.test.mjs` mounts the actual component and hook with React DOM
+and jsdom 30.1.3 (development only, pinned in the frontend npm lock). Its timers,
+HTTP and WebSocket are simulated; no actual browser, server or trading code runs.
+The initial eight contracts reproduce five socket lifecycle failures and three
+passing existing contracts. An additional contract covers a stale HTTP response
+from the cleaned-up StrictMode effect. The pre-fix lint log and RED/GREEN
+evidence are retained in the task workspace, outside source control.
+The stale-response contract also fails against the exact pre-follow-up source:
+an obsolete status of 99 replaces the current status of 7. After the fixes, all
+nine contracts pass, and the full frontend ESLint command reports zero errors.
+The updated frontend frozen install passes with 275 packages and scripts disabled;
+TypeScript compilation and Vite production build also pass. The build retains
+Vite's asset-size warning (one JavaScript chunk exceeds 500 kB); no bundle-size
+threshold or warning is suppressed.
+
+```sh
+cd packages/dashboard/frontend
+node ../../../node_modules/vitest/vitest.mjs run --config vitest.security.config.ts --maxWorkers=2 --no-api
+node node_modules/eslint/bin/eslint.js .
+node node_modules/typescript/bin/tsc -b
+node node_modules/vite/bin/vite.js build
+```
+
+`.github/workflows/security-pr.yml` accepts only PR opened/synchronize/reopened/
+ready_for_review events. It uses a read-only token, per-PR cancellation and
+in-job path selection. Draft runs compile/lint/build checks. Ready additionally
+runs the selected offline contracts (not the full trading suite), installs the
+full optimizer hash lock for service dependency verification, and builds affected
+images. No business workflow is dispatched or modified by this follow-up.
+
+The image job builds, never runs or publishes, these actual consumers: root
+context for Dockerfile.base, dashboard, trader, data-collector and mm-recorder;
+frontend context for its Dockerfile; optimizer-server context for its Dockerfile.
+Their RUN instructions install public packages or compile source; none downloads
+models, starts a service or calls providers. A single Buildx builder reuses layers
+across the selected images. There is no registry login, push, image load, deployment
+or runtime health request. Hosted image compatibility remains pending until this
+workflow succeeds for the final PR commit. Local Docker builds are not evidence.
+
+The new DOM development graph changes the prior 723-pair Node audit footprint.
+Root's fresh query of all four final locks reports zero findings, including the
+frontend lock SHA-256
+`56280ec896f92266281b4c091f05f16779da64614e24ce401d44f3c93c83dfb6`.
+No new union pair count is asserted. The separate ML graph, system/image layers
+and deployed behavior remain outside that audit scope. Source/workflow review
+passes; actual hosted image and Ready-contract results remain pending.

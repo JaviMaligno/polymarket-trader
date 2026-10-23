@@ -1,0 +1,99 @@
+name: Offline PR validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  source:
+    name: Source checks and offline contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      images: ${{ steps.paths.outputs.images }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select affected sources inside the required job
+        id: paths
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python .github/scripts/security_paths.py
+      - uses: actions/setup-node@v6
+        if: steps.paths.outputs.workspace == 'true' || steps.paths.outputs.frontend == 'true'
+        with:
+          node-version: 24.22.1
+      - name: Install workspace once without lifecycle scripts
+        if: steps.paths.outputs.workspace == 'true' || steps.paths.outputs.frontend == 'true'
+        run: |
+          npm install --global pnpm@10.34.5
+          pnpm install --frozen-lockfile --ignore-scripts
+      - name: Compile workspace sources without starting jobs
+        if: steps.paths.outputs.workspace == 'true'
+        run: pnpm exec tsc -b packages/data-collector packages/signals packages/backtest packages/trader packages/dashboard packages/optimizer packages/mm-recorder
+      - name: Install frontend once without lifecycle scripts
+        if: steps.paths.outputs.frontend == 'true'
+        working-directory: packages/dashboard/frontend
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Frontend lint, types and production assets
+        if: steps.paths.outputs.frontend == 'true'
+        working-directory: packages/dashboard/frontend
+        run: |
+          node node_modules/eslint/bin/eslint.js .
+          node node_modules/typescript/bin/tsc -b
+          node node_modules/vite/bin/vite.js build
+      - name: Selected backend offline contracts (Ready only)
+        if: github.event.pull_request.draft == false && steps.paths.outputs.workspace == 'true'
+        run: node node_modules/vitest/vitest.mjs run packages/dashboard/src/api/security-dependencies.test.ts packages/data-collector/src/services/Scheduler.security.test.ts packages/backtest/src/types/RiskProfiles.test.ts --pool=threads --maxWorkers=2 --no-file-parallelism --no-api
+      - name: Frontend lifecycle contracts (Ready only)
+        if: github.event.pull_request.draft == false && steps.paths.outputs.frontend == 'true'
+        working-directory: packages/dashboard/frontend
+        run: node ../../../node_modules/vitest/vitest.mjs run --config vitest.security.config.ts --maxWorkers=2 --no-api
+      - uses: actions/setup-python@v6
+        if: github.event.pull_request.draft == false && steps.paths.outputs.python == 'true'
+        with:
+          python-version: 3.11.17
+      - name: Install full service hash lock and offline test runner (Ready only)
+        if: github.event.pull_request.draft == false && steps.paths.outputs.python == 'true'
+        run: |
+          python -m pip install 'pip @ https://files.pythonhosted.org/packages/3f/06/3e4420302363fbb71be3c7f35ce042f54bfca330e3e66b3a2e3c4cca579f/pip-26.2.2-py3-none-any.whl#sha256=fd7f4dfa8190e014013b9f08f3e973f4e4c26ffd179a204895533a7254813a70'
+          python -m pip install --require-hashes -r services/optimizer-server/requirements.lock
+          python -m pip install pytest==9.1.1
+          python -m pip check
+      - name: Actual ASGI routes with optimizer and HTTP denied (Ready only)
+        if: github.event.pull_request.draft == false && steps.paths.outputs.python == 'true'
+        run: python -m pytest security_contracts/test_optimizer_api.py -q -p no:cacheprovider
+
+  images:
+    name: Build affected images without running or publishing
+    needs: source
+    if: github.event.pull_request.draft == false && needs.source.outputs.images != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build only, reusing one builder's layer cache
+        env:
+          IMAGE_BUILDS: ${{ needs.source.outputs.images }}
+        run: |
+          python - <<'PY'
+          import json, os, subprocess
+          for image in json.loads(os.environ['IMAGE_BUILDS']):
+              subprocess.run([
+                  'docker', 'buildx', 'build', '--progress=plain',
+                  '--file', image['file'], image['context'],
+              ], check=True)
+          PY
