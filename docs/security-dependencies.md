@@ -48,6 +48,14 @@ Node bases and pnpm bootstrap are pinned; no floating `pnpm@latest` remains.
 Build contexts exclude host dependencies, environments and credentials.
 
 The optimizer image uses Python 3.11.17 and bootstraps hash-verified pip 26.2.2.
+Both the image and PR setup verify the wheel's SHA-256 before executing pip:
+BuildKit `ADD --checksum` (Dockerfile frontend >=1.6) or CI curl/sha256sum performs
+the download/check, then `PYTHONPATH` selects that verified wheel for the first
+pip invocation, which installs itself with `--no-index --no-deps`. The installed
+pip subsequently consumes the application hash lock. This enforces the verified
+bootstrap plan; it is not evidence of an exploited flaw or a measured version
+problem in the runner's previously bundled pip. No local image or install was
+executed for this bootstrap-only follow-up.
 It consumes `services/optimizer-server/requirements.lock` with `--require-hashes`.
 Regenerate that universal lock with patched uv 0.13.5:
 
