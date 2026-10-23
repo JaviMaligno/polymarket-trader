@@ -3,7 +3,7 @@
  * Shows status and controls for automation services
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Play,
   Square,
@@ -54,6 +54,14 @@ interface PolymarketStatus {
   errorCount: number;
 }
 
+function readStatus() {
+  return Promise.all([
+    api.getAutomationStatus().catch(() => null),
+    api.getSignalEngineStatus().catch(() => null),
+    api.getPolymarketStatus().catch(() => null),
+  ]);
+}
+
 export function AutomationPanel() {
   const [automation, setAutomation] = useState<AutomationStatus | null>(null);
   const [signalEngine, setSignalEngine] = useState<SignalEngineStatus | null>(null);
@@ -61,28 +69,27 @@ export function AutomationPanel() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  const fetchStatus = async () => {
-    try {
-      const [autoStatus, signalStatus, polyStatus] = await Promise.all([
-        api.getAutomationStatus().catch(() => null),
-        api.getSignalEngineStatus().catch(() => null),
-        api.getPolymarketStatus().catch(() => null),
-      ]);
-      setAutomation(autoStatus as AutomationStatus);
-      setSignalEngine(signalStatus as SignalEngineStatus);
-      setPolymarket(polyStatus as PolymarketStatus);
-    } catch (e) {
-      console.error('Failed to fetch status:', e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const applyStatus = useCallback(([autoStatus, signalStatus, polyStatus]: Awaited<ReturnType<typeof readStatus>>) => {
+    setAutomation(autoStatus as AutomationStatus);
+    setSignalEngine(signalStatus as SignalEngineStatus);
+    setPolymarket(polyStatus as PolymarketStatus);
+    setLoading(false);
+  }, []);
+
+  const fetchStatus = () => readStatus().then(applyStatus);
 
   useEffect(() => {
-    fetchStatus();
-    const interval = setInterval(fetchStatus, 10000);
-    return () => clearInterval(interval);
-  }, []);
+    let active = true;
+    const poll = () => readStatus().then((status) => {
+      if (active) applyStatus(status);
+    });
+    void poll();
+    const interval = setInterval(poll, 10000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [applyStatus]);
 
   const handleAction = async (action: string, fn: () => Promise<unknown>) => {
     setActionLoading(action);

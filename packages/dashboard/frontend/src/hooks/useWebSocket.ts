@@ -35,8 +35,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) return;
+  const connect = useCallback(function connectSocket() {
+    if (wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING) return;
+
+    if (reconnectTimeoutRef.current !== null) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
 
     try {
       wsRef.current = new WebSocket(WS_URL);
@@ -56,7 +62,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
           clearTimeout(reconnectTimeoutRef.current);
         }
         reconnectTimeoutRef.current = window.setTimeout(() => {
-          connect();
+          reconnectTimeoutRef.current = null;
+          connectSocket();
         }, reconnectInterval);
       };
 
@@ -78,14 +85,25 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   }, [onConnect, onDisconnect, onMessage, reconnectInterval]);
 
   const disconnect = useCallback(() => {
-    if (reconnectTimeoutRef.current) {
+    if (reconnectTimeoutRef.current !== null) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-    wsRef.current?.close();
+    const socket = wsRef.current;
     wsRef.current = null;
+    if (socket) {
+      // An intentional close must not schedule a reconnect or retain callbacks
+      // from a previous effect. Detach before close: close may emit immediately.
+      socket.onopen = null;
+      socket.onclose = null;
+      socket.onerror = null;
+      socket.onmessage = null;
+      const wasActive = socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING;
+      socket.close();
+      if (wasActive) onDisconnect?.();
+    }
     setIsConnected(false);
-  }, []);
+  }, [onDisconnect]);
 
   const subscribe = useCallback((channel: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

@@ -56,3 +56,16 @@ docker-compose*
 backups
 *.sql
 *.sql.gz
+
+# Local security contexts and credentials
+.venv
+.security*
+.env.*
+**/.venv
+**/.security*
+credentials*.json
+**/credentials*.json
+*.pem
+**/*.pem
+*.db
+**/*.db

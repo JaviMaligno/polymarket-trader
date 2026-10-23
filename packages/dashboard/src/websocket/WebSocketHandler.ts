@@ -43,8 +43,7 @@ export class WebSocketHandler {
    */
   register(fastify: FastifyInstance): void {
     fastify.register(async (app) => {
-      app.get('/ws', { websocket: true }, (connection) => {
-        const ws = connection.socket as unknown as WebSocket;
+      app.get('/ws', { websocket: true }, (ws) => {
         this.handleConnection(ws);
       });
     });

@@ -1,13 +1,13 @@
 # Polymarket Data Collector - GCP optimized (standalone)
-FROM node:20-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 
 WORKDIR /app
 
 # Copy package files
-COPY packages/data-collector/package.json ./
+COPY packages/data-collector/package.json packages/data-collector/package-lock.json ./
 
 # Install all dependencies (including dev for build)
-RUN npm install
+RUN npm ci
 
 # Copy source code and tsconfig
 COPY packages/data-collector/src ./src
@@ -17,7 +17,7 @@ COPY packages/data-collector/tsconfig.json ./
 RUN npm run build
 
 # Production stage - minimal image
-FROM node:20-alpine AS production
+FROM node:24.22.1-alpine AS production
 
 # Install wget for healthcheck
 RUN apk add --no-cache wget
@@ -25,8 +25,8 @@ RUN apk add --no-cache wget
 WORKDIR /app
 
 # Copy package.json and install production deps only
-COPY packages/data-collector/package.json ./
-RUN npm install --omit=dev
+COPY packages/data-collector/package.json packages/data-collector/package-lock.json ./
+RUN npm ci --omit=dev
 
 # Copy built files
 COPY --from=builder /app/dist ./dist

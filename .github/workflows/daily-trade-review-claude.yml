@@ -66,17 +66,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24.22.1
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10.34.5
 
       - name: Install dependencies
         run: |
           npm install -g @anthropic-ai/claude-code
-          npm install --no-save nodemailer
+          npm install --no-save --package-lock=false nodemailer@10.2.1
           pnpm install --frozen-lockfile
 
       - name: Authenticate to Google Cloud

@@ -1,4 +1,4 @@
-import { monitorEventLoopDelay, type IntervalHistogram } from 'node:perf_hooks';
+import { monitorEventLoopDelay } from 'node:perf_hooks';
 
 export type SyncState = 'NORMAL' | 'DEGRADED' | 'CRITICAL';
 
@@ -36,7 +36,7 @@ export class AdaptiveSyncManager {
   private jobSkipCounts: Map<string, number> = new Map();
 
   // Event loop monitoring
-  private histogram: IntervalHistogram | null = null;
+  private histogram: ReturnType<typeof monitorEventLoopDelay> | null = null;
   private checkInterval: ReturnType<typeof setInterval> | null = null;
 
   // Pluggable clock for testability
