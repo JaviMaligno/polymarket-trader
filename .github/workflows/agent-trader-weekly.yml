@@ -21,7 +21,7 @@ on:
         type: boolean
         default: false
       model:
-        description: 'Rehearsal only: Foundry deployment to run instead of the default (a deployment name on the Foundry resource), for comparing models under the same harness. Ignored unless rehearsal is ticked.'
+        description: 'Rehearsal only: model to run instead of the default, by its stamped name (claude-<family>-<major>-<minor>), for comparing models under the same harness. Ignored unless rehearsal is ticked.'
         type: string
         default: ''
       web_search:
@@ -45,8 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90  # research plus up to four independent reviews (10 min each)
     env:
-      # One model for researcher and reviewer; it must exist as a deployment on the Foundry
-      # resource and pass the smoke test below (answer + WebSearch). Stamped on every bet
+      # One model for researcher and reviewer; it must exist on OpenRouter (under the id
+      # entry_gate.provider_model gives it, AGENT_MODEL_ID) and pass the smoke test below
+      # (answer + WebSearch). Stamped on every bet
       # (entry_gate.run_models): changing it opens a new regime in the track record.
       # Sonnet 5.5 cannot use Claude Code's WebSearch (it forces tool_choice, which 5.5
       # rejects with a 400 on Foundry, 2026-10-03), so it runs with AGENT_WEB_SEARCH=mcp.
@@ -83,6 +84,17 @@ jobs:
           python -m pip install "certifi==2026.10.19"
           python -m pip install --quiet -r scripts/agent-trader/requirements.txt
 
+      # AGENT_MODEL is the name stamped on every bet; the provider is not part of it, so
+      # moving from Foundry to OpenRouter (2026-10-26) did not open a new regime.
+      # AGENT_MODEL_ID is the same model under the id OpenRouter expects.
+      - name: Resolve the provider model id
+        working-directory: scripts/agent-trader
+        env:
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+        run: |
+          id=$(python -c 'import os, entry_gate; print(entry_gate.provider_model(os.environ["AGENT_MODEL"]))') || exit 1
+          echo "AGENT_MODEL_ID=$id" | tee -a "$GITHUB_ENV"
+
       - name: Test Agent-Trader entry gates
         run: python -m unittest discover -s scripts/agent-trader/tests -v
 
@@ -95,18 +107,18 @@ jobs:
       - name: Smoke-test the model deployment
         if: inputs.validation_only == true
         env:
-          CLAUDE_CODE_USE_FOUNDRY: "1"
-          ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.AZURE_FOUNDRY_RESOURCE }}
-          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ""
         run: |
           set -o pipefail
           source scripts/agent-trader/search-flags.sh || exit 1
           claude --version
-          echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL" --print \
+          echo "Reply with exactly: MODEL_OK" | claude --model "$AGENT_MODEL_ID" --print \
             | tee /tmp/smoke.log
           grep -q MODEL_OK /tmp/smoke.log
           echo "Use your web search tool once to find today's Brent crude price. Reply SEARCH_OK, the number and one source URL; reply SEARCH_FAILED if the tool errors." \
-            | claude --model "$AGENT_MODEL" --print "${SEARCH_FLAGS[@]}" \
+            | claude --model "$AGENT_MODEL_ID" --print "${SEARCH_FLAGS[@]}" \
                 --allowedTools "$SEARCH_TOOLS" | tee /tmp/search.log
           grep -q SEARCH_OK /tmp/search.log && grep -q "https\?://" /tmp/search.log
           # The reviewer assigns the risk group the concentration veto enforces: prove the
@@ -128,13 +140,14 @@ jobs:
           # runner.temp is unreadable to it and the proposal it must write beside that
           # file is unwritable. .run-state/ is gitignored, so it never reaches a commit.
           AGENT_TRADER_RUN_STATE: ${{ github.workspace }}/scripts/agent-trader/.run-state/agent-trader-run.json
-          # Provider: Claude via Microsoft Foundry (Azure) since 2026-07-20 — the first-party
-          # Anthropic key was revoked. Deployment names must match the Foundry portal.
-          CLAUDE_CODE_USE_FOUNDRY: "1"
-          ANTHROPIC_FOUNDRY_RESOURCE: ${{ secrets.AZURE_FOUNDRY_RESOURCE }}
-          ANTHROPIC_FOUNDRY_API_KEY: ${{ secrets.AZURE_FOUNDRY_API_KEY }}
-          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL }}
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: "claude-haiku-4-5"
+          # Provider: Claude via OpenRouter since 2026-10-26 (Microsoft Foundry, used since
+          # 2026-07-20, started answering 401 on 2026-10-26 with unchanged secrets).
+          # The ids sent are OpenRouter's (AGENT_MODEL_ID); the stamp keeps AGENT_MODEL.
+          ANTHROPIC_BASE_URL: https://openrouter.ai/api
+          ANTHROPIC_AUTH_TOKEN: ${{ secrets.OPENROUTER_API_KEY }}
+          ANTHROPIC_API_KEY: ""
+          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL_ID }}
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: "anthropic/claude-haiku-4.5"
           # The independent reviewer that `record` launches (entry_gate.py) runs the same model.
           AGENT_REVIEW_MODEL: ${{ env.AGENT_MODEL }}
           # `record` blocks on that reviewer for up to REVIEW_TIMEOUT_S (600 s). At the Bash
@@ -208,7 +221,7 @@ jobs:
           # final message to /tmp/agent-run.log (what the null-run grep below reads), prints the
           # research count, and leaves a redacted copy for the artifact.
           cat agent-trader-prompt.md | claude \
-            --model "$AGENT_MODEL" \
+            --model "$AGENT_MODEL_ID" \
             --print \
             --output-format stream-json \
             --verbose \

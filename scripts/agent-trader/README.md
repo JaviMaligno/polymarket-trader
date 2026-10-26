@@ -176,8 +176,8 @@ are documented in `lessons.md`.
 
 Schedules: Mondays 13:07 UTC, plus a 2nd-of-month catch-up that researches **only** if the last
 real research run is more than 7 days old (self-heal for a month-end spend-cap null run).
-Secrets: `AZURE_FOUNDRY_RESOURCE`, `AZURE_FOUNDRY_API_KEY` (Claude via Microsoft Foundry since
-2026-07-20), `GMAIL_USERNAME`, `GMAIL_APP_PASSWORD`, `GMAIL_TO_ADDRESS`.
+Secrets: `OPENROUTER_API_KEY` (Claude via OpenRouter since 2026-10-26; Microsoft Foundry
+2026-07-20 to 2026-10-19), `GMAIL_USERNAME`, `GMAIL_APP_PASSWORD`, `GMAIL_TO_ADDRESS`.
 
 Manual trigger: the Actions "Run workflow" button, or `gh workflow run agent-trader-weekly.yml`.
 

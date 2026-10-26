@@ -78,9 +78,28 @@ class ModelTests(unittest.TestCase):
         code = "\n".join(l for l in self.wf.splitlines() if not l.lstrip().startswith("#"))
         names = set(re.findall(r"claude-(?:sonnet|opus|fable)-[\w.-]+", code))
         self.assertEqual(names, {default})
-        self.assertIn('--model "$AGENT_MODEL"', self.wf)
+        self.assertIn('--model "$AGENT_MODEL_ID"', self.wf)
+        self.assertNotIn('--model "$AGENT_MODEL"', self.wf)
         self.assertIn("AGENT_REVIEW_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
-        self.assertIn("ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL }}", self.wf)
+        self.assertIn("ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ env.AGENT_MODEL_ID }}", self.wf)
+
+    def test_provider_id_keeps_the_stamp(self):
+        """Foundry -> OpenRouter changed the provider, not the model: the stamp stays
+        claude-sonnet-5-5 and only the id sent to OpenRouter differs."""
+        old = os.environ.get("ANTHROPIC_BASE_URL")
+        try:
+            os.environ["ANTHROPIC_BASE_URL"] = "https://openrouter.ai/api"
+            self.assertEqual(entry_gate.provider_model("claude-sonnet-5-5"),
+                             "anthropic/claude-sonnet-5.5")
+            self.assertEqual(entry_gate.provider_model("claude-sonnet-4-6"),
+                             "anthropic/claude-sonnet-4.6")
+            os.environ.pop("ANTHROPIC_BASE_URL")
+            self.assertEqual(entry_gate.provider_model("claude-sonnet-5-5"), "claude-sonnet-5-5")
+        finally:
+            if old is None:
+                os.environ.pop("ANTHROPIC_BASE_URL", None)
+            else:
+                os.environ["ANTHROPIC_BASE_URL"] = old
 
     def test_gate_default_matches_the_workflow(self):
         self.assertEqual(entry_gate.DEFAULT_MODEL, _default_model(self.wf))
