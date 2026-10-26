@@ -24,6 +24,15 @@ REVIEW_TIMEOUT_S = 600
 DEFAULT_MODEL = 'claude-sonnet-5-5'  # keep equal to AGENT_MODEL in the workflow
 
 
+def provider_model(name):
+    """The id the API provider expects for a stamped model name. The stamp is the
+    model, not the provider: OpenRouter (since 2026-10-26) calls claude-sonnet-5-5
+    anthropic/claude-sonnet-5.5, and that must not read as a regime change."""
+    if not os.environ.get('ANTHROPIC_BASE_URL', '').startswith('https://openrouter.ai'):
+        return name
+    return 'anthropic/' + re.sub(r'-(\d+)-(\d+)$', r'-\1.\2', name)
+
+
 def run_models():
     """Researcher and reviewer models, stamped on every bet: a model change is a regime
     change for the track record."""
@@ -290,7 +299,7 @@ def reviewer_tool_args():
 
 def critical_review(packet):
     instructions = (HERE / 'critical-review-prompt.md').read_text(encoding='utf-8')
-    command = ['claude', '--print', '--model', run_models()['review_model'],
+    command = ['claude', '--print', '--model', provider_model(run_models()['review_model']),
                '--output-format', 'json', *reviewer_tool_args(),
                '--no-session-persistence',
                '--disable-slash-commands', '--setting-sources', '',

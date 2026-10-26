@@ -30,7 +30,8 @@ import sys
 SEARCH_TOOLS = {"WebSearch", "mcp__search__web_search", "mcp__search__news_search"}
 FETCH_TOOLS = {"WebFetch"}
 # Env vars whose VALUES must never reach the artifact. A closed list, not a shape heuristic.
-SECRET_ENV = ("ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_RESOURCE", "ANTHROPIC_API_KEY",
+SECRET_ENV = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_FOUNDRY_API_KEY", "ANTHROPIC_FOUNDRY_RESOURCE",
+              "ANTHROPIC_API_KEY",
               "GITHUB_TOKEN", "GH_TOKEN")
 # GitHub tokens and the basic-auth header actions/checkout writes into .git/config.
 TOKEN_PATTERNS = (re.compile(r"\bgh[pousr]_[A-Za-z0-9]{20,}"),
