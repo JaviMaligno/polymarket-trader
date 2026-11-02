@@ -215,6 +215,13 @@ Present findings concisely (see rules). Then do what the user decides. Typical a
   JavierSapiraAI `GH_TOKEN` that races the keyring; use the `env -u GH_TOKEN -u GITHUB_TOKEN`
   prefix or the UI button).
 - Append a correction to `lessons.md` if a resolved bet exposed a process error the agent missed.
+- **Fold rules into `rules.md`** (every review). The agent reads `rules.md` in full and only the
+  last two runs of `lessons.md` (173 KB by 2026-11-02, too long to read whole: Run 23 read only
+  the last 9 KB). Take each `**Proposed rules:**` line from the new run sections, and each rule
+  in your own corrections: add it with its origin in brackets, or replace the rule it supersedes.
+  A rule needs a resolved bet, a documented failure or an operator decision behind it. Keep the
+  file under ~18 KB and never put the side split, or a side-specific rule, in it (same blind
+  rule as `lessons.md`; `tests/test_blindness_surfaces.py` checks it).
 
 ## Critical rules
 

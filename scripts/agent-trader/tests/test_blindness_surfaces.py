@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 HERE = Path(__file__).resolve().parents[1]
 PROMPT = HERE / "agent-trader-prompt.md"
+RULES = HERE / "rules.md"
 WORKFLOW = ROOT / ".github" / "workflows" / "agent-trader-weekly.yml"
 
 
@@ -31,6 +32,23 @@ class PromptBlindnessTests(unittest.TestCase):
 
     def test_prompt_does_not_send_the_agent_to_the_pre_registration(self):
         self.assertNotIn("hypothesis-side-bias", self.prompt)
+
+
+class RulesBlindnessTests(unittest.TestCase):
+    """rules.md is read in full every run, so it is the widest hand-edited surface."""
+
+    def setUp(self):
+        self.rules = RULES.read_text(encoding="utf-8").lower()
+
+    def test_rules_do_not_mention_the_side_split(self):
+        for fragment in ("by side", "--operator", "yes bets lose", "yes bets lost",
+                         "side bias", "side-bias", "side asymmetry", "side-asymmetry",
+                         "higher bar than a no", "losses are yes", "hypothesis-side-bias"):
+            with self.subTest(fragment=fragment):
+                self.assertNotIn(fragment, self.rules)
+
+    def test_rules_stay_short_enough_to_read_whole(self):
+        self.assertLess(len(RULES.read_bytes()), 18_000)
 
 
 class WorkflowTests(unittest.TestCase):
