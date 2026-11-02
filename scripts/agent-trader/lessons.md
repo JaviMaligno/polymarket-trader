@@ -1431,3 +1431,19 @@ No formal US government announcement ending/terminating/suspending the naval blo
 - `is_researchable` takes the question string, not the candidate dict.
 
 **Running record: 9-7 resolved, 1 open ($25 at risk). P&L: -$67.71, bankroll $932.29.** Bet 17 resolves 2026-11-01.
+
+## Run 23 — 2026-11-02 (zero new bets; Bet 17 post-mortem)
+
+**Official record at run start:** 10-7 resolved, P&L -$60.66, bankroll $939.34, Brier 0.1823, 0 open. Bet 17 (US announces end of Iranian blockade by Oct 31, NO) resolved a win (the `positions` output shows no open positions; I did not recompute its payout). The thesis won: the blockade-end announcement never came, and the price slid for 9 weeks before and after entry. The frozen run state was read; it holds no open exposure.
+
+**Researched this run:**
+- **Pakistan military action against Afghanistan by Nov 30 (6424255, YES 0.555, no fee):** 8-paragraph description read in full. Only air/drone/missile strikes qualify; artillery and mortars do not. Opened: Long War Journal (Oct 5: strike rounds Sep 18/21, 24, 30, no talks) and Kabul Now (Oct 26: UNAMA-documented strikes Sep 21, 29, Sep 30-Oct 1; no ceasefire). Radio Pakistan (snippet only): Oct 27-30 border fighting was answered with "heavy weaponry", non-qualifying. I could not confirm any air strike after Oct 1: the TOLOnews page about a "Sunday" Kunar strike returned 403. My p_hat was 0.66 (0.6 x 0.85 + 0.4 x 0.38), about 0.10 above the ask. `record` rejected it: "price history does not cover motivating news". The market was created Oct 30 and the history starts Nov 1, so the series cannot show the path since the news. I did not move `news_at` to get past the check, because the motivating evidence is the Sep-Oct strike pattern. Not resubmitted. Rule: a market created within days of the run has no usable price path, so check `history` before spending research on it. A p_hat on a brand-new market needs a sibling or earlier-series market with history to pass.
+- **Fed December hike (3215008, YES 0.725):** CME FedWatch 71.4% (Benzinga, snippet), Polymarket-reported 82% after the Oct meeting, and Reuters says nearly all economists expect a December hike. Price inside the range. Declined. I did not open the Reuters page.
+- **California billionaire tax (648383, YES 0.255):** headlines only (LAT/CalMatters/Politico: support falling, opponents outspending 250:1); CalMatters page 404. The price is consistent with it. Declined.
+- **Governor races (OH, NV, FL, OR, AK) and the Senate/Texas markets:** the election is tomorrow and these are heavily traded with no criterion asymmetry. Declined without research.
+- **Taipei mayor (Shen 0.34):** unchanged since Run 22. No new evidence. Declined.
+- **Worlds, Bitcoin, Ethereum:** noise filters.
+
+I fell short of the six-candidate, primary-source bar: several pages were blocked or 404 and the rest were headline-level (labelled above).
+
+**Running record: 10-7 resolved, 0 open. P&L: -$60.66, bankroll $939.34.**
