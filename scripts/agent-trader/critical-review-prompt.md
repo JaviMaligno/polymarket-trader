@@ -35,6 +35,10 @@ Checks:
 - price_history: inspect actual supplied series around the motivating news;
   reject unsupported claims that a reversal proves noise or criterion confusion.
   Explain already-priced news and adverse repricing; a path alone gives no cause.
+  If the market was created after the motivating news (`market.createdAt` later
+  than `news_at`), the series has no "before": the opening price already carries
+  the news. Judge whether the edge survives against that opening price and the path
+  since, not against a pre-news level that never existed.
 - risk_group: compare ALL frozen/current exposure with the underlying real-world
   outcome, not ticker, side, expiry or shared keywords. Return in `risk_group` the
   group this bet belongs to: the EXACT slug of an exposure row when the outcomes
