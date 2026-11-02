@@ -1,6 +1,6 @@
 # Agent-Trader — local runbook
 
-LLM-as-trader benchmark on Polymarket: **Claude is the trading signal.** A weekly GitHub
+LLM-as-trader benchmark on Polymarket: **Claude is the trading signal.** A twice-weekly GitHub
 Actions cron runs a headless Claude that researches liquid markets and places hold-to-resolution
 paper bets net of spread; a deterministic Python layer resolves them and snapshots metrics.
 Paper only — hypothetical $1000 bankroll, flat $25/bet, no real funds.
@@ -174,8 +174,9 @@ are documented in `lessons.md`.
 
 ## CI
 
-Schedules: Mondays 13:07 UTC, plus a 2nd-of-month catch-up that researches **only** if the last
-real research run is more than 7 days old (self-heal for a month-end spend-cap null run).
+Schedules: Mondays and Thursdays 13:07 UTC (Thursday added 2026-11-02 to raise the bet rate),
+plus a 2nd-of-month catch-up that researches **only** if the last real research run is more than
+4 days old (self-heal for a month-end spend-cap null run).
 Secrets: `OPENROUTER_API_KEY` (Claude via OpenRouter since 2026-10-26; Microsoft Foundry
 2026-07-20 to 2026-10-19), `GMAIL_USERNAME`, `GMAIL_APP_PASSWORD`, `GMAIL_TO_ADDRESS`.
 

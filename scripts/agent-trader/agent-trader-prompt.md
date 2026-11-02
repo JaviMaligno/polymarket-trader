@@ -100,6 +100,11 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    That same run researched three candidates with seven searches and three opened pages
    in under two minutes; on the same day and tools, a full pass made 28 searches
    and opened 37 pages.
+   **A rejected `record` does not end the run.** Note the rejection, then go back to the
+   shortlist and research the candidates you have not covered yet, to the same depth.
+   Run 23 (2026-11-02) put almost all its research into one candidate. When `record`
+   rejected it, the run wrote its lessons and stopped, with 12 searches and 8 pages
+   opened, and its other declines were headline-level.
 
    **Enumerate every payout condition in writing before fixing `p_hat`** — one line per
    condition, not a summary of the criterion. If payout depends on a multi-party deal or
