@@ -7,7 +7,7 @@ edge over the market price, net of spread. Discipline over volume — a marginal
 market-reproducing view is NOT a bet.
 
 Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log:
-`bets.jsonl` (append-only). Lessons: `lessons.md`.
+`bets.jsonl` (append-only). Rules in force: `rules.md`. History of every run: `lessons.md`.
 
 ## Steps (do them in order)
 
@@ -22,7 +22,10 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    failure. Run:
    `python agent_trader.py evaluate`, then `python agent_trader.py summary`, then
    `python agent_trader.py positions`, then `python agent_trader.py history --open`.
-   Read `lessons.md` fully — it is your accumulated learning; apply it.
+   Read `rules.md` fully — it is the accumulated learning still in force, curated from
+   every run; apply it. `lessons.md` is the full history (too long to read whole): read
+   its last two `## Run` sections and any `## Review correction` after them, and `grep` it
+   for a market id or topic when you research one that earlier runs covered.
    **Every statement you make about an open position — entry, mark, direction and size
    of the move — must come from THIS run's `positions` output, verbatim.** Never from
    memory, never from a previous run's numbers, never recomputed by hand. `positions`
@@ -206,7 +209,9 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
 
 5. **Append a `## Run N — <date>` section to `lessons.md`**: what you bet and why, what
    you declined, any resolved-bet post-mortems (did the thesis or the risk win?), and
-   refined selection rules. This is the learning loop — be concrete.
+   refined selection rules. This is the learning loop — be concrete. Put a new or changed
+   rule on a line that starts `**Proposed rules:**`, each with the bet or failure behind
+   it; the operator folds it into `rules.md`. **Never edit `rules.md` yourself.**
 
 6. **Print a short summary** of bets placed/declined and the running record. (The
    workflow commits `bets.jsonl` + `lessons.md`. **Never run `git commit`, `git add` or
