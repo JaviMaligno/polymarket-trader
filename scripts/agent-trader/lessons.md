@@ -1454,3 +1454,21 @@ Two facts about the Pakistan-Afghanistan rejection (6424255). They override the 
 
 1. **The entry gate now accepts a market created after the motivating news.** Run 23's rejection was structural: a market that did not exist when the news broke can never have a price point before it. `record` now accepts such a proposal when the market's `createdAt` is later than `news_at` and the hourly series starts within 24 h of creation, so it is the market's whole path. The reviewer is told to judge the edge against the opening price, which already carries the news. Do not move `news_at` to fit a series; set it to when the evidence actually appeared, as Run 23 did. The Run 23 rule "a brand-new market needs a sibling with history to pass" no longer applies.
 2. **Run 23 misread that market's series.** It wrote "the history starts Nov 1". The hourly series (`prices-history`, fidelity 60) starts 2026-10-30 18:00 UTC, two hours after creation, at 0.495; on 2026-11-02 it was at 0.555. Quote `history <id>` output for a path; do not infer where a series starts.
+
+## Run 24 — 2026-11-02 (zero new bets; second run today)
+
+**Official record at run start:** 10-7 resolved, P&L -$60.66, bankroll $939.34, Brier 0.1823, 0 open (`summary`, `positions`, `history --open` all show no open positions; the frozen run state was read and holds no exposure). No open-position checklist was needed and no bet resolved since Run 23, so this run adds no new rule from a result.
+
+**Filtered set:** 87 candidates in 0.10-0.90 after `is_researchable`. Most were election-eve US races (resolve Nov 3-4, heavily traded, no criterion asymmetry), Bitcoin/Ethereum thresholds, Worlds, and the Iran ceasefire/blockade ladder.
+
+**Researched:**
+- **Pakistan military action against Afghanistan by Nov 30 (6424255, YES 0.555):** I re-tested Run 23's p_hat 0.66. Opened: Amu TV (252922), which lists Pakistani air attacks Oct 2025-Sep 2026: Oct 2025 x3, none Nov-Jan, Feb-Mar x5, Apr x1, May none, Jun x2, Jul-Aug none, Sep x1. Strike months were about 7 of 13, so the base rate for a 28-day window is about 0.54, which is the market price. Headlines (news_search, not opened): Reuters/AP/BBC/Al Jazeera Oct 1 report Kunar/Helmand strikes on Sep 30-Oct 1; Asia News Network Nov 2, "Pakistan warns Afghanistan of 'unbearable punishment' as clashes persist along border" (403, headline only). I found no confirmed air or drone strike dated Oct 2-Nov 2, so the 30 days since Oct 1 were a pause by the strike-only criterion. The threat and border clashes lift the odds above the base rate, but I can't size that lift from a headline I could not open. Run 23's 0.66 leaned on two fetches that failed. The gap between 0.66 and the ask is not a defended edge. Declined, not resubmitted. The new entry gate would now accept this market (it was created after the news), so the reason is evidence, not structure.
+- **Iran ceasefire ladder (5686980 Nov 8 YES 0.735; 5190747 Nov 15 0.585; 4713483 Nov 30 0.365) and blockade-end Nov 15/Nov 30 (6282802 0.165, 4906128 0.275):** no Iran exposure is open now. Headlines only (not opened): PBS Nov 2, Iran's delegation left the Qatar talks after a tense weekend; Al Jazeera Nov 2, Iran pushing an accelerated plan for ceasefire talks; Iran International Nov 1 citing Axios, Netanyahu pressing Trump to strike immediately after the midterms; CBS Oct 9, Trump promised not to resume strikes before the midterms. The ladder already prices a post-midterm resumption, and I could not tell how much from these headlines. Declined without a p_hat.
+- **Fed December hike (3215008, 0.725) and no-change (3215007, 0.255):** unchanged from Run 23, priced off the rates curve. Declined.
+- **Taipei mayor (Shen 0.34):** no new evidence since Run 22. Declined.
+- **US midterm, Senate, governor, House-seat markets:** resolve in 1-2 days, deep liquidity, no differentiated view. Declined without research.
+- **Worlds, Bitcoin, Ethereum:** noise filters.
+
+**Honest shortfall:** I did not meet the six-candidate, primary-source bar. Roughly two candidates got real work, most pages were blocked (403) or covered only by headline, and the Iran ladder was not researched beyond headlines. A zero-bet result here reflects thin research as much as an efficient market.
+
+**Running record: 10-7 resolved, 0 open. P&L: -$60.66, bankroll $939.34.**
