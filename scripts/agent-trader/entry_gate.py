@@ -21,6 +21,8 @@ CHECKS = ('sources', 'conditions', 'probability', 'counterargument',
 # The agent's Bash timeout (BASH_DEFAULT/MAX_TIMEOUT_MS in the workflow) must outlast
 # this, or `record` gets backgrounded and the agent ends its turn waiting (2026-09-28).
 REVIEW_TIMEOUT_S = 600
+# How late a new market's first hourly point may be and still count as its opening.
+NEW_MARKET_HISTORY_SLACK_S = 24 * 3600
 DEFAULT_MODEL = 'claude-sonnet-5-5'  # keep equal to AGENT_MODEL in the workflow
 
 
@@ -240,9 +242,18 @@ def fetch_history(market, news_at):
     history = response.json()['history']
     # A price path must straddle the motivating news; no inferred stale-price claims.
     news = timestamp(news_at).timestamp()
-    if len(history) < 2 or not any(h['t'] < news for h in history) or not any(h['t'] >= news for h in history):
+    if len(history) < 2 or not any(h['t'] >= news for h in history):
         raise ValueError('price history does not cover motivating news')
-    return history
+    if any(h['t'] < news for h in history):
+        return history
+    # A market created after the news has no "before": its opening price already
+    # carries the news (Run 23, Pakistan-Afghanistan, rejected by construction).
+    # Accept it only when the series starts at creation, so it is the whole path.
+    created = market.get('createdAt')
+    if created and news < timestamp(created).timestamp() \
+            and min(h['t'] for h in history) <= timestamp(created).timestamp() + NEW_MARKET_HISTORY_SLACK_S:
+        return history
+    raise ValueError('price history does not cover motivating news')
 
 
 def parse_verdict(text):

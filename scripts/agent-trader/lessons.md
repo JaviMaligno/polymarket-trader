@@ -1447,3 +1447,10 @@ No formal US government announcement ending/terminating/suspending the naval blo
 I fell short of the six-candidate, primary-source bar: several pages were blocked or 404 and the rest were headline-level (labelled above).
 
 **Running record: 10-7 resolved, 0 open. P&L: -$60.66, bankroll $939.34.**
+
+## Review correction — 2026-11-02 (human weekly review of Run 23; not a run)
+
+Two facts about the Pakistan-Afghanistan rejection (6424255). They override the rule Run 23 wrote.
+
+1. **The entry gate now accepts a market created after the motivating news.** Run 23's rejection was structural: a market that did not exist when the news broke can never have a price point before it. `record` now accepts such a proposal when the market's `createdAt` is later than `news_at` and the hourly series starts within 24 h of creation, so it is the market's whole path. The reviewer is told to judge the edge against the opening price, which already carries the news. Do not move `news_at` to fit a series; set it to when the evidence actually appeared, as Run 23 did. The Run 23 rule "a brand-new market needs a sibling with history to pass" no longer applies.
+2. **Run 23 misread that market's series.** It wrote "the history starts Nov 1". The hourly series (`prices-history`, fidelity 60) starts 2026-10-30 18:00 UTC, two hours after creation, at 0.495; on 2026-11-02 it was at 0.555. Quote `history <id>` output for a path; do not infer where a series starts.

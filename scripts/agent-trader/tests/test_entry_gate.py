@@ -305,6 +305,33 @@ class EntryGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'history'):
                 self.gate.fetch_history(MARKET, proposal()['news_at'])
 
+    def history_response(self, points):
+        return type('Response', (), {'raise_for_status': lambda self: None,
+            'json': lambda self: {'history': points}})()
+
+    def test_market_created_after_the_news_needs_only_its_full_path(self):
+        # Pakistan-Afghanistan, Run 23: the strikes predate the market, so no series
+        # can straddle them; the opening price already carries the news.
+        market = dict(MARKET, createdAt='2026-09-07T00:00:00Z')  # news_at is 09-06 12:00
+        points = [{'t': 1788739200 + 7200, 'p': .5}, {'t': 1788739200 + 10800, 'p': .55}]
+        with patch.object(self.gate.requests, 'get', return_value=self.history_response(points)):
+            self.assertEqual(self.gate.fetch_history(market, proposal()['news_at']), points)
+
+    def test_new_market_series_must_start_at_creation(self):
+        market = dict(MARKET, createdAt='2026-09-07T00:00:00Z')
+        late = 1788739200 + 2 * 86400  # first point two days after creation: truncated
+        points = [{'t': late, 'p': .5}, {'t': late + 3600, 'p': .55}]
+        with patch.object(self.gate.requests, 'get', return_value=self.history_response(points)):
+            with self.assertRaisesRegex(ValueError, 'history'):
+                self.gate.fetch_history(market, proposal()['news_at'])
+
+    def test_news_after_creation_must_still_be_straddled(self):
+        market = dict(MARKET, createdAt='2026-09-01T00:00:00Z')  # before news_at
+        points = [{'t': 1788700000, 'p': .4}, {'t': 1788703600, 'p': .45}]  # all after news
+        with patch.object(self.gate.requests, 'get', return_value=self.history_response(points)):
+            with self.assertRaisesRegex(ValueError, 'history'):
+                self.gate.fetch_history(market, proposal()['news_at'])
+
     def test_provider_timeout_never_approves(self):
         with patch.object(self.gate.subprocess, 'run', side_effect=self.gate.subprocess.TimeoutExpired('claude', 600)):
             with self.assertRaisesRegex(ValueError, 'unavailable'):
