@@ -82,8 +82,10 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    exact resolution criterion (`requests.get` the Gamma market by id → `description`) —
    read it BEFORE sizing conviction. Then search and WebFetch current facts. Your search
    tool is either WebSearch or `mcp__search__web_search` / `mcp__search__news_search`
-   (use whichever you have; `news_search` gives dated headlines, its links are redirects —
-   cite the publisher URL found with `web_search`, opened with WebFetch). Form
+   (use whichever you have; `news_search` gives dated headlines, each with `url`, the
+   publisher's article URL — open that with WebFetch). Open only URLs a tool returned:
+   when `url` is null, find the article with `web_search`. Never build a URL by hand —
+   Run 25 (2026-11-05) guessed four and all four failed. Form
    `p_hat` (your probability of YES) + a written rationale. Decline (efficient/marginal/
    ambiguous) freely; the strongest historical edges were where the market mispriced the
    SPEED or STATUS of a known-direction process, not blue-chip consensus.
