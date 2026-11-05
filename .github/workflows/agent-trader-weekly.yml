@@ -230,6 +230,31 @@ jobs:
             "${SEARCH_FLAGS[@]}" \
             --allowedTools "Bash WebFetch Read Write Edit $SEARCH_TOOLS" \
             > /tmp/agent-transcript.jsonl 2> /tmp/agent-run.err || AGENT_OK=0
+          # Depth floor. Two prompt instructions (#347, #352) did not stop research from
+          # shrinking: Runs 23-25 got content from 4, 2 and 2 pages (Run 22: 16). Below
+          # AGENT_MIN_OK_FETCHES pages, resume the SAME session with a continuation prompt,
+          # at most AGENT_MAX_RESUMES times. A resumed pass appends to the same transcript.
+          # Its failure is a warning, not a null run: the first pass already did a run's work.
+          RESUMES=0
+          while [ "$AGENT_OK" = "1" ] && [ "$RESUMES" -lt "${AGENT_MAX_RESUMES:-2}" ]; do
+            eval "$(python transcript_stats.py depth /tmp/agent-transcript.jsonl /tmp/agent-continue.md)"
+            [ "${SHORT:-0}" = "1" ] && [ -n "${SESSION_ID:-}" ] || break
+            RESUMES=$((RESUMES + 1))
+            echo "::notice::Depth floor not met (${OK_FETCHES} pages with content, minimum ${MIN_OK_FETCHES}): resuming the session, pass ${RESUMES}"
+            cat /tmp/agent-continue.md | claude \
+              --resume "$SESSION_ID" \
+              --model "$AGENT_MODEL_ID" \
+              --print \
+              --output-format stream-json \
+              --verbose \
+              --permission-mode acceptEdits \
+              "${SEARCH_FLAGS[@]}" \
+              --allowedTools "Bash WebFetch Read Write Edit $SEARCH_TOOLS" \
+              >> /tmp/agent-transcript.jsonl 2>> /tmp/agent-resume.err \
+              || { echo "::warning::Resumed research pass ${RESUMES} exited non-zero"; break; }
+          done
+          # Kept apart from agent-run.err, which the null-run grep reads.
+          [ -s /tmp/agent-resume.err ] && { echo "--- resumed pass stderr ---"; cat /tmp/agent-resume.err; } || true
           python transcript_stats.py /tmp/agent-transcript.jsonl /tmp/agent-run.log \
             /tmp/agent-transcript.redacted.jsonl || true
           # stderr carries CLI-level failures (auth, bad flags) that never reach the stream.

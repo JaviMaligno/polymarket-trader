@@ -118,7 +118,8 @@ usually one commit behind. Reconcile (`git pull --ff-only`) before reading files
 Confirm the source of truth is sane before drawing any conclusion from it:
 - `bets.jsonl` parses (one JSON object per line), every `open` bet has `pnl_net: null` and every
   `won`/`lost` bet has a numeric `pnl_net` and a `resolved_outcome`.
-- `pnl_net` sign matches `status` (won → positive `stake/entry − stake`; lost → `−stake`).
+- `pnl_net` sign matches `status` (won → positive `stake/entry − stake`, net of any fee;
+  lost → `−stake`, or `−stake − fee` on a fee-bearing market, e.g. 4% × (1 − entry) × stake).
 - `metrics.jsonl` has one new row per run (monotonic in `n_resolved`); the latest row's
   `bankroll = 1000 + cumulative pnl_net`. A frozen `metrics.jsonl` across two runs is itself a
   null-run symptom (see Step 0).
@@ -191,7 +192,7 @@ and check it — a claim with no verifying step is a narrative, not a finding. S
 
 ### Step 4b — The guards that now run for you
 
-Three checks are automated; confirm they fired rather than redoing them by hand.
+These checks are automated; confirm they fired rather than redoing them by hand.
 
 - **Append-only on `lessons.md`** (`lessons_guard.py`, run in the workflow before the entry
   audit). A `::warning::` in the run log means the agent edited past history: the pre-run file
@@ -204,6 +205,17 @@ Three checks are automated; confirm they fired rather than redoing them by hand.
 - **TRUNCATED series.** If `history` warns, the first point is the left edge of the fidelity
   window, not an opening price. Any claim of the form "the market opened at X" built on a
   truncated window is wrong; re-fetch coarser (`history <id> <entry_date> 1440`).
+- **Depth floor.** The run log's `research:` line carries `ok_fetches` (pages that came back
+  with content), `passes` and `news_urls`. Below 12 pages the workflow resumes the same
+  session (`::notice::Depth floor not met …`, up to 2 resumed passes); the extra research is
+  appended under `### Continued research` in the run's own section. Report the pages per
+  pass: if the resumed passes still add little, the next lever is per-candidate orchestration
+  (the harness picks the candidates, one Claude call each). A `Resumed research pass ended
+  in error` warning is not a null run: the first pass did its work.
+- **Google News decoder.** `news_search` decodes its links through Google's undocumented
+  `batchexecute` endpoint (first 8 results per search, stops at the first HTTP error). A
+  `news_search decoded only X of Y` warning means it broke or got blocked, and the agent is
+  back to finding publisher URLs by hand. Fix the decoder before reading that run's declines.
 
 ### Step 5 — Act
 

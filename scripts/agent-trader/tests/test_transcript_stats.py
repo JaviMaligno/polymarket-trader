@@ -217,6 +217,167 @@ class CliTests(unittest.TestCase):
         self.assertIn("::warning::", out)  # 4 < default 5
 
 
+def _fetch(tid, url):
+    return {"type": "tool_use", "id": tid, "name": "WebFetch", "input": {"url": url}}
+
+
+def _fetch_result(tid, text, is_error=False):
+    return {"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": tid, "content": text, "is_error": is_error}]}}
+
+
+def _init(sid="s-1"):
+    return {"type": "system", "subtype": "init", "session_id": sid,
+            "mcp_servers": [{"name": "search", "status": "connected"}]}
+
+
+def _res(text, is_error=False, sid="s-1", turns=10, ms=60000):
+    return dict(_result(text, is_error, turns, ms), session_id=sid)
+
+
+# Run 25's fetches, as WebFetch answered them (2026-11-05).
+RUN25_FETCHES = [
+    _init(),
+    _assistant(_fetch("f1", "https://abc7.com/post/x/")),
+    _fetch_result("f1", "I cannot provide a quote because the web page content provided is only "
+                        "a \"Page Not Found\" error page from ABC7.com."),
+    _assistant(_fetch("f2", "https://nypost.com/x")),
+    _fetch_result("f2", "Claude Code is unable to fetch from nypost.com", is_error=True),
+    _assistant(_fetch("f3", "https://www.nbcnews.com/x")),
+    _fetch_result("f3", "The server returned HTTP 404 Not Found.  The response body was not retrieved."),
+    _assistant(_fetch("f4", "https://justthenews.com/x")),
+    _fetch_result("f4", [{"type": "text", "text": "# Trump's Statement on Hegseth\n\nTrump said ... "
+                                                  "a 404 further down does not count"}]),
+    _res("Run 25 placed no bets."),
+]
+
+
+class DepthTests(unittest.TestCase):
+    def test_only_pages_with_content_count(self):
+        s = ts.parse(_lines(RUN25_FETCHES))
+        self.assertEqual((s.fetches, s.ok_fetches), (4, 1))
+
+    def test_session_id_is_read(self):
+        self.assertEqual(ts.parse(_lines(RUN25_FETCHES)).session_id, "s-1")
+
+    def test_thin_finished_run_is_below_the_floor(self):
+        self.assertTrue(ts.below_floor(ts.parse(_lines(RUN25_FETCHES)), 12))
+
+    def test_enough_pages_is_not_below_the_floor(self):
+        self.assertFalse(ts.below_floor(ts.parse(_lines(RUN25_FETCHES)), 1))
+
+    def test_errored_run_is_not_resumed(self):
+        events = RUN25_FETCHES[:-1] + [_res("API Error: 401", is_error=True)]
+        self.assertFalse(ts.below_floor(ts.parse(_lines(events)), 12))
+
+    def test_killed_run_is_not_resumed(self):
+        self.assertFalse(ts.below_floor(ts.parse(_lines(RUN25_FETCHES[:-1])), 12))
+
+    def test_default_floor_is_twelve(self):
+        self.assertEqual(ts.min_ok_fetches_from({}), 12)
+        self.assertEqual(ts.min_ok_fetches_from({"AGENT_MIN_OK_FETCHES": "3"}), 3)
+        self.assertEqual(ts.min_ok_fetches_from({"AGENT_MIN_OK_FETCHES": "x"}), 12)
+
+    def _depth(self, events, env=None):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "t.jsonl").write_text(_lines(events), encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ts.main(["depth", str(d / "t.jsonl"), str(d / "p.md")], env or {})
+            prompt = (d / "p.md").read_text(encoding="utf-8") if (d / "p.md").exists() else None
+        return dict(l.split("=", 1) for l in out.getvalue().split()), prompt
+
+    def test_depth_prints_shell_assignments_and_writes_the_prompt(self):
+        vals, prompt = self._depth(RUN25_FETCHES)
+        self.assertEqual(vals, {"SESSION_ID": "s-1", "OK_FETCHES": "1",
+                                "MIN_OK_FETCHES": "12", "SHORT": "1"})
+        self.assertIn("1 pages opened with content", prompt)
+        self.assertIn("Never build a URL by hand", prompt)
+        self.assertIn("Do not start a new `## Run` section", prompt)
+
+    def test_depth_writes_no_prompt_above_the_floor(self):
+        vals, prompt = self._depth(RUN25_FETCHES, {"AGENT_MIN_OK_FETCHES": "1"})
+        self.assertEqual(vals["SHORT"], "0")
+        self.assertIsNone(prompt)
+
+    def test_session_id_is_safe_to_eval(self):
+        events = [dict(e, session_id="s-1; rm -rf /") if e.get("session_id") else e
+                  for e in RUN25_FETCHES]
+        vals, _ = self._depth(events)
+        self.assertEqual(vals["SESSION_ID"], "s-1rm-rf")
+
+    def test_continuation_prompt_carries_no_side_split(self):
+        prompt = ts.continuation_prompt(ts.parse(_lines(RUN25_FETCHES)), 12)
+        self.assertNotRegex(prompt, r"\b(YES|NO)\b")
+
+
+def _news(tid, resolved):
+    payload = json.dumps({"query": "q", "results": [], "resolved": resolved})
+    return [_assistant({"type": "tool_use", "id": tid, "name": "mcp__search__news_search",
+                        "input": {"query": f"q{tid}"}}),
+            {"type": "user", "message": {"content": [
+                {"type": "tool_result", "tool_use_id": tid,
+                 "content": [{"type": "text", "text": payload}]}]}}]
+
+
+class NewsDecodeTests(unittest.TestCase):
+    """search_mcp.py decodes Google News links through an undocumented Google endpoint;
+    if it breaks, the agent silently goes back to guessing URLs. The run log says so."""
+
+    def _stats(self, *resolved):
+        events = [_init()]
+        for i, r in enumerate(resolved):
+            events += _news(f"n{i}", r)
+        return ts.parse(_lines(events + [_res("done")]))
+
+    def test_decoded_links_add_up_across_searches(self):
+        s = self._stats("8/8", "5/8")
+        self.assertEqual((s.news_decoded, s.news_attempted), (13, 16))
+        self.assertIn("news_urls=13/16", ts.report(s)[0])
+
+    def test_a_broken_decoder_is_flagged(self):
+        lines = ts.report(self._stats("0/8", "1/8"))
+        self.assertTrue(any("news_search decoded only 1 of 16" in l for l in lines))
+
+    def test_a_healthy_decoder_is_not_flagged(self):
+        self.assertFalse(any("decoded only" in l for l in ts.report(self._stats("8/8", "4/8"))))
+
+    def test_too_few_links_are_not_judged(self):
+        self.assertFalse(any("decoded only" in l for l in ts.report(self._stats("0/3"))))
+
+
+class ResumedPassTests(unittest.TestCase):
+    def _two_passes(self, second_error=False):
+        second = [_init(), _assistant(_fetch("g1", "https://example.com/b")),
+                  _fetch_result("g1", "Article text"),
+                  _res("API Error: 529 Overloaded" if second_error else "Continued: no bets.",
+                       is_error=second_error, turns=5, ms=30000)]
+        return ts.parse(_lines(RUN25_FETCHES + second))
+
+    def test_passes_add_up(self):
+        s = self._two_passes()
+        self.assertEqual((s.passes, s.fetches, s.ok_fetches), (2, 5, 2))
+        self.assertEqual((s.num_turns, s.duration_ms), (15, 90000))
+
+    def test_final_text_keeps_every_pass(self):
+        text = self._two_passes().final_text
+        self.assertIn("Run 25 placed no bets.", text)
+        self.assertIn("Continued: no bets.", text)
+
+    def test_resumed_pass_error_is_a_warning_not_a_null_run(self):
+        s = self._two_passes(second_error=True)
+        self.assertNotIn("API Error", s.final_text)     # the null-run grep reads this
+        self.assertFalse(s.is_error)
+        self.assertTrue(any("Resumed research pass ended in error" in l for l in ts.report(s)))
+        self.assertFalse(ts.below_floor(s, 12))        # an errored pass is not resumed again
+
+    def test_report_shows_pages_with_content_and_passes(self):
+        line = ts.report(self._two_passes())[0]
+        self.assertIn("ok_fetches=2", line)
+        self.assertIn("passes=2", line)
+
+
 class WorkflowWiringTests(unittest.TestCase):
     def setUp(self):
         root = Path(__file__).resolve().parents[3]
@@ -234,6 +395,35 @@ class WorkflowWiringTests(unittest.TestCase):
 
     def test_transcript_is_uploaded_on_every_run(self):
         self.assertIn("agent-transcript-${{ github.run_id }}", self.wf)
+
+    def _resume_call(self):
+        call = self.wf[self.wf.index("--resume"):]
+        return call[:call.index("done")]
+
+    def test_a_thin_run_resumes_the_same_session(self):
+        loop = self.wf[self.wf.index("transcript_stats.py depth"):]
+        self.assertIn('--resume "$SESSION_ID"', loop[:loop.index("done")])
+        self.assertIn("/tmp/agent-continue.md | claude", self.wf)
+
+    def test_the_resumed_pass_has_the_same_tools_and_stream(self):
+        first = self.wf[self.wf.index("agent-trader-prompt.md | claude"):]
+        first = first[:first.index("|| AGENT_OK=0")]
+        resumed = self._resume_call()
+        for flag in ('--allowedTools "Bash WebFetch Read Write Edit $SEARCH_TOOLS"',
+                     '"${SEARCH_FLAGS[@]}"', "--output-format stream-json",
+                     "--permission-mode acceptEdits", '--model "$AGENT_MODEL_ID"'):
+            self.assertIn(flag, first)
+            self.assertIn(flag, resumed)
+
+    def test_the_resumed_pass_appends_and_keeps_stderr_out_of_the_null_run_grep(self):
+        resumed = self._resume_call()
+        self.assertIn(">> /tmp/agent-transcript.jsonl", resumed)
+        self.assertNotIn("agent-run.err", resumed)
+
+    def test_the_loop_is_bounded_and_runs_before_the_reader(self):
+        self.assertIn('-lt "${AGENT_MAX_RESUMES:-2}"', self.wf)
+        self.assertLess(self.wf.index("transcript_stats.py depth"),
+                        self.wf.index("python transcript_stats.py /tmp/agent-transcript.jsonl"))
 
 
 if __name__ == "__main__":
