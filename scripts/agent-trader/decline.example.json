@@ -1,0 +1,10 @@
+{
+  "market_id": "REPLACE_WITH_REAL_MARKET_ID",
+  "side": "YES",
+  "p_hat_yes": null,
+  "conservative_p_yes": null,
+  "reason_code": "insufficient_evidence",
+  "reason": "Replace with the actual evidence gap; leave unavailable estimates null.",
+  "source_urls": [],
+  "criterion_read": false
+}

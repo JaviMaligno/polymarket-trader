@@ -1,0 +1,9 @@
+{
+  "candidates": [
+    {
+      "market_id": "REPLACE_WITH_REAL_MARKET_ID",
+      "criterion_read": false,
+      "source_urls": []
+    }
+  ]
+}

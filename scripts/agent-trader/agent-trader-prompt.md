@@ -155,8 +155,27 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    seats" that Bet 15's `p_hat` rested on. The same caution applies to any projection
    whose method you cannot inspect.
 
-4. **Place bets** only where `|p_hat − price| − spread` clears a meaningful threshold
-   (aim ≥ ~0.05 net edge; never bet a view you can't defend). Watch concentration — the
+   **Record each researched decline with the harness.** Read `decline.example.json`.
+   Write a JSON packet beside the frozen run-state file, then run
+   `python decision_audit.py decline /path/to/decline.json`. Include the considered side,
+   your original `p_hat_yes`, a conservative `conservative_p_yes`, `reason_code`, a
+   concrete reason, `criterion_read` and the exact `source_urls` you actually opened.
+   The command fetches its own current quote and fee schedule and computes the edge;
+   quote its output instead of recomputing in prose. `below_threshold` requires a
+   calculated conservative edge below 0.05. For an evidence/uncertainty veto with no
+   defensible numerical estimate, use the appropriate reason and null probabilities;
+   do not invent a probability to complete the form. A positive calculated edge can
+   still be declined for insufficient evidence, but that is not a threshold failure.
+   If recording fails (e.g. quote unavailable), state the error in lessons and retain
+   the candidate in coverage; do not silently claim a complete decision audit.
+   Revise the receipt if continued research changes your view. Prescreened noise does
+   not need a receipt; every candidate you actually research does.
+
+4. **Place bets** only where conservative held-side probability minus fee-adjusted
+   executable entry is at least 0.05 (never bet a view you cannot defend). YES entry
+   is the ask; NO entry is `1 - bestBid`. The executable entry already crosses the
+   spread: do not subtract it a second time. Use the harness's per-market fee model.
+   Watch concentration — the
    veto keys on the underlying real-world outcome, NOT on the ticker or the expiry date:
    two markets settled by the same event, the same electorate on the same night, or the
    same variable at a later date are ONE bet for this purpose.
@@ -214,6 +233,14 @@ Working dir: `scripts/agent-trader/`. The harness is `agent_trader.py`. Bets log
    refined selection rules. This is the learning loop — be concrete. Put a new or changed
    rule on a line that starts `**Proposed rules:**`, each with the bet or failure behind
    it; the operator folds it into `rules.md`. **Never edit `rules.md` yourself.**
+   Before finishing, read `coverage.example.json`, write a coverage packet beside
+   the run state and call `python decision_audit.py coverage /path/to/coverage.json`.
+   List every candidate you actually researched, whether proposed or declined, with
+   its market ID, whether you read the criterion, and only source URLs you opened.
+   Headlines/blocked fetches are not opened sources. This is explicitly self-reported
+   coverage; the operator also sees independently counted fetches and logged decisions.
+   On a continuation, submit additional/updated candidates: coverage merges by market
+   ID, and repeat visits do not count as new candidates.
 
 6. **Print a short summary** of bets placed/declined and the running record. (The
    workflow commits `bets.jsonl` + `lessons.md`. **Never run `git commit`, `git add` or

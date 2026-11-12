@@ -18,8 +18,8 @@ description: >-
 ## Overview
 
 The Agent-Trader experiment is the LAST lever after the whole quant edge-research program
-found no cost-surviving edge: **Claude is the trading signal**. Each Monday a GitHub Actions
-cron (`agent-trader-weekly.yml`, `Mon 13:07 UTC`) runs a headless Claude that researches
+found no cost-surviving edge: **Claude is the trading signal**. A GitHub Actions
+cron (`agent-trader-weekly.yml`, currently Mon + Thu 13:07 UTC) runs a headless Claude that researches
 liquid Polymarket markets and places hold-to-resolution paper bets net of spread, then a
 deterministic Python layer evaluates resolved bets and snapshots metrics. Track record lives
 in `scripts/agent-trader/` and is committed each run.
@@ -43,16 +43,23 @@ output is a concise private report to the user — not a GitHub issue, not a PR.
 
 ## The harness (orientation)
 
-Working dir: `scripts/agent-trader/`. All commands are pure-stdlib Python (run them directly;
-no VM, no DB — the experiment runs on free Gamma API + GitHub runners).
+Working dir: `scripts/agent-trader/`. Use the dependencies in `requirements.txt` (the harness
+uses `requests`); no VM or DB is needed. The experiment uses Gamma/CLOB APIs + GitHub runners.
+Read the current workflow, prompt and hypothesis observations: schedules, guards, model and
+cohort boundaries below describe historical context and can change.
 
 | File | Role |
 |------|------|
 | `agent_trader.py` | fetch candidates, `record_bet`, `evaluate` (resolve + pnl), `summary`, `email_html` |
 | `metrics.py` | calibration, cost-aware P&L bootstrap CI, per-run snapshot |
 | `bets.jsonl` | append-only track record (source of truth) |
-| `lessons.md` | accumulated learning loop, one `## Run N — <date>` per run; fed into each decision prompt |
-| `metrics.jsonl` | trajectory: one cumulative-metrics snapshot per run |
+| `lessons.md` | accumulated learning loop, one `## Run N — <date>` per run; the prompt currently asks for the last two runs |
+| `rules.md` | operator-curated rules, read in full by the agent; keep below 18 KB |
+| `metrics.jsonl` | cumulative snapshots keyed by date; multiple same-day runs may share a row |
+| `HYPOTHESIS-side-bias.md` | operator-only pre-registration, regime changes and observations |
+| `declines.jsonl` | deterministic quoted decline receipts, including conservative probability, fees, edge and reason |
+| `research_runs.jsonl` | one research/accounting snapshot per run UUID, with GitHub provenance |
+| `RESEARCH-MONITORING.md` | observation window, known historical gaps and next operator review |
 | `agent-trader-prompt.md` | the decision prompt handed to headless Claude |
 | `.github/workflows/agent-trader-weekly.yml` | the weekly cron |
 
@@ -60,12 +67,31 @@ Useful commands (run locally; they hit the free Gamma API):
 ```bash
 cd scripts/agent-trader
 python agent_trader.py summary      # record / open / resolved / bankroll / Brier
-python agent_trader.py evaluate     # re-fetch open bets, resolve + compute pnl_net, then summary
+python agent_trader.py evaluate     # re-fetch open bets and WRITE updated resolutions/marks
 python metrics.py --operator        # full metrics + the YES/NO split. ALWAYS use --operator
                                     # here; bare `metrics.py` is the agent-facing view and
                                     # deliberately omits the split (HYPOTHESIS-side-bias.md)
 python agent_trader.py history --open   # price path of each open position's OWN market
 ```
+
+`summary` and `metrics.py --operator` are local reads. `evaluate` and `history` may access
+the network; run `evaluate` on a temporary snapshot for a review rather than silently changing
+the checked-out track record. Do not pass a date to `metrics.py --operator`: that writes a snapshot.
+
+### Tools, freshness and local work
+
+- Prefer connected GitHub tools where they expose the required capability; otherwise use `gh`
+  with `--repo JaviMaligno/polymarket-trader`. Bash examples below need native equivalents
+  on PowerShell (`Select-String`, `$env:TEMP`, separate commands). Do not print tokens.
+- Fetch origin before reviewing. If the checkout lags or has user work, inspect `origin/main`
+  or export a temporary snapshot; do not require a pull, switch branches or overwrite local edits.
+  Identify both the workflow's starting SHA and its published track-record commit.
+- The matching Claude project memory may hold the previous review and pending follow-ups;
+  read the latest relevant entries, without reviving unrelated retired quant work. Repeated
+  reviews must not duplicate observation rows or rules.
+- If Git reports dubious ownership, use command-scoped `-c safe.directory=<verified checkout>`
+  rather than changing global trust. Check auth on authorization failure; do not change the
+  user's active account for a read-only review.
 
 `bets.jsonl` row: `side`, `my_prob_yes`, `entry_price` (what you pay crossing the spread),
 `edge_per_contract` (THEORETICAL EV/contract net of spread at entry — NOT realized), `stake`,
@@ -79,13 +105,13 @@ python agent_trader.py history --open   # price path of each open position's OWN
 
 ### Step 0 — Did the weekly run ACTUALLY run the LLM? (the silent-null-run gate, MANDATORY)
 
-This is the single most important check and the reason this skill exists. The workflow wraps
-every command in `|| true` and commits conditionally, so **a total failure of the LLM looks
+This is the single most important check and the reason this skill exists. The workflow has
+historically tolerated command failures and committed conditionally, so **a total failure of the LLM can look
 identical to a disciplined "0 bets" run** — a green check and a healthy-looking email. Never
 trust the green check or the email. Verify the agent actually researched:
 
 ```bash
-# 1. Find the latest weekly run and confirm it's THIS Monday's cron.
+# 1. Find scheduled runs since the last review; distinguish dispatch, rehearsal and catch-up.
 env -u GH_TOKEN -u GITHUB_TOKEN gh run list --workflow=agent-trader-weekly.yml \
   --limit 5 --json databaseId,createdAt,conclusion,headSha
 
@@ -106,38 +132,43 @@ git show <weekly-commit> --stat                 # what files did it touch?
 ```
 - A healthy run touches `lessons.md` (a new `## Run N — <date>`) and usually `metrics.jsonl`;
   often `bets.jsonl` too.
-- **If the weekly commit changed ONLY `metrics.jsonl`** (no new `## Run` in lessons, no bets
-  delta) → the LLM did not run. That is a **silent null run** — this week produced zero research,
-  zero thesis updates. Make it the lead finding.
+- **If the run commit changed ONLY `metrics.jsonl`** (no new `## Run` in lessons, no bets
+  delta), suspect a silent null run. Corroborate with the log/transcript, `AGENT_OK` and any
+  intentional skip before declaring that the LLM never ran. Evaluation may also change bets
+  during a null run; a bets delta alone does not prove research occurred.
 
-Remember `git fetch` first: the cron commits + pushes to `origin/main`, so your local is
-usually one commit behind. Reconcile (`git pull --ff-only`) before reading files as current.
+Remember `git fetch` first: the cron commits + pushes to `origin/main`, so local files can lag.
+Read the fetched version or a temporary export, preserving the user's checkout. Recheck remote
+freshness if another run finishes during the review.
 
 ### Step 1 — Track-record integrity
 
 Confirm the source of truth is sane before drawing any conclusion from it:
 - `bets.jsonl` parses (one JSON object per line), every `open` bet has `pnl_net: null` and every
   `won`/`lost` bet has a numeric `pnl_net` and a `resolved_outcome`.
-- `pnl_net` sign matches `status` (won → positive `stake/entry − stake`, net of any fee;
-  lost → `−stake`, or `−stake − fee` on a fee-bearing market, e.g. 4% × (1 − entry) × stake).
-- `metrics.jsonl` has one new row per run (monotonic in `n_resolved`); the latest row's
-  `bankroll = 1000 + cumulative pnl_net`. A frozen `metrics.jsonl` across two runs is itself a
-  null-run symptom (see Step 0).
+- Verify the actual settlement formula against `resolve_pnl` and recorded `fee_paid`:
+  won → `stake/entry − stake − fee_paid`; lost → `−stake − fee_paid`. Legacy rows without
+  `fee_paid` use zero; do not retroactively apply today's fee schedule.
+- `metrics.jsonl` is keyed by snapshot date, with monotonic `n_resolved`; the latest row's
+  `bankroll = 1000 + cumulative pnl_net`. Reconcile dates with the run history. Unchanged
+  totals are expected when no bets resolve, and same-day runs need not add a second row;
+  missing expected snapshots require investigation, not an automatic null-run verdict.
 
 ### Step 2 — Resolved-bet post-mortem + carry-overs (⏰)
 
 1. Run `python agent_trader.py evaluate` yourself if any open bet's `end_date` has passed — the
-   cron only evaluates on its weekly cadence, so a bet that resolved mid-week may still show
-   `open` until the next Monday. `evaluate` is deterministic (Gamma re-fetch, no API key), so
-   it is safe to run anytime.
+   cron only evaluates on its scheduled cadence, so a resolved bet may still show `open`.
+   `evaluate` uses Gamma with no API key but writes the local record and depends on current
+   API data. Evaluate a temporary snapshot first; report new settlements and any fetch failures.
 2. For each newly-resolved bet: did the **thesis** win or the **risk** win? Cross-check against
    what `lessons.md` predicted (the agent records revised `p_hat` per run). A loss where the
    agent had already revised `p_hat` against itself (e.g. the Hormuz 40-ships AIS-only constraint)
    is *good calibration*, not a process failure — say so. A loss the agent never saw coming is the
    one to dig into.
-3. Resolve every ⏰ pending item in memory (grep the memory dir for `⏰`): each names an open bet
-   with a resolution date. Record CONFIRMED / REFUTED / PARTIAL with the `pnl_net` evidence, then
-   update the ⏰ item (mark done, or replace with the next carry-over).
+3. Read the latest relevant ⏰ follow-ups in project memory: they can concern bets, research
+   depth, guards or a prior change. Record CONFIRMED / REFUTED / PARTIAL with evidence. Update
+   writable memory when available; otherwise report the carry-over explicitly. Do not reopen
+   old items already closed by later entries or treat elapsed time as an operator decision.
 
 ### Step 3 — Calibration & cost-aware verdict
 
@@ -148,12 +179,14 @@ Run `python metrics.py --operator` and read, in order:
 - **calibration table**: when it says 60–80%, does ~70% actually happen? Miscalibration with the
   right sign of edge is fixable (sizing); good calibration with no edge means the markets are
   efficient against the agent's views. Both matter; report which.
-- **by_confidence**: do `high`-confidence bets actually outperform `medium`? If not, the agent's
-  confidence signal is noise and conviction-sizing would destroy value.
+- **by_confidence**: do `high`-confidence bets actually outperform `medium`? Report subgroup
+  counts and uncertainty; a tiny subgroup cannot establish that confidence is useful or harmful.
 - **bootstrap CI**: this is the cost-aware significance bar. `edge_shown` needs `pnl_boot_lo > 0`.
 - **by side** (operator-only): the live test of the pre-registered hypothesis. Read it against
-  `scripts/agent-trader/HYPOTHESIS-side-bias.md`, which fixes the decision rule in advance —
-  20 further resolved bets, n>=8 per side, counted only from bets resolved after 2026-09-21.
+  `scripts/agent-trader/HYPOTHESIS-side-bias.md`, which fixes the decision rule in advance.
+  Read the whole file, including later regime-change observations: filter by **placement**
+  date and the currently applicable model/prompt regime, not merely resolution date. Its bar
+  is 20 eligible resolved bets with n>=8 per side; do not pool contaminated or earlier regimes.
   **Do not restate the split as a finding** while the rule is unmet, and do not let a good or
   bad week on one side become a recommendation. Add one row to that file's *Observations*
   table each review (run date, new resolutions, per-side P&L on new bets only, blind intact).
@@ -169,7 +202,9 @@ Run `python metrics.py --operator` and read, in order:
   `lessons.md`: families, criteria, calibration and process are fine; the record split by
   side, or any side-specific rule, never. Grep the whole file, not just the new section:
   `grep -n -iE "side.?asymmetry|losses are YES|YES bets? (lose|lost)|higher bar than a NO" lessons.md`.
-  The test cohort restarted with bets placed on or after 2026-10-05 (see the hypothesis file).
+  That restart was historical; later observations can supersede it. Old matches are not a new
+  leak if the current prompt excludes those sections. Check the full file for context and the
+  actual agent-readable sections for exposure. Do not invent or reset a cohort during review.
 
 ### Step 4 — Bet-quality / narrative review (question every substantive claim)
 
@@ -183,6 +218,15 @@ and check it — a claim with no verifying step is a narrative, not a finding. S
   NOT evidence of edge — only resolved `pnl_net` is. Never report `edge_per_contract` as if it
   were realized profit. (This is the agent-trader analogue of the quant skill's shadow-vs-live and
   gross-vs-net-t-stat traps: a model-implied number is not a measured one.)
+- **Audit declines as well as bets.** When the agent says an edge is below the entry bar,
+  recover the contemporaneous executable quote and fee schedule from its transcript. For
+  YES use `ask`; for NO use `1 − bid`. Compare held-side probability with fee-adjusted entry
+  using the harness formula; do not subtract the spread twice or use today's price to judge
+  yesterday's decision. Separate a numerical threshold failure from an evidence/uncertainty
+  veto, and require a stated conservative probability for the latter. Example: Run 27,
+  6831495, `p_yes=0.40–0.45`, bid/ask `0.51/0.52`, no fee: NO costs `0.49`, giving a
+  theoretical 0.06–0.11 edge. Its prose claim "below 0.05" needs an explicit uncertainty
+  adjustment; it is not evidence that the bet would win or should be placed.
 - **Concentration**: count how many open bets ride one real-world outcome. The agent's own rule is
   a concentration veto (≥2 correlated bets → decline new correlated ones) because correlated bets
   corrupt the calibration signal. Flag violations.
@@ -193,6 +237,15 @@ and check it — a claim with no verifying step is a narrative, not a finding. S
 ### Step 4b — The guards that now run for you
 
 These checks are automated; confirm they fired rather than redoing them by hand.
+
+- **Decision audit and observation window.** Run `python decision_audit.py report` and
+  read `RESEARCH-MONITORING.md`. Compare searches, successful fetches, self-reported
+  candidates/sources, proposal attempts, independent reviews and accepted entries.
+  The November window ends 2026-11-30; no threshold changes automatically. Historical
+  unknown counts stay unknown. A repeated review must not duplicate snapshot rows.
+  Inspect `declines.jsonl` for the current run (latest receipt per market), especially
+  numerical threshold labels versus evidence/uncertainty vetoes. Compare coverage with
+  the transcript: a complete accounting record does not prove deep or correct research.
 
 - **Append-only on `lessons.md`** (`lessons_guard.py`, run in the workflow before the entry
   audit). A `::warning::` in the run log means the agent edited past history: the pre-run file
@@ -208,18 +261,26 @@ These checks are automated; confirm they fired rather than redoing them by hand.
 - **Depth floor.** The run log's `research:` line carries `ok_fetches` (pages that came back
   with content), `passes` and `news_urls`. Below 12 pages the workflow resumes the same
   session (`::notice::Depth floor not met …`, up to 2 resumed passes); the extra research is
-  appended under `### Continued research` in the run's own section. Report the pages per
+  appended under `### Continued research` in the run's own section. Report successful fetches per
   pass: if the resumed passes still add little, the next lever is per-candidate orchestration
   (the harness picks the candidates, one Claude call each). A `Resumed research pass ended
   in error` warning is not a null run: the first pass did its work.
+  `ok_fetches` counts successful fetch calls, not necessarily distinct pages, independent
+  sources or deeply researched candidates. Check the transcript's candidate coverage,
+  criterion reads, source provenance and stated estimates as well as the count.
 - **Google News decoder.** `news_search` decodes its links through Google's undocumented
   `batchexecute` endpoint (first 8 results per search, stops at the first HTTP error). A
   `news_search decoded only X of Y` warning means it broke or got blocked, and the agent is
-  back to finding publisher URLs by hand. Fix the decoder before reading that run's declines.
+  back to finding publisher URLs by hand. Report its effect on evidence quality and propose
+  a fix; repairing code is a subsequent task, not automatic authorization from this review.
 
 ### Step 5 — Act
 
-Present findings concisely (see rules). Then do what the user decides. Typical actions:
+Present findings concisely (see rules). Local observation rows and evidence-backed rule
+maintenance are part of the review; keep them minimal and idempotent. Keep operator-only
+findings out of agent-readable files. Publishing, workflow fixes, paid research dispatches
+and messages require the user's instruction; the review alone does not authorize them.
+Typical subsequent actions when requested:
 - Fix a workflow blind spot (e.g. make a null run visible — see the 2026-06-29 fix that surfaces
   the agent's exit status in the email subject + a `::warning::`).
 - Trigger a manual run to recover a missed week: the Actions "Run workflow" button, or
@@ -245,7 +306,8 @@ Present findings concisely (see rules). Then do what the user decides. Typical a
 4. **Theoretical ≠ realized.** `edge_per_contract` and `p_hat` are the agent's claims; only
    `pnl_net` and the calibration table are measured outcomes.
 5. **`n < 20` means no verdict.** Don't over-read a tiny streak in either direction.
-6. **Check git auth before any push:** `gh auth status` → `gh auth switch --user JaviMaligno`.
+6. **Before an explicitly requested push**, verify the intended account and repo permissions;
+   use JaviMaligno for this personal repo. A review does not authorize a push or global auth change.
 7. **Be concise.** Add value by judging quality and finding blind spots, not by restating the email.
 
 ## Common failure patterns (this experiment specifically)
