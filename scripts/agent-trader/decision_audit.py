@@ -162,18 +162,24 @@ def snapshot(state, raw_transcript, declines, agent_ok=True, event='schedule', e
     attempts = state.get('proposal_attempts')
     reviews = state.get('reviews', [])
     receipts = state.get('receipts', [])
+    known = set(decided)
     for attempt in attempts or []:
         if attempt.get('market_id'):
-            decided.add(attempt['market_id'])
+            known.add(attempt['market_id'])
     for review in reviews:
         market_id = review.get('proposal', {}).get('market_id')
         if market_id:
-            decided.add(market_id)
+            known.add(market_id)
     for receipt in receipts:
         market_id = receipt.get('bet', {}).get('market_id')
         if market_id:
             decided.add(market_id)
-    unlogged = sorted(candidates - decided)
+            known.add(market_id)
+    # Submission/review failure is funnel activity, not a completed numerical
+    # decline. Also check the reverse direction: logged candidates need coverage.
+    known.update(candidates)
+    unlogged = sorted(known - decided)
+    uncovered = sorted(known - candidates)
     return {'run_id': state['run_id'], **_provenance(state),
             'date': entry_gate.timestamp(state['started_at']).date().isoformat(),
             'started_at': state['started_at'], 'snapshot_at': entry_gate.now().isoformat(), 'event': event,
@@ -187,9 +193,10 @@ def snapshot(state, raw_transcript, declines, agent_ok=True, event='schedule', e
             'criterion_reads_reported': sum(item['criterion_read'] for item in coverage.values()) if present else None,
             'candidates_with_decisions': len(candidates & decided) if present else None,
             'unlogged_candidate_ids': unlogged if present else None,
+            'uncovered_candidate_ids': uncovered if present else None,
             'proposal_attempts': len(attempts) if attempts is not None else None,
             'independent_reviews': len(reviews), 'bets_placed': len(receipts),
-            'audit_complete': present and not unlogged and agent_ok and entry_audit_ok
+            'audit_complete': present and not unlogged and not uncovered and agent_ok and entry_audit_ok
                               and stats.completed and not stats.last_is_error}
 
 

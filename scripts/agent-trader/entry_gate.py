@@ -391,7 +391,8 @@ def record_proposal(p, state_path):
             audit_run(state_path)
             attempts = state.setdefault('proposal_attempts', [])
             index = len(attempts)
-            attempts.append({'market_id': p.get('market_id'), 'at': now().isoformat(),
+            mid = p.get('market_id')
+            attempts.append({'market_id': mid if isinstance(mid, str) else None, 'at': now().isoformat(),
                              'status': 'started'})
             save_run(state_path, state)
             try:

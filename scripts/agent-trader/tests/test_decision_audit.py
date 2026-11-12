@@ -157,9 +157,25 @@ class DecisionAuditTests(unittest.TestCase):
         self.assertEqual(row['sources_reported'], 1)
         self.assertFalse(row['audit_complete'])
         self.s['proposal_attempts'] = [{'market_id': '456', 'status': 'error'}]
-        self.assertTrue(audit.snapshot(self.s, TRANSCRIPT, [d])['audit_complete'])
+        # A rejected proposal counts as an attempt, not as a deterministic decline.
+        self.assertFalse(audit.snapshot(self.s, TRANSCRIPT, [d])['audit_complete'])
+        self.assertTrue(audit.snapshot(self.s, TRANSCRIPT, [d, dict(d, market_id='456')])['audit_complete'])
         self.assertFalse(audit.snapshot(self.s, TRANSCRIPT, [d], entry_audit_ok=False)['audit_complete'])
         self.assertEqual(len(audit.latest_declines([d, d])), 1)
+
+    def test_SPEC_3_failed_proposal_needs_a_decline_receipt(self):
+        self.s['research_coverage'] = {'123': {'source_urls': [], 'criterion_read': False}}
+        self.s['proposal_attempts'] = [{'market_id': '123', 'status': 'rejected', 'error': 'invalid market'}]
+        row = audit.snapshot(self.s, TRANSCRIPT, [])
+        self.assertEqual(row['proposal_attempts'], 1)
+        self.assertEqual(row['candidates_with_decisions'], 0)
+        self.assertFalse(row['audit_complete'])
+
+    def test_SPEC_3_logged_candidate_cannot_be_omitted_from_coverage(self):
+        self.s['research_coverage'] = {}
+        row = audit.snapshot(self.s, TRANSCRIPT, [{'run_id': self.s['run_id'], 'market_id': '123'}])
+        self.assertFalse(row['audit_complete'])
+        self.assertEqual(row.get('uncovered_candidate_ids'), ['123'])
 
     def test_run_upsert_same_date_retains_distinct_runs(self):
         log = self.path / 'runs.jsonl'

@@ -80,6 +80,7 @@ if [ "$AGENT" = "1" ]; then
     echo
     echo "!! The LLM run did NOT complete — this produced no research."
     echo "!! See $AGENT_LOG. Do not treat the output below as a real run."
+    AGENT_OK=0
     # Keep going: the deterministic reporting below is still worth having. The nonzero
     # exit at the end is what stops a null run from passing for a healthy one.
     RC=1
