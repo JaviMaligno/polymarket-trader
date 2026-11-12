@@ -64,6 +64,37 @@ run (Monday, or the 2nd-of-month catch-up) unless you run it yourself.
 
 ## Guarded entries and independent review
 
+### Verifiable declines and research coverage
+
+For every candidate actually researched and declined, write a packet using
+`decline.example.json` and run `python decision_audit.py decline <packet.json>`.
+The command fetches its own Gamma quote, applies the existing per-market fee model,
+and appends `declines.jsonl` with the run UUID, quote/fee provenance, considered side,
+original and conservative YES probabilities, deterministic net edges and the reason.
+Null estimates are allowed for evidence/uncertainty vetoes; `below_threshold` requires
+a conservative calculation strictly below the existing 5% gate. An above-threshold
+calculation cannot be recorded as a threshold failure. Declines never place a bet.
+Repeated receipts retain history; reporting uses the latest per run/market.
+
+Before finishing (and after continued research), submit `coverage.example.json` via
+`python decision_audit.py coverage <packet.json>`. It merges the candidate IDs,
+criterion-read flags and opened source URLs into private run state. The coverage is
+explicitly self-reported. Blocked pages and headlines do not qualify as opened sources.
+The runner snapshots research counts and decision coverage after final run checks;
+missing coverage or unlogged candidates are surfaced as incomplete, not inferred zero.
+
+`python decision_audit.py report` is read-only and shows the four-week observation
+window; see [RESEARCH-MONITORING.md](RESEARCH-MONITORING.md). The scheduled runner
+publishes `declines.jsonl` and `research_runs.jsonl` with the paper track record.
+No paid model call is needed for any of these deterministic audit commands; only
+`decline` fetches a public market quote. `coverage` writes private run state and
+`snapshot` writes research history. `snapshot --rehearsal` prints without persisting
+history. Local `--dry` skips the research snapshot; deterministic local runs never
+create one. CLI failures preserve nonzero status; inspect the warning/error rather
+than declaring the audit complete.
+
+### Entry evidence
+
 Every new entry must pass three gates: frozen concentration exposure, structured
 evidence, and a fresh independent Claude reviewer. Both runners create private
 run state **before** `evaluate`; a position resolved during the run continues to

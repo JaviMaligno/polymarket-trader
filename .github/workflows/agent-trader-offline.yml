@@ -1,0 +1,51 @@
+name: Agent-Trader offline validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'scripts/agent-trader/**'
+      - '.github/workflows/agent-trader*.yml'
+      - '.claude/skills/agent-trader-review/**'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/agent-trader/**'
+      - '.github/workflows/agent-trader*.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-trader-offline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  syntax:
+    name: Agent-Trader syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12.15'
+      - run: python -m compileall -q scripts/agent-trader
+
+  contracts:
+    name: Agent-Trader offline contracts
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12.15'
+      - run: python -m pip install -r scripts/agent-trader/requirements.txt
+      - name: Offline contracts; no research, email or track-record publication
+        run: python -m unittest discover -s scripts/agent-trader/tests -v

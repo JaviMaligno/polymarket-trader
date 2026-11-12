@@ -95,7 +95,8 @@ def begin_run(path):
     bets = trader.load_bets()
     exposure = [dict(b, risk_group=group_for(b)) for b in bets if b['status'] == 'open']
     state = {'run_id': str(uuid.uuid4()), 'started_at': now().isoformat(),
-             'initial_bets': bets, 'exposure': exposure, 'receipts': [], 'reviews': []}
+             'initial_bets': bets, 'exposure': exposure, 'receipts': [], 'reviews': [],
+             'proposal_attempts': []}
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with Path(path).open('x', encoding='utf-8') as fh:
         json.dump(state, fh, ensure_ascii=False, allow_nan=False)
@@ -384,7 +385,28 @@ def record_proposal(p, state_path):
         raise ValueError('another entry is in progress for this run') from exc
     try:
         with handle:
-            return _record_proposal(p, state_path)
+            # Count submissions before quote/evidence/concentration checks: a rejection
+            # there never reaches the independent review and must not disappear.
+            state = read_run(state_path)
+            audit_run(state_path)
+            attempts = state.setdefault('proposal_attempts', [])
+            index = len(attempts)
+            mid = p.get('market_id')
+            attempts.append({'market_id': mid if isinstance(mid, str) else None, 'at': now().isoformat(),
+                             'status': 'started'})
+            save_run(state_path, state)
+            try:
+                result = _record_proposal(p, state_path)
+            except Exception as exc:
+                # Keep writes made by review/entry, then propagate the original failure.
+                state = read_run(state_path)
+                state['proposal_attempts'][index].update(status='rejected', error=str(exc))
+                save_run(state_path, state)
+                raise
+            state = read_run(state_path)
+            state['proposal_attempts'][index]['status'] = 'recorded'
+            save_run(state_path, state)
+            return result
     finally:
         lock.unlink(missing_ok=True)
 

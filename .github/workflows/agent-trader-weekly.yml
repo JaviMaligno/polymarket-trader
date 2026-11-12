@@ -325,6 +325,35 @@ jobs:
           # Append the per-run metrics snapshot (calibration + cost-aware P&L CI trajectory).
           python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 
+      - name: Snapshot research and decision audit
+        if: always() && inputs.validation_only != true
+        env:
+          AGENT_TRADER_RUN_STATE: ${{ github.workspace }}/scripts/agent-trader/.run-state/agent-trader-run.json
+          REHEARSAL: ${{ inputs.rehearsal == true && '1' || '0' }}
+        working-directory: scripts/agent-trader
+        run: |
+          set -uo pipefail
+          echo 0 > /tmp/decision-audit-ok
+          if [ -f /tmp/agent-skip ]; then
+            exit 0
+          fi
+          if [ ! -f "$AGENT_TRADER_RUN_STATE" ] || [ ! -f /tmp/agent-transcript.jsonl ]; then
+            echo "::warning::Decision audit unavailable: run state or transcript missing"
+            exit 0
+          fi
+          AGENT_OK=$(cat /tmp/agent-ok 2>/dev/null || echo 0)
+          ARGS=()
+          if [ "$REHEARSAL" = "1" ]; then ARGS+=(--rehearsal); fi
+          if python decision_audit.py snapshot /tmp/agent-transcript.jsonl \
+              --agent-ok "$AGENT_OK" --entry-audit-ok '${{ steps.decision.outputs.audit_ok || '0' }}' \
+              --event '${{ github.event_name }}' "${ARGS[@]}" > /tmp/decision-audit.json; then
+            cat /tmp/decision-audit.json
+            python -c 'import json; print(int(json.load(open("/tmp/decision-audit.json"))["audit_complete"]))' > /tmp/decision-audit-ok
+          else
+            echo "::warning::Decision audit failed; the research result must not be treated as fully audited"
+          fi
+          python decision_audit.py report | tee -a "$GITHUB_STEP_SUMMARY"
+
       - name: Email weekly summary
         if: always() && steps.decision.outputs.audit_ok == '1' && inputs.rehearsal != true
         env:
@@ -345,6 +374,8 @@ jobs:
             # Surface the silent-null-run in the subject so a no-op week can't masquerade
             # as a disciplined "0 bets" run in the inbox.
             SUBJECT="⚠️ Agent-Trader weekly — AGENT DID NOT RUN — $(date -u +%Y-%m-%d)"
+          elif [ "$(cat /tmp/decision-audit-ok 2>/dev/null || echo 0)" != "1" ]; then
+            SUBJECT="⚠️ Agent-Trader weekly — DECISION AUDIT INCOMPLETE — $(date -u +%Y-%m-%d)"
           fi
           if [ -f /tmp/at-email.html ] && [ -n "${GMAIL_USERNAME:-}" ]; then
             node scripts/send-review-email.js /tmp/at-email.html "$SUBJECT" \
@@ -358,6 +389,11 @@ jobs:
         run: |
           set -euo pipefail
           git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl
+          for audit_log in declines.jsonl research_runs.jsonl; do
+            if [ -f "scripts/agent-trader/$audit_log" ]; then
+              git add "scripts/agent-trader/$audit_log"
+            fi
+          done
           if git diff --cached --quiet; then
             echo "No staged changes of our own (no bets placed / no resolutions)."
           else
@@ -370,10 +406,10 @@ jobs:
           if [ -n "$(git log --oneline "${GITHUB_SHA}..HEAD")" ]; then
             git log --oneline "${GITHUB_SHA}..HEAD"
             # Pushing "whatever HEAD is ahead" means pushing whatever the agent committed, and the
-            # agent has Bash and write access to the checkout. Only the three track-record files may
+            # agent has Bash and write access to the checkout. Only track-record and audit files may
             # reach the branch; anything else is a bug or a hijacked run — refuse and fail loudly.
             UNEXPECTED=$(git diff --name-only "${GITHUB_SHA}..HEAD" \
-              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl)$' || true)
+              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl|declines\.jsonl|research_runs\.jsonl)$' || true)
             if [ -n "$UNEXPECTED" ]; then
               echo "::error::Refusing to push — commits touch files outside the track record:"
               echo "$UNEXPECTED"
@@ -390,6 +426,18 @@ jobs:
         with:
           name: agent-transcript-${{ github.run_id }}
           path: /tmp/agent-transcript.redacted.jsonl
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Upload decision audit evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: decision-audit-${{ github.run_id }}
+          path: |
+            /tmp/decision-audit.json
+            scripts/agent-trader/declines.jsonl
+            scripts/agent-trader/research_runs.jsonl
           if-no-files-found: ignore
           retention-days: 90
 

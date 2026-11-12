@@ -214,6 +214,9 @@ section at the end of `lessons.md`, under a `### Continued research` heading, wi
 line per candidate and the source that decided it, and end with an updated \
 `**Running record:**` line. Do not start a new `## Run` section and do not edit anything \
 above the end of the file.
+Record each researched decline with `decision_audit.py decline` and merge the additional \
+candidate/source coverage with `decision_audit.py coverage`, as the original instructions \
+require. Do not count blocked pages or headlines as opened sources.
 """
 
 

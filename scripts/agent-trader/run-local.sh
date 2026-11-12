@@ -24,6 +24,7 @@ cd "$(dirname "$0")"
 RC=0
 RUN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/agent-trader.XXXXXX") || exit 1
 AGENT_LOG="$RUN_TMP/agent-run-local.log"
+AGENT_TRANSCRIPT="$RUN_TMP/agent-transcript.jsonl"
 EMAIL_OUT="$RUN_TMP/email.html"
 
 AGENT=0; DRY=0
@@ -66,16 +67,20 @@ if [ "$AGENT" = "1" ]; then
   AGENT_OK=1
   cat agent-trader-prompt.md | claude \
     --model "${AGENT_MODEL:-claude-sonnet-4-6}" \
-    --print \
+    --print --output-format stream-json --verbose \
     --permission-mode acceptEdits \
     --allowedTools "Bash WebSearch WebFetch Read Write Edit" \
-    2>&1 | tee "$AGENT_LOG" || AGENT_OK=0
+    > "$AGENT_TRANSCRIPT" 2> "$RUN_TMP/agent-run.err" || AGENT_OK=0
+  "$PY" transcript_stats.py "$AGENT_TRANSCRIPT" "$AGENT_LOG" \
+    "$RUN_TMP/agent-transcript.redacted.jsonl" || AGENT_OK=0
+  cat "$AGENT_LOG" "$RUN_TMP/agent-run.err"
   # `claude --print` can exit 0 on an API error (spend cap, overload), so check the log
   # content too — the same silent-null-run trap the workflow guards against.
   if [ "$AGENT_OK" = "0" ] || grep -qiE "API Error|usage limit|rate limit|Execute error|Overloaded|Not logged in" "$AGENT_LOG"; then
     echo
     echo "!! The LLM run did NOT complete — this produced no research."
     echo "!! See $AGENT_LOG. Do not treat the output below as a real run."
+    AGENT_OK=0
     # Keep going: the deterministic reporting below is still worth having. The nonzero
     # exit at the end is what stops a null run from passing for a healthy one.
     RC=1
@@ -94,6 +99,13 @@ if [ "$DRY" = "1" ]; then
   echo; echo "(--dry: no metrics row appended, no email rendered; bets.jsonl may have"
   echo " changed — evaluate books resolutions and refreshes marks in every mode)"
   exit "$RC"
+fi
+
+if [ "$AGENT" = "1" ]; then
+  "$PY" decision_audit.py snapshot "$AGENT_TRANSCRIPT" --agent-ok "$AGENT_OK" \
+    --event local > "$RUN_TMP/decision-audit.json" || RC=1
+  cat "$RUN_TMP/decision-audit.json"
+  "$PY" decision_audit.py report || RC=1
 fi
 
 echo
