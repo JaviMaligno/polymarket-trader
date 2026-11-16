@@ -679,6 +679,7 @@ def email_html(bets=None) -> str:
     the open-bets table can be pinned by a test without touching bets.jsonl. The email is
     the artefact a human actually reads, so its frames need a test of their own.
     """
+    use_real_files = bets is None
     bets = load_bets() if bets is None else bets
     closed = [b for b in bets if b["status"] in ("won", "lost")]
     openb = [b for b in bets if b["status"] == "open"]
@@ -740,12 +741,25 @@ def email_html(bets=None) -> str:
         print(f"  warn: metrics block unavailable ({type(e).__name__}: {e})")
         metrics_block = ""
 
+    # Forecast scoring + stop rule (STOP-RULE.md): reads the committed audit files, so
+    # only the real email carries it, not a test that passes its own bets.
+    forecast_block = ""
+    if use_real_files:
+        try:
+            import forecast_score as _fs
+            text, _rule = _fs.report()
+            forecast_block = ("<h3>Forecast scoring (all receipts, STOP-RULE.md)</h3><pre>"
+                              f"{esc(text)}</pre>")
+        except Exception as e:
+            print(f"  warn: forecast block unavailable ({type(e).__name__}: {e})")
+
     return f"""<html><body style="font-family:sans-serif;max-width:720px">
 <h2>Agent-Trader — weekly run</h2>
 <p><b>Record:</b> {rec} &nbsp;|&nbsp; <b>P&amp;L net:</b> ${pnl:+.2f} &nbsp;|&nbsp;
 <b>Bankroll:</b> ${BANKROLL0 + pnl:.2f} &nbsp;|&nbsp; <b>Brier:</b> {brier or 'n/a'} &nbsp;|&nbsp;
 <b>Open:</b> {len(openb)} (${sum(b['stake'] for b in openb):.0f} at risk)</p>
 {metrics_block}
+{forecast_block}
 <h3>Open bets</h3>
 <p style="color:#666;font-size:12px;margin:4px 0">Entry and mark are both in the
 <b>held-token frame</b> (the YES token on a YES bet, the NO token on a NO bet), so the

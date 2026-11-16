@@ -60,6 +60,7 @@ cohort boundaries below describe historical context and can change.
 | `declines.jsonl` | deterministic quoted decline receipts, including conservative probability, fees, edge and reason |
 | `research_runs.jsonl` | one research/accounting snapshot per run UUID, with GitHub provenance |
 | `RESEARCH-MONITORING.md` | observation window, known historical gaps and next operator review |
+| `forecast_score.py` + `forecast_outcomes.jsonl` + `STOP-RULE.md` | every forecast (decline `p_hat`) scored against resolution vs the market mid; pre-registered stop rule |
 | `agent-trader-prompt.md` | the decision prompt handed to headless Claude |
 | `.github/workflows/agent-trader-weekly.yml` | the weekly cron |
 
@@ -307,6 +308,17 @@ not a review.
    *positive but unproven*, *no evidence either way* (`too_few`, CI straddles 0), *evidence
    against* (`no_edge`, or the agent's Brier on its own bets is worse than the market price's
    with a CI that excludes 0). Quote n, mean P&L/bet with CI, and agent-vs-market Brier.
+   Then the forecast-level state from `python forecast_score.py report` (offline; run
+   `update` on a temporary snapshot only if outcomes may be stale): resolved forecasts,
+   paired Brier difference with its 97.5% CI and the stop-rule status (`collecting`,
+   `continue`, `stop`, `agent_beats_market`; STOP-RULE.md). `stop` or `agent_beats_market`
+   makes the recommendation a decision for the user, not a wait. Do not move the looks or
+   the CI level: the rule is pre-registered.
+   **Maintain `forecast_clusters.json` every review:** read the new receipts in
+   `declines.jsonl` and map each market (or its Polymarket event) that shares a real-world
+   story with another to one label (same war, same election day, same company saga). When in
+   doubt, merge: correlated forecasts counted apart make the CI too narrow. Never split an
+   existing story to tighten it.
 2. **Where the evidence stops.** Name the bottleneck with numbers: bet rate (bets per run over
    the last 4 weeks), resolved bets still needed for the verdict bar and for a detectable edge
    (sd of P&L/bet ≈ $19.5 → ~60 resolved bets to detect +$5/bet, ~160 for +$3), the funnel
