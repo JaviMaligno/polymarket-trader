@@ -322,6 +322,15 @@ jobs:
           # own `summary`/`metrics` calls do not.
           echo "=== operator view (side split — not shown to the agent) ==="
           python metrics.py --operator || true
+          # Forecast scoring + pre-registered stop rule (STOP-RULE.md): every decline receipt's
+          # p_hat against resolution, paired with the market mid. Operator-only, after the turn.
+          echo "=== forecast scoring (operator view, STOP-RULE.md) ==="
+          python forecast_score.py update || true
+          python forecast_score.py report --status-file /tmp/stop-rule-status || true
+          case "$(cat /tmp/stop-rule-status 2>/dev/null)" in
+            stop) echo "::warning::Stop rule met: the agent does not forecast better than the market (STOP-RULE.md)" ;;
+            agent_beats_market) echo "::notice::Stop rule: the agent forecasts better than the market — decide the next phase" ;;
+          esac
           # Append the per-run metrics snapshot (calibration + cost-aware P&L CI trajectory).
           python agent_trader.py metrics "$(date -u +%Y-%m-%d)" || true
 
@@ -376,6 +385,10 @@ jobs:
             SUBJECT="⚠️ Agent-Trader weekly — AGENT DID NOT RUN — $(date -u +%Y-%m-%d)"
           elif [ "$(cat /tmp/decision-audit-ok 2>/dev/null || echo 0)" != "1" ]; then
             SUBJECT="⚠️ Agent-Trader weekly — DECISION AUDIT INCOMPLETE — $(date -u +%Y-%m-%d)"
+          elif [ "$(cat /tmp/stop-rule-status 2>/dev/null)" = "stop" ]; then
+            SUBJECT="🛑 Agent-Trader weekly — STOP RULE MET — $(date -u +%Y-%m-%d)"
+          elif [ "$(cat /tmp/stop-rule-status 2>/dev/null)" = "agent_beats_market" ]; then
+            SUBJECT="✅ Agent-Trader weekly — AGENT BEATS MARKET (decide next phase) — $(date -u +%Y-%m-%d)"
           fi
           if [ -f /tmp/at-email.html ] && [ -n "${GMAIL_USERNAME:-}" ]; then
             node scripts/send-review-email.js /tmp/at-email.html "$SUBJECT" \
@@ -389,7 +402,7 @@ jobs:
         run: |
           set -euo pipefail
           git add scripts/agent-trader/bets.jsonl scripts/agent-trader/lessons.md scripts/agent-trader/metrics.jsonl
-          for audit_log in declines.jsonl research_runs.jsonl; do
+          for audit_log in declines.jsonl research_runs.jsonl forecast_outcomes.jsonl; do
             if [ -f "scripts/agent-trader/$audit_log" ]; then
               git add "scripts/agent-trader/$audit_log"
             fi
@@ -409,7 +422,7 @@ jobs:
             # agent has Bash and write access to the checkout. Only track-record and audit files may
             # reach the branch; anything else is a bug or a hijacked run — refuse and fail loudly.
             UNEXPECTED=$(git diff --name-only "${GITHUB_SHA}..HEAD" \
-              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl|declines\.jsonl|research_runs\.jsonl)$' || true)
+              | grep -vE '^scripts/agent-trader/(bets\.jsonl|lessons\.md|metrics\.jsonl|declines\.jsonl|research_runs\.jsonl|forecast_outcomes\.jsonl)$' || true)
             if [ -n "$UNEXPECTED" ]; then
               echo "::error::Refusing to push — commits touch files outside the track record:"
               echo "$UNEXPECTED"

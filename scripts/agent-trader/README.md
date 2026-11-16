@@ -186,6 +186,10 @@ are documented in `lessons.md`.
 | `metrics.py` | Calibration, mark-to-market, bootstrap CI, snapshots. `render_text` is the **agent-facing** view; `render_operator_text` adds the side split |
 | `lessons_guard.py` | Append-only guard for `lessons.md` — the file is state, not a log: all of it goes into every future decision prompt |
 | `HYPOTHESIS-side-bias.md` | Pre-registration of the YES/NO hypothesis: the prediction, the bar, the stopping rule and why the agent is kept blind |
+| `forecast_score.py` | Operator-only. Scores every decline receipt's `p_hat_yes` against resolution, paired with the market mid at the same quote (`update` fetches outcomes, `report` is offline) |
+| `forecast_outcomes.jsonl` | Final outcome (YES/NO/VOID) and Polymarket event of each forecast market, appended once by `forecast_score.py update` |
+| `forecast_clusters.json` | Operator map (market or event id → story) so forecasts on one real-world story are resampled together |
+| `STOP-RULE.md` | Pre-registered stop rule (2026-11-16): looks at 50 and 100 resolved forecasts, decides whether the agent forecasts better than the market |
 
 ## Reading the output honestly
 
