@@ -1550,3 +1550,34 @@ Pages opened with content in this continuation: PBS (Putin/envoys), Kyiv Indepen
 **Proposed rules:** None beyond the Run 27 line. Note for the operator: 403s on Reuters, Guardian, Axios, WaPo, DW and The Hill recur, so budget the 12-page floor on outlets that open (Al Jazeera, CBS live, PBS, Kyiv Independent, Meduza, Anadolu, Taipei Times, Olive Press, ISW/Critical Threats).
 
 **Running record:** 17 bets, 10-7, hit rate 58.82%, P&L net -$60.66, bankroll $939.34, Brier 0.1823; 0 open positions; 0 bets placed in Runs 23-27.
+
+## Run 28 — 2026-11-16 (zero new bets; no open positions)
+
+State: `positions` printed "no open positions"; `summary`: 17 bets, 10-7, P&L -$60.66, bankroll $939.34, Brier 0.1823. No resolved bets this run. No `record` call.
+
+**Declined (receipts recorded with `decision_audit.py decline`; fresh quotes and fees come from its output):**
+- **Taipei mayor, Chiang (3580932, bid 0.60/ask 0.61, politics fee 0.04).** Taipei Times (Nov 17) lists four polls: Beacon Nov 12-14 Shen 48.6 / Chiang 33.8; Faith and Trust Nov 4-10 Shen 49.6 / Chiang 43.8 among committed voters; TVBS Nov 15-16 Chiang 46 / Shen 44; ETtoday Nov 14-16 Chiang 48.1 / Shen 42.0. Pollster house effects split down the middle; I have no unpriced fact. Conservative edge -0.07.
+- **New Taipei mayor, Su (3580995, 0.58/0.59).** UDN Nov 1-7 (Taiwan News): Su 42, Lee 39, 19% undecided. A pro-KMT media poll with Lee narrowly ahead is headline-only (Zaobao fetch blocked). Toss-up, conservative edge -0.10.
+- **Spain, PSOE most seats (5336560, YES 0.24).** 40dB Nov 10-15 (Olive Press): PP 31.5 / PSOE 30.3, seats 130 vs 119; Idealista: PP leads 16 of 18 private polls, only CIS has PSOE ahead. The price reproduces the polls. Declined; I made no list/constituency decomposition, so no bet was possible.
+- **Israel x Iran ceasefire through Dec 31 (3399468, 0.67/0.68, fee-free).** I read the full criterion (only Israel-Iran air or surface-to-surface strikes on each other's soil count). CBS live (Nov 16): three US carriers in the region, Iran claims Hormuz lanes are mined, the US called Iran's two-day ceasefire proposal's core conditions "unacceptable", yet no Israel-Iran exchange. The 45-day escalation risk is about what 0.675 prices. Conservative edge -0.06.
+- **US announces end of Iranian blockade by Dec 31 (3128886, YES 0.19).** I read the full criterion (declarative, present, general end). CBS Nov 16 shows rejected conditions and a military buildup. The receipt computed a NO conservative edge of -0.009, so the decline is a threshold failure.
+- **Russia x Ukraine energy ceasefire by Dec 31 (6947944, 0.17/0.18).** I read the criterion (mutual agreed suspension; Trump claims alone do not count). The search backend returned 429 this run, so I have no fresh evidence, and the receipt lists no sources. NO conservative edge 0.02 (below 0.05).
+
+**Process notes:** About 8 searches (several returned 429 late in the run), and I opened 6 pages (Taipei Times, Taiwan News, Olive Press, Idealista, CBS live, Al Jazeera liveblog). Guardian, CNN (451), Euronews (404) and Zaobao did not open. This is thinner than a full pass, and I did not pull price-history series for any candidate. Declines rest on polls and criterion text, not on a price-path analysis.
+
+**Proposed rules:** None.
+
+**Running record:** 17 bets, 10-7, hit rate 58.82%, P&L net -$60.66, bankroll $939.34, Brier 0.1823; 0 open positions; 0 bets placed in Runs 23-28.
+
+### Continued research
+
+Pages opened with content in this continuation: Fortune (Huang), CryptoSlate (Huang), CNBC (Huang), BigGo Finance (Huang), Taiwan News (Taoyuan poll), CBS live (Oct 22 Iran talks). Not opened: AP (blocked). Receipts recorded for each.
+
+- **Jensen Huang rejoins NVIDIA by Dec 31 (6998285, YES ~0.10; NO entry 0.899, effective 0.9054).** I read the criterion (any formal role counts, including advisory, interim or director). CNBC (Nov 16): the board is not discussing a return and is focused on the Wachtell probe. BigGo (Nov 16): congressional testimony is scheduled Dec 1-3, and Treasury Secretary Bessent wants an outside hire. Fortune and CryptoSlate cite Trump, Musk and shareholder pressure and Polymarket odds of 12-14% by year-end. I put YES at 0.08-0.12; conservative NO edge is -0.025. Declined. The broad "formal advisory" clause is the unpriced upside risk for a NO bet.
+- **Taoyuan mayor, Huang Shih-chieh (3581102, YES ~0.11).** Taiwan Brain Trust (Sep 15-17, Taiwan News): Chang (KMT) 47, Huang 25.9. That is the only poll I opened and it is two months old. The price already reflects it, and the conservative NO edge is -0.026. Declined.
+- **US-Iran Hormuz agreement by Dec 31 (5087228, YES 0.14-0.15).** I read the criterion (declarative acceptance of the same agreement by both sides, with Iranian commitments on traffic). CBS live (Oct 22): talks were stalled and the US was adding clauses to Iran's rejected plan. CBS live (Nov 16): the US called Iran's core conditions unacceptable. The NO side's conservative edge is 0.0. Declined.
+- **Not researched:** Sánchez next PM (2695678, 0.146; the search backend returned 429, and the market tracks the Spain PSOE decline above) and Bitcoin price markets (prescreened noise).
+
+**Proposed rules:** None.
+
+**Running record:** 17 bets, 10-7, hit rate 58.82%, P&L net -$60.66, bankroll $939.34, Brier 0.1823; 0 open positions; 0 bets placed in Runs 23-28.
