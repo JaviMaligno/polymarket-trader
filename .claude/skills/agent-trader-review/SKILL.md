@@ -296,6 +296,36 @@ Typical subsequent actions when requested:
   file under ~18 KB and never put the side split, or a side-specific rule, in it (same blind
   rule as `lessons.md`; `tests/test_blindness_surfaces.py` checks it).
 
+### Step 6 — Decide: what do we do with the experiment? (MANDATORY, every review)
+
+The user always asks the same question after the findings: improve something, keep waiting,
+move to a next phase, or stop — and how much confidence we have. Answer it unprompted, as
+the last section of every report, under the heading **«Qué hacemos»**. Findings alone are
+not a review.
+
+1. **Confidence, in one line, as a measured state.** One of: *evidence of edge* (`edge_shown`),
+   *positive but unproven*, *no evidence either way* (`too_few`, CI straddles 0), *evidence
+   against* (`no_edge`, or the agent's Brier on its own bets is worse than the market price's
+   with a CI that excludes 0). Quote n, mean P&L/bet with CI, and agent-vs-market Brier.
+2. **Where the evidence stops.** Name the bottleneck with numbers: bet rate (bets per run over
+   the last 4 weeks), resolved bets still needed for the verdict bar and for a detectable edge
+   (sd of P&L/bet ≈ $19.5 → ~60 resolved bets to detect +$5/bet, ~160 for +$3), the funnel
+   stage where candidates die (`decision_audit.py report`, `declines.jsonl`: coverage,
+   evidence, `p_hat ≈ price`, numerical edge, independent review, entry), and infrastructure
+   health (depth floor, decoder rate, search 429s).
+3. **Time to an answer at the current pace.** Bets per week × weeks to reach 20 and ~60
+   resolved. If the answer is "never" or "years", waiting is not a strategy: say so.
+4. **One recommendation**, chosen from: *keep waiting* (only if the pace reaches an answer
+   in a reasonable time or an agreed observation window is still open — name its end date);
+   *fix X* (a blind spot or degradation found this review); *next phase* (a change of design
+   or measurement, e.g. scoring every forecast in `declines.jsonl` against resolution instead
+   of only placed bets); *stop* (the pre-agreed stop rule is met, or the evidence is against).
+   Give the reason, the cost, and what would change the recommendation.
+5. **Separate decisions from facts.** Mark what you decided yourself ("Decidido: …, porque …")
+   from what needs the user (threshold, budget, model, stopping the experiment), each with a
+   recommendation. Do not reopen decisions already taken; check memory for agreed windows
+   and dates (e.g. the November window ends 2026-11-30) before proposing a change inside them.
+
 ## Critical rules
 
 1. **NEVER create public GitHub issues or PRs from this analysis.** It is private. (Workflow fixes
