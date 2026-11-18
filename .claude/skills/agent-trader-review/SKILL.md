@@ -33,7 +33,8 @@ recommendation. The output is a concise private report — never a GitHub issue.
 ## Two modes, one review
 
 - **Autonomous** — a claude.ai cloud routine runs this skill after every betting run (Mon +
-  Thu, ~2.5 h after the 13:07 UTC cron) with no human in the loop. Its prompt says
+  Thu runs: Tue + Fri 03:00 UTC, because GitHub delays the 13:07 UTC cron and scheduled runs
+  start 20:30-23:00 UTC) with no human in the loop. Its prompt says
   `MODO AUTÓNOMO`. There is nobody to ask mid-review: act within *Authority*, and put every
   question in the email (Step 7). The operator answers by opening the routine's session and
   replying there, which resumes the review with its context.
