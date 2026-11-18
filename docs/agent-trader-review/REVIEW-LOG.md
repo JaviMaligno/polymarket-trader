@@ -12,7 +12,7 @@ decisions. Older detail lives in git history.
 
 ## Estado actual
 
-_Updated 2026-11-18 (seeded from the 2026-11-16 local review)._
+_Updated 2026-11-18 (cloud routine, Wed: no run to review)._
 
 - **Record:** 17 resolved, 10-7, P&L −$60.66, bankroll $939.34, verdict `too_few`. 0 open bets.
   0 bets placed since 2026-10-05.
@@ -39,8 +39,24 @@ _Updated 2026-11-18 (seeded from the 2026-11-16 local review)._
    they do not rise, decide with the operator whether to widen the candidate list or relax the bar.
 5. **`forecast_clusters.json`:** extend every review with the new `declines.jsonl` receipts
    (seeded with Iran and Taiwan; 4/9 of Run 28 were Iran).
+6. **Scheduled runs fire ~8-10 h late:** cron is 13:07 UTC but runs #69-#73 started
+   20:36-22:57 UTC. A review routine at ~15:40 UTC Mon/Thu would review *before* the run
+   exists. Until the operator moves the routine (recommended ≥ 02:00 UTC Tue/Fri), a review
+   that finds no run for today before ~23:30 UTC reports it as "not yet fired", not "missed".
+7. **Cloud network:** the routine environment gets `403 Forbidden` from the proxy for
+   `gamma-api.polymarket.com` (2026-11-18), so `evaluate` / `forecast_score update` cannot
+   run here. Needs the environment's allowlist (operator). Taiwan local elections (3 forecasts)
+   resolve ~2026-11-28.
 
 ## Histórico
+
+### 2026-11-18 — cloud routine, Wednesday (no scheduled run)
+
+- No run after #73 (2026-11-16, already reviewed); Wednesday has no cron. Nothing to Step 0.
+- Record unchanged: 17 resolved, 10-7, −$60.66, 0 open. Forecasts 9/0 resolved, `collecting`.
+  Suite 306 tests OK. No new declines → clusters, observation row and `rules.md` untouched.
+- Found: scheduled runs start 8-10 h after 13:07 UTC (⏰6); Gamma blocked by the cloud proxy (⏰7).
+- Asked: move the routine after ~02:00 UTC Tue/Fri; allow Polymarket hosts in the environment.
 
 ### 2026-11-18 — log created
 
