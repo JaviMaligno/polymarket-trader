@@ -472,3 +472,38 @@ jobs:
           name: rehearsal-${{ github.run_id }}
           path: /tmp/rehearsal
           retention-days: 14
+
+      # Chains the operator review right behind this run: fires the claude.ai review routine
+      # (agent-trader-review skill, autonomous mode) through its API trigger. always(): a
+      # failed or null run is exactly the one that needs reviewing. Never for rehearsals or
+      # validation runs, which publish nothing. Last step on purpose, so the track-record
+      # commit is already on main when the review checks out the repo. The routine's own
+      # schedule (Tue + Fri 03:00 UTC) is the fallback if this fire is lost. A missing
+      # secret or a failed fire only warns: the betting run itself is already done.
+      - name: Fire the review routine
+        if: always() && inputs.rehearsal != true && inputs.validation_only != true
+        env:
+          REVIEW_ROUTINE_TOKEN: ${{ secrets.REVIEW_ROUTINE_TOKEN }}
+          REVIEW_ROUTINE_ID: trig_01E9HBzYs7fWozCcTTgjYsgR
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$REVIEW_ROUTINE_TOKEN" ]; then
+            echo "::warning::REVIEW_ROUTINE_TOKEN not set; the review routine falls back to its schedule"
+            exit 0
+          fi
+          text="Agent-Trader run finished: run_id=${GITHUB_RUN_ID} event=${GITHUB_EVENT_NAME} sha=${GITHUB_SHA} job_status_before_this_step=${JOB_STATUS}"
+          body=$(python -c 'import json, sys; print(json.dumps({"text": sys.argv[1]}))' "$text")
+          code=$(curl -sS -o /tmp/fire-response.json -w '%{http_code}' --max-time 30 -X POST \
+            "https://api.anthropic.com/v1/claude_code/routines/${REVIEW_ROUTINE_ID}/fire" \
+            -H "Authorization: Bearer ${REVIEW_ROUTINE_TOKEN}" \
+            -H "anthropic-beta: experimental-cc-routine-2026-04-01" \
+            -H "anthropic-version: 2023-06-01" \
+            -H "Content-Type: application/json" \
+            -d "$body") || code=000
+          if [ "${code#2}" != "$code" ]; then
+            url=$(python -c 'import json; print(json.load(open("/tmp/fire-response.json")).get("claude_code_session_url", "?"))' 2>/dev/null || echo "?")
+            echo "review routine fired (HTTP $code): $url"
+          else
+            echo "::warning::review routine fire failed (HTTP $code); it falls back to its schedule"
+            head -c 300 /tmp/fire-response.json 2>/dev/null || true
+          fi
