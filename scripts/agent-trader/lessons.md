@@ -1581,3 +1581,32 @@ Pages opened with content in this continuation: Fortune (Huang), CryptoSlate (Hu
 **Proposed rules:** None.
 
 **Running record:** 17 bets, 10-7, hit rate 58.82%, P&L net -$60.66, bankroll $939.34, Brier 0.1823; 0 open positions; 0 bets placed in Runs 23-28.
+
+## Run 29 — 2026-11-19 (one new bet: Bet 18, NO on 6831495)
+
+State: no open positions at start; `summary`: 17 bets, 10-7, P&L -$60.66, bankroll $939.34, Brier 0.1823. No resolved bets, so no post-mortems.
+
+**Bet 18: US x Iran Effective Ceasefire by Nov 22 (6831495), NO at 0.670, $25, fee-free, reviewed edge +0.130.** I read all 8 paragraphs. The criterion needs a 14-day stretch with no US air or surface-to-surface strike on Iranian soil, starting on or before Nov 22 (Iran time). Edge family (ii) with a named fact: US fighter aircraft struck an IRGC missile site on Qeshm on Tue Nov 17 (NewsCord, WSWS; CBS live says Nov 18) after Iranian drones hit a US radar in Bahrain; Iran then attacked Kuwait. CBS live: "no active ceasefire or pause". Jerusalem Post: Iran is using anti-ship cruise missiles daily in Hormuz, and US reinforcements arrive in late November. A strike on Nov 22 or later, or any strike before about Dec 2 after a start on Nov 20-22, resolves NO. The strike gaps this month (Nov 2, 6-9, 17) run at most about 8 days. My p_hat YES 0.20. Price path (`history 6831495`): 0.715 on Nov 17 (max), 0.415 Nov 18, 0.335 Nov 19 (min, latest), so the strike news is largely priced and my edge is the remaining 12-day quiet requirement. Counterargument (Al Jazeera liveblog): Trump says he is "not rushing" and will "see what happens after the beginning of the year"; Qatar/Oman mediate; the Nov 9-16 lull was real. Falsifier: no US strike through Nov 22 plus a stated pause. Sibling 6831496 (Nov 30, 0.455) and 6831497 (Dec 31, 0.715) are the same risk group and I did not bet them. Caveat: the Jerusalem Post page said "no strikes have occurred yet", contradicting CBS/Reuters headlines; I took the strike as confirmed because NewsCord, WSWS and CBS agree.
+
+**Declined / not researched:**
+- **Government shutdown by Dec 12 (6364436, YES 0.275, ask 0.29, fee 0.04).** Headlines (Punchbowl, Fox, CNN, Nov 18-19) say shutdown risk is rising and Democrats are split over Iran-war funding. The Hill and USA Today pages did not open (403 / blocked), so this is headline-only and I did not read the criterion. Receipt: insufficient_evidence, null estimate.
+- Other filtered candidates (Taipei and New Taipei mayors, Spain seat markets, Hegseth, Israel-Iran ceasefires, Hormuz agreement) were all declined in Runs 27-28 with polls and criteria; I did not re-research them this run, and the Spain and Taipei elections resolve within 10 days.
+
+**Process notes:** This pass was thin: about 6 searches and 8 pages opened, with only one candidate researched in depth and one headline-only decline. I did not meet the six-candidate bar. Reuters, NYT, Axios, The Hill, USA Today, CNN (451) did not open.
+
+**Proposed rules:** None.
+
+**Running record:** 18 bets, 10-7 resolved, 1 open (Bet 18, $25 at risk); P&L net -$60.66; bankroll $939.34 before Bet 18 resolves.
+
+### Continued research
+
+Pages opened with content in this continuation: Al Jazeera (Zacharia), PBS (Israel results; Eisenkot mandate; Dana White), Times of Israel (Eisenkot vote plan), Jerusalem Post (rotation; unity talks), Ynet (unity plan; Haredim), CNBC (Lutnick), Al Jazeera (Bessent v Lutnick), CBS (Hegseth), plus the earlier Run 29 pages. Did not open: USA Today, The Hill, Economist, DW, CNN (451), Forward, Atlantic, Reuters. Receipts recorded for each decline below.
+
+- **Next White House press secretary by Dec 31 (5784291, YES ask 0.63, fee 0.04).** Read all 4 paragraphs (acting/interim excluded; successor to Zacharia). Al Jazeera (Oct 17): Zacharia lasted 5 days, Trump "not in a hurry". PBS (Nov 7): Trump offered the job to Dana White, who then declined; that offer did not resolve the market. My YES is 0.50-0.55 against an effective entry of 0.639, so the edge is negative. Declined.
+- **Netanyahu out by end of 2026 (567688, YES 0.43/0.45, NO entry 0.57, fee-free).** Read all 3 paragraphs. PBS (Nov 8): Eisenkot has the mandate for 28 days (to Dec 6, extendable to Dec 19); Netanyahu is caretaker PM; failure of both means spring 2027 elections. Times of Israel (Nov 19): Eisenkot's bloc has 48 MKs, 13 short, and plans a Nov 28-29 floor vote relying on Ra'am. Jerusalem Post (Nov 18): Likud does not rule out Netanyahu going second in a rotation. Ynet (Nov 19): Likud-Yashar talks continue and the Haredim keep both camps guessing. I put YES at 0.38-0.42; the receipt's conservative NO edge is at or below 0.05. Declined; the situation moves daily and a rotation with Eisenkot first would resolve YES.
+- **Hegseth out by Dec 31 (1811265, YES ask 0.13).** Read all 3 paragraphs. CBS (Nov 4): Trump asked advisers whether Hegseth should stay after the midterm losses and DeSantis was floated; the White House says "full confidence" and Trump said "he's doing a very good job". The price carries that scrutiny. Declined.
+- **Lutnick out by Dec 31 (1796706, YES ask 0.22).** Read all 3 paragraphs. Al Jazeera (Nov 17): Trump said he was not planning to remove Lutnick after Reuters reported aides debated a resignation; Bessent bypassed Commerce on chip controls; Senate testimony Dec 3. CNBC (Nov 18): House Democrats' probe of Cantor Fitzgerald's Nvidia holdings. My YES is 0.15-0.18 against 0.227; NO side edge is under 0.05 after the fee. Declined.
+
+**Proposed rules:** None.
+
+**Running record:** 18 bets, 10-7 resolved, 1 open (Bet 18, NO on 6831495 at 0.670, $25 at risk); P&L net -$60.66; bankroll $939.34 before Bet 18 resolves; 1 bet placed in Run 29.
