@@ -12,43 +12,62 @@ decisions. Older detail lives in git history.
 
 ## Estado actual
 
-_Updated 2026-11-18 (cloud routine, Wed: no run to review)._
+_Updated 2026-11-19 (cloud routine, chained from run 44618693732 — Thu 2026-11-19, Run 29)._
 
-- **Record:** 17 resolved, 10-7, P&L −$60.66, bankroll $939.34, verdict `too_few`. 0 open bets.
-  0 bets placed since 2026-10-05.
-- **Regime:** Sonnet 5.5 via OpenRouter + `search_mcp.py`, Mon + Thu 13:07 UTC. Depth floor
-  (#354) works but only reaches the minimum (13 pages per run).
-- **Funnel:** candidates die at "my p̂ ≈ price" (Run 28: 9/9 within 0.05 of price).
-- **Forecast scoring (#356):** every decline `p_hat` scored against resolution vs market mid;
-  pre-registered stop rule in `scripts/agent-trader/STOP-RULE.md`. State 2026-11-16: 9 forecasts,
-  0 resolved, `collecting`. First look expected around January (many resolve 2026-12-31).
+- **Record:** 18 bets, 17 resolved, 10-7, P&L −$60.66, bankroll $939.34, verdict `too_few`
+  (mean −$3.57/bet, CI [−12.54, +5.52]). **1 open:** Bet 18, NO on 6831495 (US x Iran
+  Effective Ceasefire by Nov 22) at 0.670, $25, p̂ YES 0.20; if won +$12.31, if lost −$25.
+  First bet since 2026-10-05 and first of the current regime.
+- **Regime:** Sonnet 5.5 via OpenRouter + `search_mcp.py`, Mon + Thu 13:07 UTC (runs start
+  ~21:00 UTC). Depth floor (#354) still needs the resumed pass (Run 29: 6 → 18 pages).
+  The workflow now fires this routine at the end of each run (#358): worked on run 44618693732.
+- **Funnel:** Run 29: 6 candidates, 5 declines (4 below threshold, 1 insufficient evidence),
+  1 proposal, 1 review, 1 entry. Many publishers block the fetcher (Reuters, The Hill, USA Today,
+  CNN 451, Economist): evidence is often headline-only.
+- **Forecast scoring (#356):** 13 forecasts, 0 resolved, stories 0 (resolved), `collecting`.
+  Clusters: Iran war, Taiwan local elections, Trump administration personnel. First resolutions:
+  Taiwan (3 forecasts) ~2026-11-28. Binding constraint for the first look is 25 distinct stories.
 - **Agreed window:** November observation window ends **2026-11-30**. No threshold change before.
+- **Cloud network:** Gamma answers 200 from the routine (2026-11-19); `evaluate` and
+  `forecast_score update` can run here again.
 
 ### ⏰ Pendientes
 
-1. **Thu 2026-11-19 run:** log shows `=== forecast scoring`, and `forecast_outcomes.jsonl` does
-   not break the commit.
-2. **Search degradation:** Run 28 decoded `news_urls` 36/68 (53 %, Runs 26-27 at 100 %) and hit
-   a search-backend 429 at the end (Russia-Ukraine 6947944 declined without sources). Watch the
-   next runs; the warning fires below 50 %.
-3. **Implicit bar tightening (#355):** the prompt moved from "~0.05 net edge" to "≥0.05 over
-   `conservative_p_yes`" and the agent trims 0.02-0.05 systematically → effective bar ≈0.09 over
-   p̂, while `RESEARCH-MONITORING.md` says the bar is still 5 %. Bring to the **2026-11-30**
-   review as a decision for the operator; do not touch before.
-4. **Bet rate:** count bets and searches per run over the 4 weeks to 2026-11-30 (Mon + Thu). If
-   they do not rise, decide with the operator whether to widen the candidate list or relax the bar.
-5. **`forecast_clusters.json`:** extend every review with the new `declines.jsonl` receipts
-   (seeded with Iran and Taiwan; 4/9 of Run 28 were Iran).
-6. **Scheduled runs fire ~8-10 h late:** cron is 13:07 UTC but runs #69-#73 started
-   20:36-22:57 UTC. A review routine at ~15:40 UTC Mon/Thu would review *before* the run
-   exists. Until the operator moves the routine (recommended ≥ 02:00 UTC Tue/Fri), a review
-   that finds no run for today before ~23:30 UTC reports it as "not yet fired", not "missed".
-7. **Cloud network:** the routine environment gets `403 Forbidden` from the proxy for
-   `gamma-api.polymarket.com` (2026-11-18), so `evaluate` / `forecast_score update` cannot
-   run here. Needs the environment's allowlist (operator). Taiwan local elections (3 forecasts)
-   resolve ~2026-11-28.
+1. **Bet 18 (6831495):** the YES path needs a 14-day window with no US strike on Iranian land
+   starting 2026-11-18..22; settles at the earliest ~2026-12-04 (14 days + 3 reporting days),
+   later if strikes continue. Check with `evaluate` on a snapshot once Gamma shows it closed;
+   post-mortem thesis vs risk (the agent's risk: Qatar/Oman mediation, Trump "not rushing").
+2. **2026-11-30 decision (window close):** the review after the Mon 2026-11-30 run brings,
+   with numbers: (a) implicit bar tightening (#355 — prompt says ≥0.05 over `conservative_p_yes`,
+   agent trims 0.02-0.05 → effective ≈0.09 over p̂, while `RESEARCH-MONITORING.md` says 5 %);
+   (b) bet rate — so far 1 bet in 7 runs since 2026-11-02 (Run 29: 16 searches);
+   (c) whether to widen candidates or relax the bar. Operator decision; do not touch before.
+3. **Taiwan forecasts (3580932, 3580995, 3581102)** resolve ~2026-11-28: first resolved
+   forecasts. Run `forecast_score.py update` on a snapshot in the first review after that and
+   check `forecast_outcomes.jsonl` is created and committed by the run.
+4. **`forecast_clusters.json`:** extend every review with the new `declines.jsonl` receipts.
+5. **Blocked publishers:** watch whether headline-only declines (`insufficient_evidence`) grow;
+   if they dominate, the fix is a fetch fallback (restores intended research, inside Authority).
 
 ## Histórico
+
+### 2026-11-19 — cloud routine, chained from run 44618693732 (Thu 2026-11-19, Run 29)
+
+- Step 0: run 44618693732 (schedule, start SHA 2c05ee8, track-record commit e414359) ran the
+  LLM: AGENT_OK=1, `## Run 29` + `### Continued research`, bets 17→18, 16 searches, 18 pages
+  with content over 2 passes, decoder 123/123, lessons guard OK, decision audit complete.
+- Integrity OK: 18 rows, settlement formula matches on all 17 resolved, Σpnl −$60.66 = metrics.
+- Bet 18 checked: criterion re-read on Gamma (Qeshm is Iranian land; a strike on 11-17 restarts
+  the window); price path 0.715 (11-17) → 0.335 (11-19) matches `history`. Theoretical edge
+  +0.13 is a claim, not a result. No concentration issue (only open bet). Declines audited:
+  numbers consistent with receipts; shutdown decline is an evidence veto with null estimate.
+- ⏰ closed: forecast scoring in the run log — CONFIRMED (0 outcomes, so no file; commit fine).
+  Search degradation — REFUTED for now (123/123, no 429 in the run log). Schedule lag —
+  CLOSED by #358 (chained firing worked). Gamma blocked in cloud — CLOSED (200 now).
+- Done: observation row (Run 29) in `HYPOTHESIS-side-bias.md`; clusters +6831495 (Iran) and
+  +5784291/1811265/1796706 (Trump personnel). No proposed rules → `rules.md` untouched. No
+  lessons correction (no resolutions). Suite 306 OK.
+- Asked: nothing new; 11-30 decision pending as agreed.
 
 ### 2026-11-18 — cloud routine, Wednesday (no scheduled run)
 
