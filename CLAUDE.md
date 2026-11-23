@@ -145,6 +145,16 @@ EXECUTOR_MIN_STRENGTH=0
 EXECUTOR_MAX_OPEN_POSITIONS=50
 ```
 
+### Before deleting or rotating a GitHub Actions secret
+
+Prove it is unused first, and paste the output into the message that proposes the change:
+
+```bash
+MSYS_NO_PATHCONV=1 git grep -n <SECRET_NAME> origin/main -- .github scripts
+```
+
+Check `origin/main`, not the working tree, which can be weeks behind.
+
 ## Common Operations
 
 ### Check if system is generating signals
