@@ -42,7 +42,10 @@ recommendation. The output is a concise private report — never a GitHub issue.
   question in the email (Step 7). The operator answers by opening the routine's session and
   replying there, which resumes the review with its context.
 - **Interactive** — the operator opens a local session ("lo de siempre"). Same steps and same
-  authority; skip the email and report in the chat.
+  authority; skip the email and report in the chat. The periodic review belongs to the cloud
+  routine (its chaining was verified on 2026-11-19: the run fired it and the review landed the
+  same day). Locally, open only what the routine's email asks for (a «Necesita tu confirmación»
+  or a failure notice): read that review in `REVIEW-LOG.md` first and do not repeat it.
 
 Both modes keep their memory in `docs/agent-trader-review/REVIEW-LOG.md` (the cloud routine
 cannot see local project memory). Read its **Estado actual** before Step 0; update it at the end.
