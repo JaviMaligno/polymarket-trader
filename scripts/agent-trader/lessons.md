@@ -1610,3 +1610,38 @@ Pages opened with content in this continuation: Al Jazeera (Zacharia), PBS (Isra
 **Proposed rules:** None.
 
 **Running record:** 18 bets, 10-7 resolved, 1 open (Bet 18, NO on 6831495 at 0.670, $25 at risk); P&L net -$60.66; bankroll $939.34 before Bet 18 resolves; 1 bet placed in Run 29.
+
+## Run 30 — 2026-11-24 (zero new bets; one open position)
+
+State: `summary`: 18 bets, 10-7 resolved, P&L -$60.66, bankroll $939.34, 1 open. `positions` (this run): Bet 18, NO on 6831495, entry(held) 0.670, mark(held) 0.540, delta(held) -0.130, edge@entry +0.130, if won +12.31, if lost -25.00 (bankroll if won 951.65, if lost 914.34). History (`history --open`): created 2026-11-08, first observation 0.505, max 0.715 (Nov 17), min 0.235 (Nov 22), latest 0.460; entry-day YES 0.335.
+
+**Bet 18 checklist.** (1) The marginal buyer now knows no US strike on Iranian soil has been reported since Nov 17: CBS live (Nov 23) documents Iranian attacks and no new US strike, and Trump (Hill/Bloomberg headlines, Nov 23; Hill page 403, headline-only) says he leans toward striking after the new year if talks fail. CBS Nov 20 (opened): "no active ceasefire", a new assault could be mounted in 2-4 days if ordered, Trump "not rushing". (2) The Nov 17 strike was priced before entry (0.715 -> 0.335). (3) The 14-day window must start by Nov 22 and any qualifying strike after the last one restarts it; a quiet Nov 18-Dec 1 resolves YES. The market has not resolved (closed=False, endDate Nov 22, 3-day reporting buffer). (4) Thesis weakened: price 0.335 -> 0.460, and no strike found for 7 days. Falsifier already half-met (quiet since Nov 17); what keeps NO alive is a US strike before ~Dec 1 (Israel pressing; commanders say days). Not thesis-confirmed either way.
+
+**Declined (all with receipts):**
+- Sindarov world champion (2243499, YES eff. entry 0.792, fee 0.07 rate): 14-game match starts today; ESPN: ratings 2782 vs 2710. My Elo model gives ~0.85, but Anand (chess.com) says strength is ~50-50 and Gukesh's rating lags; conservative 0.78, edge -0.012. Declined.
+- Chiang to win Taipei mayor (3580932, eff. 0.705): Wikipedia lists TVBS 46-44 Chiang, Hsinmin 48.6-33.8 Shen; conservative 0.60, edge -0.105. Declined.
+- PP most seats Spain (5336561): pollsters conflict (Cluster17 PSOE 133 vs PP 123; CIS reported PSOE +10; El Mundo tracking PP+Vox 182-193). Five Spanish outlets would not open; only Agenda Publica read; I read only part of the description. Insufficient evidence, no estimate.
+- Russia-Ukraine ceasefire by Dec 31 (2243897, NO eff. 0.90): Euronews Nov 23, no proposal on the table; conservative edge -0.02. Declined.
+- Anthropic valuation >= $1.75T (2299955): listed Nov 19 at $83, ~$1.5T (SmartAsset). No post-listing price or share-count basis; and it is my own developer. Insufficient evidence, no bet.
+- Israel x Iran ceasefire through Dec 31 (3399468, eff. 0.73): CBS Nov 20; conservative 0.62, edge -0.11; same risk group as Bet 18.
+
+**Process:** about 12 searches and 12 pages opened (6 failed: El Mundo, AS, El Confidencial, El Periodico, Reuters, Hill). Thinner than the prompt asks for; Spain and the Taipei polls rest on summaries of pages I could not read in full.
+
+**Proposed rules:** None.
+
+**Running record:** 18 bets, 10-7 resolved, Bet 18 open ($25 at risk); P&L -$60.66; bankroll $939.34.
+
+### Continued research
+
+Pages opened with content in this continuation: TVBS (Kaohsiung), CNBC (Nvidia), Sports Betting Dime (TIME), Motley Fool (market caps), Yahoo Finance live (Nov 23 rally), Taiwan News (DPP goals), Wikipedia (2026 Taiwanese local elections). Blocked or unopened: Taipei Times, NBR, Zaobao, Nacionale, Moneycontrol, Investors.com, Reuters. Receipts recorded for each decline below.
+
+- **Nvidia largest company on Dec 31 (676739, NO eff. entry 0.874, fee rate 0.04).** Read the 1-paragraph criterion (consensus of credible reporting). CNBC (Nov 20): Nvidia fell to 4th at about $3T after a 46% slide on the Huang scandal. Yahoo (Nov 23): +31% on his reinstatement, over $1T added. Fool (Nov 8): Apple $5.10T. The price went 0.029 on Nov 23 to 0.137 on Nov 24, which the reinstatement explains. Nvidia would still need about 25% over Apple in five weeks, with 14% and 31% daily moves: 0.137 is roughly fair and NO's conservative edge is -0.054. Declined. I first thought NO looked cheap; the reinstatement rally removed that.
+- **KMT wins most mayor/magistrate seats (814612, YES eff. 0.802).** Read all 5 paragraphs. Wikipedia: 2022 KMT 14, DPP 5, TPP 1, independents 2; Taiwan News (Sep 26): DPP aims for 10. Ties go to DPP (alphabetical), and the price swung 0.605 to 0.78 between Nov 19 and 24 while DPP-most fell 0.381 to 0.22 (Nov 21 to 22), a move I could not explain. The 22 races need a seat-by-seat model I could not build with the pages that opened. No estimate; declined.
+- **James Talarico TIME Person of the Year (2363845, YES eff. 0.278).** Read the first part of the criterion only. Sports Betting Dime reproduces market odds and offers no independent evidence. Declined.
+- **Ko Chih-en Kaohsiung mayor (3581449, YES eff. 0.226).** Read all 3 paragraphs. TVBS (Nov 23) has no polls; Wikipedia lists DPP as 2022 winner. No poll found; declined.
+
+**Process:** this run's total is about 20 searches and 19 pages with content; the Spain and Taiwan seat questions remain unresolved for want of readable sources.
+
+**Proposed rules:** None.
+
+**Running record:** 18 bets, 10-7 resolved, Bet 18 open (NO on 6831495 at 0.670, $25 at risk; mark(held) 0.540); P&L net -$60.66; bankroll $939.34; no bets placed in Run 30.
