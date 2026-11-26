@@ -1645,3 +1645,32 @@ Pages opened with content in this continuation: TVBS (Kaohsiung), CNBC (Nvidia),
 **Proposed rules:** None.
 
 **Running record:** 18 bets, 10-7 resolved, Bet 18 open (NO on 6831495 at 0.670, $25 at risk; mark(held) 0.540); P&L net -$60.66; bankroll $939.34; no bets placed in Run 30.
+
+## Run 31 — 2026-11-26 (zero new bets; one open position; thin run)
+
+State: `summary`: 18 bets, 10-7 resolved, P&L -$60.66, bankroll $939.34, 1 open. `positions` (this run): Bet 18, NO on 6831495, entry(held) 0.670, mark(held) 0.385, delta(held) -0.285, edge@entry +0.130, if won +12.31, if lost -25.00 (bankroll if won 951.65, if lost 914.34). `history --open`: market created 2026-11-08, first observation 0.505, max 0.715 (Nov 17), min 0.235 (Nov 22), latest 0.615 (Nov 26 YES frame); entry-day YES 0.335.
+
+**Bet 18 checklist.** (1) The marginal buyer sees nine days with no US strike on Iranian soil since the Nov 17 Qeshm strike: CBS live (opened) reports no new US strikes Nov 18-23, and Trump "not rushing... we'll see what happens after the new year starts"; Al Jazeera (Nov 26, opened) says Democrats fear Trump "could opt to restart strikes", i.e. strikes are currently paused. (2) The Nov 17 strike was in the price before entry (0.715 -> 0.335); the later rise to 0.615 is the quiet period being priced. (3) The 14-day quiet window needs to have started by Nov 22; a quiet Nov 18-Dec 1 resolves YES, so only a US strike before about Dec 1 keeps NO alive. (4) Thesis weakened materially (mark(held) 0.385 vs entry 0.670). Falsified if no strike through Dec 1; unchanged if a strike lands first. Note the CBS page's date for the strike (Nov 19) conflicts with CENTCOM/houseofsaud and others (Nov 17); I use Nov 17. A houseofsaud headline dated Nov 24 ("exchange strikes") described the Nov 17 strike, not a new one.
+
+**No new bets, no candidates researched this run.** I read the candidate list (187) but spent the run on Bet 18 only, about 5 searches and 4 pages opened. This misses the six-candidate research bar; no declines were recorded with receipts and I claim no complete decision audit. Coverage packet lists only 6831495.
+
+**Proposed rules:** None.
+
+**Running record:** 18 bets, 10-7 resolved, Bet 18 open ($25 at risk); P&L -$60.66; bankroll $939.34; no bets placed in Run 31.
+
+### Continued research
+
+Pages opened with content in this continuation: Taipei Times (Apollo New Taipei poll), Taiwan News (Taichung; Kaohsiung), Focus Taiwan (final campaign), Collider (Spider-Man domestic), ABC/GMA (Doomsday tracking), Quiver Quantitative (Ornn B200), Crypto Briefing (Ornn). Not opened: Zaobao (blocked), Deadline (402/redirect), Gold Derby (402). Receipts recorded for each.
+
+- **Bet 19: Avengers: Doomsday top grossing movie of 2026 (678416), NO at 0.880, $25, fee rate 0.07 (culture), reviewed edge +0.093.** Read all 4 paragraphs: resolves on Box Office Mojo's 2026 domestic CALENDAR gross; a film released Dec 18 counts only 14 days. Collider: Spider-Man: Brand New Day was at $935M domestic after its seventh weekend (mid-Sept), passing Force Awakens' $936M. ABC (Nov 25): Doomsday opens Dec 18, NRG tracks $270M opening. Reaching ~$935M in 14 days has no precedent. p_hat YES 0.02. Edge family (i): the market prices the hype, not the calendar-year cap. Price path (`history 678416`): max 0.345 (Apr 5), min 0.035 (Sep 23), 0.121 now; the rise since Sept is the tracking news. Counterargument: the $935M comes from one outlet and the final BOM calendar figure could differ. Falsifier: Spider-Man well below ~$700M on BOM, or Doomsday over $600M by Dec 25.
+- **Lee Shu-chuan New Taipei (3580994, YES ask 0.41, eff. 0.427, fee 0.07).** Read 5 paragraphs. Taipei Times (Nov 17): Apollo (China Times) Lee 37.0 v Su 33.4, ±3. One poll, landline; conservative 0.45, edge +0.023. Declined.
+- **Su Chiao-hui New Taipei (3580995, YES eff. 0.627).** Same poll; estimate 0.50, edge -0.127. Declined.
+- **Ho Hsin-chun Taichung (3581389, YES eff. 0.216).** Taiwan News Nov 25 gave campaign events and no polls. Insufficient evidence, no estimate.
+- **Lai Jui-lung Kaohsiung (3581450, YES eff. 0.821).** Taiwan News Nov 25 gave no polls; the Zaobao 26%-undecided headline did not open. Insufficient evidence.
+- **Ornn B200 Dec average above $8.80 (7277636, YES eff. 0.705).** Read 6 paragraphs. Quiver: index $9.07, down 4.0% Nov 1-23; Crypto Briefing: $9.84 on Nov 12, conflicting with a cited $8.54 record, so the series is unreliable. Conservative 0.60, edge -0.105. Declined.
+
+Note on Bet 19: the same Spider-Man figure carries the whole thesis, from one outlet (Collider); I did not open Box Office Mojo.
+
+**Proposed rules:** For "top grossing of year" markets, check the calendar-year/domestic scope in the criterion first: a late-December release has only days in-window; compare with the incumbent leader's in-window gross (Bet 19).
+
+**Running record:** 19 bets, 10-7 resolved, 2 open (Bet 18 NO on 6831495 at 0.670; Bet 19 NO on 678416 at 0.880; $50 at risk); P&L net -$60.66; bankroll $939.34 before either resolves; 1 bet placed in Run 31.
