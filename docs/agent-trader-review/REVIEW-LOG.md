@@ -12,48 +12,81 @@ decisions. Older detail lives in git history.
 
 ## Estado actual
 
-_Updated 2026-11-24 (cloud routine, chained from run 45299556904 — Monday 2026-11-23 cron, Run 30)._
+_Updated 2026-11-26 (cloud routine, chained from run 45903641285 — Thursday 2026-11-26 cron, Run 31)._
 
-- **Record:** 18 bets, 17 resolved, 10-7, P&L −$60.66, bankroll $939.34, verdict `too_few`
-  (mean −$3.57/bet, CI [−12.54, +5.52]). **1 open:** Bet 18, NO on 6831495 (US x Iran
-  Effective Ceasefire by Nov 22) at 0.670, $25, p̂ YES 0.20; if won +$12.31, if lost −$25.
-  Gamma 2026-11-24: closed=False, YES 0.46 (was 0.335 at entry). Thesis weakened: no US
-  strike reported since 11-17 (agent's own reading, Run 30).
-- **Regime:** Sonnet 5.5 via OpenRouter + `search_mcp.py`, Mon + Thu 13:07 UTC. The Monday
-  11-23 run did not start until 00:44 UTC on the 24th (11.6 h late), so its rows are dated 11-24.
-  The depth floor still needs the resumed pass (Run 30: 9 → 16 pages). Chained firing worked again.
-- **Funnel:** Run 30: 10 candidates, 10 declines (5 below threshold, 5 insufficient evidence),
-  0 proposals. Runs since 11-02: 8, bets 1. Insufficient-evidence declines went from 1/6 (Run 29)
-  to 5/10. Only Spain was clearly caused by blocked publishers (5 outlets would not open); the
-  others lacked data (no Kaohsiung poll, no seat model, TIME only has odds, Anthropic has no
-  post-listing basis).
-- **Forecast scoring (#356):** 16 forecasts, 1 resolved (6998285 Huang rejoins Nvidia → YES;
-  agent p̂ 0.08 vs mid 0.10, both wrong; it was declined, so no money was lost), 1 story,
-  `collecting`. Clusters: Iran war (incl. Netanyahu), Taiwan elections, Trump personnel,
-  Nvidia/Huang, Spain election, Russia-Ukraine.
+- **Record:** 19 bets, 17 resolved, 10-7, P&L −$60.66, bankroll $939.34, verdict `too_few`
+  (mean −$3.57/bet, CI [−12.54, +5.52]). **2 open ($50):**
+  - Bet 18, NO on 6831495 (US x Iran Effective Ceasefire by Nov 22) at 0.670, p̂ YES 0.20;
+    if won +$12.31, if lost −$25. Gamma 11-26: closed=False, YES 0.615. No US strike on
+    Iranian soil reported since 11-17 (agent, Run 31): heading to a loss.
+  - Bet 19, NO on 678416 (Avengers: Doomsday top domestic calendar gross 2026) at 0.880,
+    fee 0.07, p̂ YES 0.02; if won +$3.20, if lost −$25.21. Ends 2027-01-08. Criterion re-read
+    on Gamma: Box Office Mojo calendar gross, only 2026 dates count (Doomsday opens 12-18).
+    Spider-Man: Brand New Day ≈$923M domestic by 09-08 (Gulf News, independent of the
+    agent's Collider source), so the thesis holds on two sources.
+- **Regime:** Sonnet 5.5 via OpenRouter + `search_mcp.py`, Mon + Thu 13:07 UTC (runs start
+  ~22:00-01:00 UTC). Depth floor still needs the resumed pass every run; Run 31's first pass
+  was the thinnest yet (4 pages, only the open position) and the resume did all candidate work.
+- **Funnel:** Run 31: 7 in coverage (6 candidates + the open position), 5 declines (2 below
+  threshold, 2 insufficient evidence, 1 below threshold with unreliable data), 1 proposal,
+  1 bet. Runs since 11-02: 9, bets 2.
+- **Forecast scoring (#356):** 18 forecasts, 1 resolved, 1 story, `collecting`. Clusters:
+  Iran war (incl. Netanyahu), Taiwan elections, Trump personnel, Nvidia/Huang, Spain
+  election, Russia-Ukraine. Ornn B200 (7277636) is a singleton.
 - **Agreed window:** November observation window ends **2026-11-30**. No threshold change before.
-- **Cloud network:** Gamma 200 from the routine (2026-11-24).
+- **Cloud network:** Gamma 200 from the routine (2026-11-26).
 
 ### ⏰ Pendientes
 
 1. **Bet 18 (6831495):** if no US strike on Iranian land, the 14-day window that began on
-   11-18 completes ~12-01 → settles YES (a loss) ~12-04. A strike before then keeps NO alive.
-   Check with `evaluate` on a snapshot once Gamma shows closed; post-mortem thesis vs risk.
-2. **2026-11-30 decision (window close):** the review after the Mon 2026-11-30 run (it will
-   probably start on 12-01 UTC) brings, with numbers: (a) the implicit bar tightening (#355:
-   ≥0.05 over `conservative_p_yes`, so effective ≈0.09 over p̂, while
-   `RESEARCH-MONITORING.md` says 5 %); (b) bet rate, so far 1 bet in 8 runs; (c) widen
-   candidates vs relax the bar vs move to forecast-only scoring. Operator decision; nothing is
-   touched before then.
-3. **Taiwan forecasts (3580932, 3580995, 3581102, 814612, 3581449):** the election is 11-28.
-   The first review after it runs `forecast_score.py update` on a snapshot and checks the run
-   committed the outcomes.
+   11-18 completes ~12-01 → settles YES (a loss) ~12-04. Check with `evaluate` on a snapshot
+   once Gamma shows closed; post-mortem thesis vs risk (the agent already flagged the
+   weakening in Runs 30-31, so a loss would be seen-coming, not a blind miss).
+2. **2026-11-30 decision (window close):** the review after the Mon 2026-11-30 run (probably
+   starts 12-01 UTC) brings, with numbers: (a) the implicit bar tightening (#355: ≥0.05 over
+   `conservative_p_yes`, effective ≈0.09 over p̂, while `RESEARCH-MONITORING.md` says 5 %);
+   (b) bet rate, 2 bets in 9 runs; (c) widen candidates vs relax the bar vs move to
+   forecast-only scoring; (d) first-pass depth (7, 7, 6, 9, 4 pages): the resume carries the
+   research. Operator decision; nothing is touched before then.
+3. **Taiwan forecasts (3580932, 3580994, 3580995, 3581102, 3581389, 3581449, 3581450,
+   814612):** the election is 11-28. The first review after it runs `forecast_score.py update`
+   on a snapshot and checks the run committed the outcomes. This is the first chance to pass
+   1 resolved story.
 4. **`forecast_clusters.json`:** extend every review with the new `declines.jsonl` receipts.
-5. **Insufficient-evidence declines:** 5/10 in Run 30, but only 1 caused by blocking. If they
-   stay ≥50 % and blocking is the cause, propose a fetch fallback (it restores intended
-   research, so it is inside Authority).
+5. **Open position in coverage:** Run 31 listed 6831495 (held, not a candidate) in its
+   coverage packet without a receipt, which alone made `audit_complete=False` and put
+   "DECISION AUDIT INCOMPLETE" in the run email subject. Agent misclassification, not a
+   harness bug (prompt: coverage = candidates researched). If it repeats, exclude markets
+   with an open bet at run start from `unlogged` in `decision_audit.snapshot` (a report fix,
+   inside Authority).
+6. **Proposed rule from Run 31** (calendar-year/domestic scope for "top grossing" markets):
+   not folded — no resolved bet behind it yet. Fold when Bet 19 resolves, or earlier if the
+   operator wants it.
+7. **Insufficient-evidence declines:** 2/5 in Run 31 (Taichung, Kaohsiung: no polls; Zaobao
+   blocked was one of them). Below the 50 % trigger; keep watching.
 
 ## Histórico
+
+### 2026-11-26 — cloud routine, chained from run 45903641285 (Thu 2026-11-26 cron, Run 31)
+
+- Step 0: run 45903641285 (schedule, start SHA 4e84003, track-record commit ad802ad, started
+  22:15 UTC) ran the LLM: AGENT_OK=1, `## Run 31` + `### Continued research`, bets 18→19,
+  11 searches, 14 pages with content over 2 passes (4 before the resume), decoder 88/88,
+  lessons guard OK. Warning: `Decision audit incomplete` — sole cause the open position
+  6831495 in coverage without a receipt (⏰5). First pass researched no candidates and said so.
+- Integrity OK: 19 rows, 17 resolved unchanged, Σpnl −$60.66 = metrics; Bet 19 fee 0.21 =
+  25×0.07×(1−0.88). Quoted numbers (+3.20/−25.21, +12.31/−25, marks 0.385/0.878) match
+  `positions`. `evaluate` on a snapshot: no new settlements.
+- Bet 19 checked: criterion re-read on Gamma (domestic calendar gross, 2026 dates only);
+  Spider-Man ≈$923M by 09-08 corroborated by Gulf News; theoretical edge +0.093 is a claim,
+  not a result; payoff asymmetry +3.20 vs −25.21. No concentration (Iran vs box office).
+  Declines audited against receipts: numbers consistent; Taichung/Kaohsiung are evidence
+  vetoes with null estimates. No injected instructions found in the run text.
+- ⏰ closed: none due (Bet 18 not closed on Gamma; Taiwan votes 11-28). Insufficient
+  evidence: 2/5, below trigger.
+- Done: observation row (Run 31); clusters +3580994/3581389/3581450 (Taiwan). Proposed rule
+  not folded (no resolution behind it). No lessons correction. Suite 306 OK.
+- Asked: nothing new; the 11-30 decision is still pending as agreed.
 
 ### 2026-11-24 — cloud routine, chained from run 45299556904 (Mon 2026-11-23 cron, Run 30)
 
